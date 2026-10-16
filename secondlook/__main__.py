@@ -132,6 +132,8 @@ def main(argv=None) -> int:
     ap.add_argument("cmd", choices=["list", "review", "approve", "eval"])
     ap.add_argument("dispute_id", nargs="?")
     ap.add_argument("--judge", default="rules", choices=list(judge_mod.BACKENDS))
+    ap.add_argument("--action", help="approve: the action you reviewed and approve; refused if the "
+                                     "recommendation shown now differs")
     a = ap.parse_args(argv)
     load_dotenv(ROOT / ".env")
     practice = a.dispute_id and (ROOT / "cases" / f"{a.dispute_id}.json").exists()
@@ -154,6 +156,11 @@ def main(argv=None) -> int:
     print(f"[{mode}] judge={a.judge}")
     print_decision(d, case["dispute"])
     if a.cmd == "approve":
+        # The seller approves a specific action they have seen, never "whatever the model says now".
+        if not a.action:
+            print("\nNot executed: say which action you approve, e.g. --action MESSAGE"); return 2
+        if a.action != d.action:
+            print(f"\nNot executed: you approved {a.action}, but the recommendation is now {d.action}. Review again."); return 2
         print("\nexecuting:", json.dumps(execute(pp, d, case["dispute"], case["seller_records"]), ensure_ascii=False))
     return 0
 
