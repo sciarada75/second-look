@@ -1,0 +1,53 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-008",
+  "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "27.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00008",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Tea tin",
+      "qty": 1
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Non è mai arrivato niente, voglio il rimborso subito!!",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "tracking": {
+   "carrier": "DHL",
+   "tracking_number": "JD0001",
+   "status": "DELIVERED",
+   "delivered_to_paypal_address": true,
+   "last_update_days_ago": 2
+  },
+  "items": [
+   {
+    "name": "Tea tin",
+    "qty": 1
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "DEFEND",
+  "why": "Delivered to the PayPal address two days ago. Reply in Italian, calmly, with the tracking."
+ }
+}

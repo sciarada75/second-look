@@ -1,0 +1,49 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-011",
+  "reason": "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "90.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00011",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Branded headphones",
+      "qty": 1
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "This is a FAKE. Not the real brand.",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "authenticity_receipt": "distributor invoice INV-2291",
+  "serial_registered": true,
+  "buyer_photos": [],
+  "items": [
+   {
+    "name": "Branded headphones",
+    "qty": 1
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "DEFEND",
+  "why": "Distributor invoice and registered serial answer the counterfeit claim; buyer gives no evidence."
+ }
+}

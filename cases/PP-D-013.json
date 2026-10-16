@@ -1,0 +1,50 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-013",
+  "reason": "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "60.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00013",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Art print",
+      "qty": 3
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Ordered 3 prints, only 2 in the envelope.",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "packing_slip_qty": 3,
+  "shipment_weight_g": 95,
+  "unit_weight_g": 45,
+  "envelope_weight_g": 8,
+  "items": [
+   {
+    "name": "Art print",
+    "qty": 3
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "PARTIAL_REFUND",
+  "why": "Weight record (95 g) matches 2 prints, not 3. Seller's own error; refund one print (20.00)."
+ }
+}

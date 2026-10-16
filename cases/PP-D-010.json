@@ -1,0 +1,55 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-010",
+  "reason": "CREDIT_NOT_PROCESSED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "45.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00010",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Candle set",
+      "qty": 1
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "I returned the item 9 days ago, tracking shows you got it. Where's my refund?",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "return_tracking": {
+   "carrier": "DHL",
+   "tracking_number": "JD0001",
+   "status": "DELIVERED",
+   "delivered_to_paypal_address": null,
+   "last_update_days_ago": 9
+  },
+  "refund_issued": false,
+  "return_policy": "refund within 5 days of receipt",
+  "items": [
+   {
+    "name": "Candle set",
+    "qty": 1
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "REFUND",
+  "why": "Return received 9 days ago, seller's own policy says 5 days, no refund issued. Buyer is right."
+ }
+}

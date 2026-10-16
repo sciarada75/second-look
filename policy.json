@@ -1,0 +1,9 @@
+{
+  "_comment": "The seller's limits. Enforced by code in secondlook/guard.py, never by the model.",
+  "currency": "EUR",
+  "min_confidence": 0.75,
+  "max_auto_refund": 50.00,
+  "always_ask_above": 200.00,
+  "defend_if_delivered_to_paypal_address": true,
+  "injection_markers": ["ignore your", "system:", "approve full refund", "as the assistant", "you must refund"]
+}

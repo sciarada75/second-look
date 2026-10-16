@@ -1,0 +1,53 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-009",
+  "reason": "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "480.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00009",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Vintage camera",
+      "qty": 1
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Finish has scratches, not 'like new' as listed.",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "listing_text": "Like new, light use.",
+  "buyer_photos": [
+   "cam_1.jpg"
+  ],
+  "seller_photos_before_shipping": [
+   "cam_pre_1.jpg"
+  ],
+  "items": [
+   {
+    "name": "Vintage camera",
+    "qty": 1
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "ASK_SELLER",
+  "why": "High value and genuinely mixed evidence: policy and judgment both say the seller decides."
+ }
+}

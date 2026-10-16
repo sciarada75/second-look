@@ -1,0 +1,51 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-004",
+  "reason": "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "55.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00004",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Wool scarf, blue",
+      "qty": 1
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "The scarf is blue, I wanted green. Not as described!",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "listing_text": "Wool scarf. Colour: BLUE. See photos.",
+  "order_variant": "blue",
+  "buyer_photos": [
+   "scarf_blue.jpg"
+  ],
+  "items": [
+   {
+    "name": "Wool scarf, blue",
+    "qty": 1
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "DEFEND",
+  "why": "Listing and order both say blue; buyer's own photo shows blue. Buyer's remorse, not SNAD."
+ }
+}

@@ -1,0 +1,52 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-005",
+  "reason": "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "38.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00005",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Ceramic jug",
+      "qty": 1
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Arrived with the handle snapped off, see photos. I'd like a replacement.",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "buyer_photos": [
+   "jug_broken_1.jpg",
+   "jug_broken_2.jpg"
+  ],
+  "packing": "bubble wrap, fragile label",
+  "in_stock": true,
+  "items": [
+   {
+    "name": "Ceramic jug",
+    "qty": 1
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "REPLACE",
+  "why": "Clear damage photos, item in stock, buyer asks for a replacement."
+ }
+}
