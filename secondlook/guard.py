@@ -76,4 +76,21 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             action = "ASK_SELLER"
             break
 
+    # Rule 6: only actions PayPal allows at this stage. Learned from a real sandbox dispute
+    # (2026-10-16): at the INQUIRY stage make_offer allows only REFUND, so REPLACE is not possible.
+    allowed = dispute.get("allowed_response_options")
+    if allowed:
+        can = set()
+        if "provide_evidence" in {l.get("rel") for l in dispute.get("links", [])}:
+            can.add("DEFEND")
+        for t in allowed.get("accept_claim", {}).get("accept_claim_types", []):
+            can.add({"REFUND": "REFUND", "PARTIAL_REFUND": "PARTIAL_REFUND"}.get(t, ""))
+        for t in allowed.get("make_offer", {}).get("offer_types", []):
+            can.add({"REFUND": "PARTIAL_REFUND", "REPLACEMENT_WITHOUT_REFUND": "REPLACE",
+                     "REFUND_WITH_REPLACEMENT": "REPLACE"}.get(t, ""))
+        if action != "ASK_SELLER" and action not in can:
+            notes.append(f"PayPal does not allow {action} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
+                         f"(allowed: {', '.join(sorted(c for c in can if c))}). Routed to you.")
+            action = "ASK_SELLER"
+
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action))

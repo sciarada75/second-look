@@ -46,6 +46,19 @@ def test_guard_never_creates_a_refund():
     assert d.action in ("DEFEND", "ASK_SELLER")
 
 
+
+
+
+def test_action_not_allowed_by_paypal_at_this_stage_is_routed():
+    d = dispute(20, reason="MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", msg="broken")
+    d["dispute_life_cycle_stage"] = "INQUIRY"
+    d["allowed_response_options"] = {"accept_claim": {"accept_claim_types": ["REFUND"]},
+                                     "make_offer": {"offer_types": ["REFUND"]}}
+    d["links"] = [{"rel": "provide_evidence"}]
+    r = apply_policy(Judgment("REPLACE", 0.95, "send another"), POLICY, d, {})
+    assert r.action == "ASK_SELLER" and "does not allow REPLACE" in " ".join(r.reasons)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

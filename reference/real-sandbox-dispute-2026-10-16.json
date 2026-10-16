@@ -1,0 +1,141 @@
+{
+ "dispute_id": "PP-R-ZOY-10193120",
+ "create_time": "2026-10-16T14:44:29.141Z",
+ "update_time": "2026-10-16T14:48:04.142Z",
+ "disputed_transactions": [
+  {
+   "buyer_transaction_id": "1UU77239AJ924231F",
+   "seller_transaction_id": "2BU27307GH548541C",
+   "create_time": "2026-10-16T14:36:28.000Z",
+   "transaction_status": "HELD",
+   "gross_amount": {
+    "currency_code": "EUR",
+    "value": "42.00"
+   },
+   "buyer": {
+    "email": "sb-no2vu53396705@personal.example.com",
+    "payer_id": "QXMTU2HJXDKYS",
+    "name": "John DoeskipKYC"
+   },
+   "seller": {
+    "email": "sb-etdfz53401564@business.example.com",
+    "merchant_id": "9JCPVP6DGMZHJ",
+    "name": "Test Store"
+   },
+   "items": [
+    {
+     "item_name": "Linen tote bag",
+     "item_description": "Linen tote bag",
+     "item_quantity": "1",
+     "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+     "item_type": "PRODUCT"
+    }
+   ],
+   "seller_protection_eligible": true,
+   "seller_protection_type": "EXPANDED_SELLER_PROTECTION"
+  }
+ ],
+ "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+ "status": "WAITING_FOR_SELLER_RESPONSE",
+ "dispute_amount": {
+  "currency_code": "EUR",
+  "value": "42.00"
+ },
+ "dispute_state": "REQUIRED_ACTION",
+ "fund_movements": [
+  {
+   "party": "RECEIVER",
+   "amount": {
+    "currency_code": "EUR",
+    "value": "40.22"
+   },
+   "initiated_time": "2026-10-16T14:48:04.000Z",
+   "type": "DEBIT",
+   "reason": "HOLD_PLACED"
+  }
+ ],
+ "dispute_life_cycle_stage": "INQUIRY",
+ "dispute_channel": "INTERNAL",
+ "messages": [
+  {
+   "posted_by": "BUYER",
+   "time_posted": "2026-10-16T14:44:29.141Z",
+   "content": "Never got my parcel. Want my money back"
+  }
+ ],
+ "extensions": {
+  "buyer_contacted_time": "2026-10-16T14:44:28.667Z"
+ },
+ "evidences": [
+  {
+   "evidence_type": "CREATE",
+   "notes": "Never got my parcel. Want my money back",
+   "source": "SUBMITTED_BY_BUYER",
+   "date": "2026-10-16T14:44:29.141Z",
+   "dispute_life_cycle_stage": "INQUIRY"
+  },
+  {
+   "evidence_type": "PROOF_OF_FULFILLMENT",
+   "source": "REQUESTED_FROM_SELLER",
+   "date": "2026-10-16T14:48:04.142Z"
+  }
+ ],
+ "seller_response_due_date": "2026-11-05T14:44:29.141Z",
+ "offer": {
+  "buyer_requested_amount": {
+   "currency_code": "EUR",
+   "value": "42.00"
+  }
+ },
+ "refund_details": {
+  "allowed_refund_amount": {
+   "currency_code": "EUR",
+   "value": "42.00"
+  }
+ },
+ "allowed_response_options": {
+  "accept_claim": {
+   "accept_claim_types": [
+    "PARTIAL_REFUND",
+    "REFUND"
+   ]
+  },
+  "make_offer": {
+   "offer_types": [
+    "REFUND"
+   ]
+  }
+ },
+ "links": [
+  {
+   "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-ZOY-10193120",
+   "rel": "self",
+   "method": "GET"
+  },
+  {
+   "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-ZOY-10193120/accept-claim",
+   "rel": "accept_claim",
+   "method": "POST"
+  },
+  {
+   "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-ZOY-10193120/provide-evidence",
+   "rel": "provide_evidence",
+   "method": "POST"
+  },
+  {
+   "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-ZOY-10193120/send-message",
+   "rel": "send_message",
+   "method": "POST"
+  },
+  {
+   "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-ZOY-10193120/escalate",
+   "rel": "escalate",
+   "method": "POST"
+  },
+  {
+   "href": "https://api-m.sandbox.paypal.com/v1/customer/disputes/PP-R-ZOY-10193120/make-offer",
+   "rel": "make_offer",
+   "method": "POST"
+  }
+ ]
+}

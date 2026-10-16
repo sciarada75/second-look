@@ -61,7 +61,10 @@ class PayPalDisputes:
             raise RuntimeError(f"PayPal {e.code} on {method} {path}: {e.read().decode()}")
 
     # --- reads ------------------------------------------------------------
-    def list_disputes(self, status: str = "WAITING_FOR_SELLER_RESPONSE") -> List[dict]:
+    def list_disputes(self, status: str = "REQUIRED_ACTION") -> List[dict]:
+        # dispute_state values PayPal accepts: REQUIRED_ACTION (seller must act),
+        # REQUIRED_OTHER_PARTY_ACTION, UNDER_PAYPAL_REVIEW, RESOLVED, OPEN_INQUIRIES, APPEALABLE.
+        # Verified 2026-10-16: "WAITING_FOR_SELLER_RESPONSE" is a dispute *status*, not a state, and is rejected here.
         q = parse.urlencode({"dispute_state": status, "page_size": 50})
         return self._call("GET", f"/v1/customer/disputes?{q}").get("items", [])
 
@@ -70,11 +73,25 @@ class PayPalDisputes:
 
     # --- actions (each maps to one of our recommendation types) -----------
     def defend(self, dispute_id: str, note: str, tracking: Optional[dict] = None) -> dict:
+        # provide-evidence is multipart/form-data: a JSON part named "input", plus optional files.
         payload: Dict = {"evidences": [{"evidence_type": "PROOF_OF_FULFILLMENT",
                                         "notes": note}]}
-        if tracking:
-            payload["evidences"][0]["evidence_info"] = {"tracking_info": [tracking]}
-        return self._call("POST", f"/v1/customer/disputes/{dispute_id}/provide-evidence", payload)
+        if tracking and tracking.get("tracking_number"):
+            payload["evidences"][0]["evidence_info"] = {"tracking_info": [
+                {"carrier_name": tracking.get("carrier", "OTHER"),
+                 "tracking_number": tracking["tracking_number"]}]}
+        boundary = "----SecondLook" + str(int(time.time()))
+        body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"input\"; filename=\"input.json\"\r\n"
+                f"Content-Type: application/json\r\n\r\n{json.dumps(payload)}\r\n--{boundary}--\r\n").encode()
+        req = request.Request(f"{self.base}/v1/customer/disputes/{dispute_id}/provide-evidence", data=body,
+                              method="POST", headers={"Authorization": f"Bearer {self._auth()}",
+                                                      "Content-Type": f"multipart/form-data; boundary={boundary}"})
+        try:
+            with request.urlopen(req, timeout=30) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else {"status": "OK"}
+        except error.HTTPError as e:
+            raise RuntimeError(f"PayPal {e.code} on provide-evidence: {e.read().decode()}")
 
     def refund(self, dispute_id: str, note: str) -> dict:
         return self._call("POST", f"/v1/customer/disputes/{dispute_id}/accept-claim",
@@ -108,9 +125,9 @@ class MockPayPal:
             out[case["dispute"]["dispute_id"]] = case
         return out
 
-    def list_disputes(self, status: str = "WAITING_FOR_SELLER_RESPONSE") -> List[dict]:
+    def list_disputes(self, status: str = "REQUIRED_ACTION") -> List[dict]:
         return [c["dispute"] for c in self._load().values()
-                if c["dispute"]["status"] == status]
+                if c["dispute"]["status"] == "WAITING_FOR_SELLER_RESPONSE"]
 
     def get_dispute(self, dispute_id: str) -> dict:
         return self._load()[dispute_id]["dispute"]
