@@ -90,6 +90,11 @@ def run_eval(pp, backend: str) -> int:
     for r in rows:
         print(f"{r[0]:<10}{r[1]:<16}{r[2]:<16}{r[3]:<16}{r[4]}")
     print(f"\ncorrect: {hits}/{len(cases)}   unjustified refunds: {bad_money}   routed to seller: {asked}")
+    u = judge_mod.USAGE
+    if u["calls"]:
+        # Opus 5.5 list price: $4 / 1M input, $20 / 1M output (checked 2026-10-16)
+        cost = u["input_tokens"] * 4 / 1e6 + u["output_tokens"] * 20 / 1e6
+        print(f"model calls: {u['calls']}   tokens in/out: {u['input_tokens']}/{u['output_tokens']}   approx cost: ${cost:.2f}")
     return 0
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-import re
+
 
 from .guard import Judgment, ACTIONS
 
@@ -41,23 +41,60 @@ def _case_text(case: dict) -> str:
     return json.dumps({"dispute": d, "seller_records": r}, indent=1, ensure_ascii=False)
 
 
+# Structured output: the API guarantees the reply matches this schema.
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": list(ACTIONS)},
+        "confidence": {"type": "number"},
+        "reasoning": {"type": "string"},
+        "evidence_cited": {"type": "array", "items": {"type": "string"}},
+        "draft_message": {"type": "string"},
+        "partial_amount": {"type": "string", "description": "amount for PARTIAL_REFUND, else empty string"},
+    },
+    "required": ["action", "confidence", "reasoning", "evidence_cited", "draft_message", "partial_amount"],
+    "additionalProperties": False,
+}
+
+USAGE = {"input_tokens": 0, "output_tokens": 0, "calls": 0}  # read by the eval to report cost
+
+
+def _ask_seller(why: str) -> Judgment:
+    return Judgment("ASK_SELLER", 0.0, why)
+
+
 def claude(case: dict, model: str = None) -> Judgment:
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise RuntimeError("ANTHROPIC_API_KEY not set: the model judge cannot run. Use --judge rules for the baseline.")
     import anthropic  # imported here so the rest of the tool works without the SDK
     client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=model or os.getenv("SECONDLOOK_MODEL", "claude-sonnet-5-5"),
-        max_tokens=800, system=SYSTEM,
+    # Learned 2026-10-16: thinking is on by default on current models and counts against
+    # max_tokens. With max_tokens=800 the model spent it all thinking and returned no text.
+    msg = client.beta.messages.create(
+        model=model or os.getenv("SECONDLOOK_MODEL", "claude-opus-5-5"),
+        max_tokens=16000,
+        system=SYSTEM,
         messages=[{"role": "user", "content": "Case:\n" + _case_text(case)}],
+        output_config={"effort": "high", "format": {"type": "json_schema", "schema": SCHEMA}},
+        betas=["server-side-fallback-2026-07-01"],
+        # The installed SDK (0.104) predates the `fallbacks` kwarg; send it as a raw body field.
+        extra_body={"fallbacks": "default"},
     )
-    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-    m = re.search(r"\{.*\}", text, re.S)
-    data = json.loads(m.group(0)) if m else {"action": "ASK_SELLER", "confidence": 0,
-                                               "reasoning": "Model reply was not JSON: " + text[:200]}
-    return Judgment(action=data.get("action", "ASK_SELLER"), confidence=float(data.get("confidence", 0)),
-                    reasoning=data.get("reasoning", ""), evidence_cited=data.get("evidence_cited", []),
-                    draft_message=data.get("draft_message", ""), partial_amount=data.get("partial_amount"))
+    USAGE["calls"] += 1
+    USAGE["input_tokens"] += msg.usage.input_tokens
+    USAGE["output_tokens"] += msg.usage.output_tokens
+    if msg.stop_reason == "refusal":
+        return _ask_seller("The model declined this case; a human must look at it.")
+    if msg.stop_reason == "max_tokens":
+        return _ask_seller("The model ran out of room before answering; routed to you.")
+    text = next((b.text for b in msg.content if b.type == "text"), "")
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return _ask_seller("Model reply was not valid JSON: " + text[:200])
+    return Judgment(action=data["action"], confidence=float(data["confidence"]),
+                    reasoning=data["reasoning"], evidence_cited=data["evidence_cited"],
+                    draft_message=data["draft_message"], partial_amount=data["partial_amount"] or None)
 
 
 def rules(case: dict) -> Judgment:

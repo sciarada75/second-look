@@ -59,6 +59,13 @@ def test_action_not_allowed_by_paypal_at_this_stage_is_routed():
     assert r.action == "ASK_SELLER" and "does not allow REPLACE" in " ".join(r.reasons)
 
 
+def test_partial_refund_cap_uses_the_refund_not_the_order():
+    j = Judgment("PARTIAL_REFUND", 0.9, "one print missing", partial_amount="20.00")
+    assert apply_policy(j, POLICY, dispute(60), {}).action == "PARTIAL_REFUND"
+    j_big = Judgment("PARTIAL_REFUND", 0.9, "most missing", partial_amount="55.00")
+    assert apply_policy(j_big, POLICY, dispute(60), {}).action == "ASK_SELLER"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

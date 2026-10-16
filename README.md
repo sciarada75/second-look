@@ -63,16 +63,26 @@ answer was to defend.
 | judge | correct | unjustified refunds | routed to seller |
 |---|---|---|---|
 | `rules` baseline | 11/15 | 0 (the guard stopped 1) | 3 |
-| `claude` | *run it with a key* | | |
+| `claude` (Opus 5.5, effort high) | **14/15** | **0** | 3 |
+
+Measured 2026-10-16, after one guard fix the eval itself exposed (the refund cap compared the
+whole order, not the partial refund actually proposed). The one miss is a borderline case
+(a parcel lost in transit): across runs the model answered REFUND at confidence 0.75, exactly
+on the seller's bar, or ASK_SELLER. Borderline cases going to a human is the intended
+behaviour. Cost: 15 cases, about 21k input and 13k output tokens, about $0.35 per full run.
+
+What the model adds over rules shows best on a real sandbox dispute: it recommended DEFEND,
+then noticed that the dispute was opened 8 minutes after payment while the tracking said
+"delivered 3 days ago", and asked the seller to confirm the tracking belongs to this order.
 
 Run `python3 -m secondlook eval` to reproduce. Ground truth and reasons are in
 `cases/make_cases.py`; disagree with one, change it, rerun.
 
 ## Honest status
 
-- Runs end to end against the mock. The real sandbox client is written to the public API docs
-  and not yet exercised against a live sandbox account.
-- The model judge needs an API key. Without one the baseline runs, which is what the table shows.
+- Tested against a live PayPal sandbox account: listing and reading a real dispute work. Sending
+  evidence (`approve`) is written to the docs but not yet exercised.
+- The model judge needs an Anthropic API key; without one, the rules baseline runs.
 - Not escrow, not arbitration, not legal advice. The assistant recommends; a human decides.
 
 ## Licence

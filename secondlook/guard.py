@@ -39,6 +39,15 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
 
     amount = float(dispute["dispute_amount"]["value"])
     money_out = action in ("REFUND", "PARTIAL_REFUND", "REPLACE")
+    # The cap applies to the money actually going out: a partial refund of 20 on a 60 order is 20.
+    # (Bug found by the eval, 2026-10-16: the guard compared the whole order with the cap.)
+    out_amount = amount
+    if action == "PARTIAL_REFUND" and j.partial_amount:
+        try:
+            out_amount = min(amount, float(str(j.partial_amount).replace(",", ".")))
+        except ValueError:
+            notes.append(f"Partial amount {j.partial_amount!r} is not a number; routed to you.")
+            action = "ASK_SELLER"
 
     # Rule 1: never move money below the confidence bar.
     if money_out and j.confidence < policy["min_confidence"]:
@@ -47,8 +56,8 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
 
     # Rule 2: never refund above the seller's cap without asking.
     cap = policy["max_auto_refund"]
-    if money_out and amount > cap:
-        notes.append(f"Amount {amount:.2f} {dispute['dispute_amount']['currency_code']} is above your auto-refund cap of {cap:.2f}; you decide.")
+    if money_out and out_amount > cap:
+        notes.append(f"Refund of {out_amount:.2f} {dispute['dispute_amount']['currency_code']} is above your auto-refund cap of {cap:.2f}; you decide.")
         action = "ASK_SELLER"
 
     # Rule 3: any dispute above this is always yours, whatever the model says.
