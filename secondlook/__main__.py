@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +18,19 @@ from .guard import apply_policy, Decision
 from .paypal import client_from_env, MockPayPal
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_dotenv(path: Path) -> None:
+    """Read KEY=VALUE lines from .env into this process only. Never export the Anthropic key in
+    the shell: Claude Code would pick it up (see HANDOVER, Open 6). Existing env vars win."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            if v.strip():
+                os.environ.setdefault(k.strip(), v.strip())
 
 
 def load_policy() -> dict:
@@ -105,6 +119,9 @@ def main(argv=None) -> int:
     ap.add_argument("dispute_id", nargs="?")
     ap.add_argument("--judge", default="rules", choices=list(judge_mod.BACKENDS))
     a = ap.parse_args(argv)
+    load_dotenv(ROOT / ".env")
+    if a.cmd == "eval":  # the eval always runs on the practice cases, never the live sandbox
+        os.environ.pop("PAYPAL_CLIENT_ID", None)
     pp = client_from_env(ROOT)
     mode = "MOCK (cases/)" if isinstance(pp, MockPayPal) else "PayPal sandbox"
 

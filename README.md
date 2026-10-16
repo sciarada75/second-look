@@ -42,8 +42,9 @@ python3 -m secondlook eval --judge rules
 python3 -m secondlook eval --judge claude   # needs ANTHROPIC_API_KEY
 ```
 
-Against the real sandbox: copy `.env.example` to `.env`, add your sandbox app's client ID and
-secret, export them, and put the seller's records for a dispute in `records/<dispute_id>.json`.
+Against the real sandbox: copy `.env.example` to `.env` and add your sandbox app's client ID and
+secret (and an Anthropic API key for the model judge). The program reads `.env` itself; don't
+export the keys in your shell. Put the seller's records for a dispute in `records/<dispute_id>.json`.
 Open test disputes by logging into the sandbox **buyer** account's Resolution Center (creating
 them through the API needs a permission only PayPal can grant).
 
