@@ -1,0 +1,53 @@
+{
+ "dispute": {
+  "dispute_id": "PP-D-016",
+  "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "create_time": "2026-10-14T09:00:00Z",
+  "dispute_life_cycle_stage": "INQUIRY",
+  "dispute_amount": {
+   "currency_code": "EUR",
+   "value": "34.00"
+  },
+  "seller_response_due_date": "2026-10-30T00:00:00Z",
+  "disputed_transactions": [
+   {
+    "seller_transaction_id": "TX00016",
+    "create_time": "2026-10-14T08:40:00Z",
+    "buyer": {
+     "name": "Buyer"
+    },
+    "items": [
+     {
+      "name": "Beeswax candle trio",
+      "qty": 1
+     }
+    ]
+   }
+  ],
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "I haven't received anything. I want my money back.",
+    "time_posted": "2026-10-14T09:00:00Z"
+   }
+  ]
+ },
+ "seller_records": {
+  "order_date": "2026-10-14T08:40:00Z",
+  "tracking": null,
+  "fulfilment_status": "not yet shipped",
+  "handling_time_promised": "ships within 2 business days",
+  "planned_ship_date": "2026-10-15",
+  "items": [
+   {
+    "name": "Beeswax candle trio",
+    "qty": 1
+   }
+  ]
+ },
+ "ground_truth": {
+  "action": "MESSAGE",
+  "why": "Claim opened 20 minutes after payment, inside the promised handling time. Nothing to refund or defend yet: reply with the dispatch date."
+ }
+}

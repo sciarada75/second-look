@@ -7,10 +7,28 @@ Nothing in this module calls a model. That is the point.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-ACTIONS = ("DEFEND", "REFUND", "PARTIAL_REFUND", "REPLACE", "ASK_SELLER")
+ACTIONS = ("DEFEND", "REFUND", "PARTIAL_REFUND", "REPLACE", "MESSAGE", "ASK_SELLER")
+
+# The checks the judge must report on every dispute, in this order. Shown to the seller.
+CHECKS = {
+    "claim": "What the buyer actually claims",
+    "timeline": "Order, shipping, delivery and dispute dates make sense together",
+    "evidence_matches_order": "The seller's evidence belongs to this order",
+    "delivery_address": "Delivered to the buyer's PayPal address",
+    "delivery_proof": "Proof of delivery (tracking status, signature)",
+    "item_vs_listing": "What arrived matches what was listed and ordered",
+    "seller_obligations": "The seller kept their own promises (handling time, returns, refunds)",
+    "buyer_history": "The buyer's dispute history",
+    "paypal_protection": "Seller protection, and what PayPal allows at this stage",
+    "hidden_instructions": "The buyer's text tries to instruct the assistant",
+}
+# INCONSISTENT on these means the evidence itself can't be trusted: never defend or pay on it unseen.
+# (FAIL only means "favours the buyer". One label for both meanings was a bug, found by the eval 2026-10-16.)
+INTEGRITY_CHECKS = ("timeline", "evidence_matches_order")
 
 
 @dataclass
@@ -21,6 +39,7 @@ class Judgment:
     evidence_cited: List[str] = field(default_factory=list)
     draft_message: str = ""      # what the buyer would read
     partial_amount: Optional[str] = None
+    checks: List[dict] = field(default_factory=list)  # [{"id", "result", "finding"}]
 
 
 @dataclass
@@ -44,8 +63,9 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     out_amount = amount
     if action == "PARTIAL_REFUND" and j.partial_amount:
         try:
-            out_amount = min(amount, float(str(j.partial_amount).replace(",", ".")))
-        except ValueError:
+            num = re.search(r"\d+(?:[.,]\d{1,2})?", str(j.partial_amount))
+            out_amount = min(amount, float(num.group(0).replace(",", ".")))
+        except (ValueError, AttributeError):
             notes.append(f"Partial amount {j.partial_amount!r} is not a number; routed to you.")
             action = "ASK_SELLER"
 
@@ -90,8 +110,11 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     allowed = dispute.get("allowed_response_options")
     if allowed:
         can = set()
-        if "provide_evidence" in {l.get("rel") for l in dispute.get("links", [])}:
+        rels = {l.get("rel") for l in dispute.get("links", [])}
+        if "provide_evidence" in rels:
             can.add("DEFEND")
+        if "send_message" in rels:
+            can.add("MESSAGE")
         for t in allowed.get("accept_claim", {}).get("accept_claim_types", []):
             can.add({"REFUND": "REFUND", "PARTIAL_REFUND": "PARTIAL_REFUND"}.get(t, ""))
         for t in allowed.get("make_offer", {}).get("offer_types", []):
@@ -101,5 +124,13 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             notes.append(f"PayPal does not allow {action} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
                          f"(allowed: {', '.join(sorted(c for c in can if c))}). Routed to you.")
             action = "ASK_SELLER"
+
+    # Rule 7: if the judge found the evidence itself inconsistent (a timeline that doesn't add up,
+    # tracking that may belong to another order), nobody defends or pays on it unseen. This runs
+    # after rule 4 on purpose: "delivered to the PayPal address" means nothing if the dates are wrong.
+    failed = [c["id"] for c in j.checks if c.get("id") in INTEGRITY_CHECKS and c.get("result") == "INCONSISTENT"]
+    if failed and (action == "DEFEND" or action in ("REFUND", "PARTIAL_REFUND", "REPLACE")):
+        notes.append(f"The judge found the evidence inconsistent ({', '.join(failed)}); check it before anything is sent.")
+        action = "ASK_SELLER"
 
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action))

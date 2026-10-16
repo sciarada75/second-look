@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from . import judge as judge_mod
-from .guard import apply_policy, Decision
+from .guard import apply_policy, Decision, CHECKS
 from .paypal import client_from_env, MockPayPal
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +55,11 @@ def review(pp, dispute_id: str, backend: str) -> Decision:
 def print_decision(d: Decision, dispute: dict) -> None:
     amt = dispute["dispute_amount"]
     print(f"\n{dispute['dispute_id']}  {dispute['reason']}  {amt['value']} {amt['currency_code']}")
+    if d.judgment.checks:
+        print("  Checks:")
+        mark = {"PASS": "✓", "FAIL": "✗", "INCONSISTENT": "!", "UNCLEAR": "?", "NOT_APPLICABLE": "–"}
+        for c in d.judgment.checks:
+            print(f"    {mark.get(c['result'], ' ')} {CHECKS.get(c['id'], c['id'])}: {c['finding']}")
     print(f"  AI recommends : {d.judgment.action}  (confidence {d.judgment.confidence:.2f})")
     print(f"  Why           : {d.judgment.reasoning}")
     if d.judgment.evidence_cited:
@@ -79,6 +84,8 @@ def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
                                  dispute["dispute_amount"]["currency_code"], note)
     if d.action == "REPLACE":
         return pp.replace(did, note)
+    if d.action == "MESSAGE":
+        return pp.message(did, d.judgment.draft_message)
     return {"status": "NOT_EXECUTED", "reason": "ASK_SELLER: decide, then approve a specific action"}
 
 
@@ -86,7 +93,7 @@ def run_eval(pp, backend: str) -> int:
     if not isinstance(pp, MockPayPal):
         print("eval runs on cases/ only; unset PAYPAL_CLIENT_ID to use the mock"); return 2
     cases = sorted(pp.cases_dir.glob("*.json"))
-    hits, bad_money, asked, rows = 0, 0, 0, []
+    hits, bad_money, asked, rows, details = 0, 0, 0, [], []
     for f in cases:
         case = json.loads(f.read_text())
         truth = case["ground_truth"]["action"]
@@ -97,6 +104,9 @@ def run_eval(pp, backend: str) -> int:
         unjustified = d.action in ("REFUND", "PARTIAL_REFUND", "REPLACE") and truth == "DEFEND"
         bad_money += unjustified
         asked += d.action == "ASK_SELLER"
+        details.append({"case": case["dispute"]["dispute_id"], "truth": truth, "ai": d.judgment.action,
+                        "after_guard": d.action, "confidence": d.judgment.confidence, "guard_notes": d.reasons,
+                        "checks": d.judgment.checks, "reasoning": d.judgment.reasoning})
         rows.append((case["dispute"]["dispute_id"], truth, d.judgment.action, d.action,
                      "ok" if ok else ("UNJUSTIFIED REFUND" if unjustified else "miss")))
     print(f"\njudge={backend}  cases={len(cases)}")
@@ -104,6 +114,10 @@ def run_eval(pp, backend: str) -> int:
     for r in rows:
         print(f"{r[0]:<10}{r[1]:<16}{r[2]:<16}{r[3]:<16}{r[4]}")
     print(f"\ncorrect: {hits}/{len(cases)}   unjustified refunds: {bad_money}   routed to seller: {asked}")
+    out = ROOT / ".tmp" / f"eval-{backend}-details.json"
+    out.parent.mkdir(exist_ok=True)
+    out.write_text(json.dumps(details, indent=1, ensure_ascii=False))
+    print(f"details: {out.relative_to(ROOT)}")
     u = judge_mod.USAGE
     if u["calls"]:
         # Opus 5.5 list price: $4 / 1M input, $20 / 1M output (checked 2026-10-16)
@@ -120,7 +134,8 @@ def main(argv=None) -> int:
     ap.add_argument("--judge", default="rules", choices=list(judge_mod.BACKENDS))
     a = ap.parse_args(argv)
     load_dotenv(ROOT / ".env")
-    if a.cmd == "eval":  # the eval always runs on the practice cases, never the live sandbox
+    practice = a.dispute_id and (ROOT / "cases" / f"{a.dispute_id}.json").exists()
+    if a.cmd == "eval" or practice:  # practice cases always run locally, never on the live sandbox
         os.environ.pop("PAYPAL_CLIENT_ID", None)
     pp = client_from_env(ROOT)
     mode = "MOCK (cases/)" if isinstance(pp, MockPayPal) else "PayPal sandbox"

@@ -5,23 +5,33 @@ Ground truth follows PayPal Seller Protection logic: "item not received" is defe
 tracking that shows delivery to the buyer's PayPal address; without that, the seller loses.
 """
 import json
+from datetime import date, timedelta
 from pathlib import Path
 
 NR, NAD, CNP = ("MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
                 "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", "CREDIT_NOT_PROCESSED")
 
 
-def case(n, reason, amount, buyer_msgs, records, truth, why, currency="EUR", stage="INQUIRY"):
+TODAY = date(2026, 10, 14)  # the day every dispute in the set is opened, 09:00 UTC
+
+
+def case(n, reason, amount, buyer_msgs, records, truth, why, currency="EUR", stage="INQUIRY",
+         order_date="2026-09-25T10:00:00Z", dispute_time="2026-10-14T09:00:00Z"):
     did = f"PP-D-{n:03d}"
+    records = {"order_date": order_date, **records}
+    for key, prefix in (("tracking", "JD"), ("return_tracking", "JR")):  # one real number per parcel
+        if records.get(key):
+            records[key] = {**records[key], "tracking_number": f"{prefix}{n:04d}"}
     return {
         "dispute": {
             "dispute_id": did, "reason": reason, "status": "WAITING_FOR_SELLER_RESPONSE",
+            "create_time": dispute_time,
             "dispute_life_cycle_stage": stage,
             "dispute_amount": {"currency_code": currency, "value": f"{amount:.2f}"},
             "seller_response_due_date": "2026-10-30T00:00:00Z",
-            "disputed_transactions": [{"seller_transaction_id": f"TX{n:05d}",
+            "disputed_transactions": [{"seller_transaction_id": f"TX{n:05d}", "create_time": order_date,
                                        "buyer": {"name": "Buyer"}, "items": records.get("items", [])}],
-            "messages": [{"posted_by": "BUYER", "content": m, "time_posted": "2026-10-14T09:00:00Z"}
+            "messages": [{"posted_by": "BUYER", "content": m, "time_posted": dispute_time}
                          for m in buyer_msgs],
         },
         "seller_records": {k: v for k, v in records.items() if k != "items"} | {"items": records.get("items", [])},
@@ -30,8 +40,11 @@ def case(n, reason, amount, buyer_msgs, records, truth, why, currency="EUR", sta
 
 
 def tr(status, to_paypal_addr, days_ago, **kw):
+    # absolute dates: "3 days ago" is ambiguous and once made the records contradict the dispute
     d = {"carrier": "DHL", "tracking_number": "JD0001", "status": status,
-         "delivered_to_paypal_address": to_paypal_addr, "last_update_days_ago": days_ago}
+         "delivered_to_paypal_address": to_paypal_addr,
+         "shipped_date": kw.pop("shipped_date", "2026-09-26"),
+         "last_update": (TODAY - timedelta(days=days_ago)).isoformat()}
     d.update(kw); return d
 
 
@@ -70,7 +83,8 @@ CASES = [
           "buyer_photos": ["cam_1.jpg"], "seller_photos_before_shipping": ["cam_pre_1.jpg"]},
          "ASK_SELLER", "High value and genuinely mixed evidence: policy and judgment both say the seller decides."),
     case(10, CNP, 45.00, ["I returned the item 9 days ago, tracking shows you got it. Where's my refund?"],
-         {"items": [{"name": "Candle set", "qty": 1}], "return_tracking": tr("DELIVERED", None, 9),
+         {"items": [{"name": "Candle set", "qty": 1}], "tracking": tr("DELIVERED", True, 16),
+          "return_tracking": tr("DELIVERED", None, 9, shipped_date="2026-10-01"),
           "refund_issued": False, "return_policy": "refund within 5 days of receipt"},
          "REFUND", "Return received 9 days ago, seller's own policy says 5 days, no refund issued. Buyer is right."),
     case(11, NAD, 90.00, ["This is a FAKE. Not the real brand."],
@@ -91,6 +105,12 @@ CASES = [
          {"items": [{"name": "Desk lamp", "qty": 1}], "tracking": tr("DELIVERED", True, 6),
           "buyer_history": {"orders": 4, "disputes_last_90_days": 3}},
          "DEFEND", "Delivered to the PayPal address; third dispute in 90 days is a friendly-fraud pattern. Defend and note the history."),
+    case(16, NR, 34.00, ["I haven't received anything. I want my money back."],
+         {"items": [{"name": "Beeswax candle trio", "qty": 1}], "tracking": None,
+          "fulfilment_status": "not yet shipped", "handling_time_promised": "ships within 2 business days",
+          "planned_ship_date": "2026-10-15"},
+         "MESSAGE", "Claim opened 20 minutes after payment, inside the promised handling time. Nothing to refund or defend yet: reply with the dispatch date.",
+         order_date="2026-10-14T08:40:00Z", dispute_time="2026-10-14T09:00:00Z"),
 ]
 
 out = Path(__file__).resolve().parent

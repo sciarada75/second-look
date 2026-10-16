@@ -3,6 +3,7 @@
   "dispute_id": "PP-D-006",
   "reason": "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED",
   "status": "WAITING_FOR_SELLER_RESPONSE",
+  "create_time": "2026-10-14T09:00:00Z",
   "dispute_life_cycle_stage": "INQUIRY",
   "dispute_amount": {
    "currency_code": "EUR",
@@ -12,6 +13,7 @@
   "disputed_transactions": [
    {
     "seller_transaction_id": "TX00006",
+    "create_time": "2026-09-25T10:00:00Z",
     "buyer": {
      "name": "Buyer"
     },
@@ -32,6 +34,7 @@
   ]
  },
  "seller_records": {
+  "order_date": "2026-09-25T10:00:00Z",
   "listing_text": "Size chart in photos. M = chest 100 cm.",
   "order_variant": "M",
   "buyer_photos": [],

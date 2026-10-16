@@ -66,6 +66,27 @@ def test_partial_refund_cap_uses_the_refund_not_the_order():
     assert apply_policy(j_big, POLICY, dispute(60), {}).action == "ASK_SELLER"
 
 
+def test_inconsistent_evidence_blocks_defend_even_when_delivered():
+    rec = {"tracking": {"status": "DELIVERED", "delivered_to_paypal_address": True}}
+    j = Judgment("DEFEND", 0.9, "delivered", checks=[{"id": "timeline", "result": "INCONSISTENT",
+                                                     "finding": "delivered before the order was placed"}])
+    d = apply_policy(j, POLICY, dispute(20), rec)
+    assert d.action == "ASK_SELLER" and "inconsistent" in " ".join(d.reasons)
+
+
+def test_message_is_allowed_when_paypal_offers_send_message():
+    d = dispute(20)
+    d["allowed_response_options"] = {"accept_claim": {"accept_claim_types": ["REFUND"]}}
+    d["links"] = [{"rel": "send_message"}, {"rel": "provide_evidence"}]
+    assert apply_policy(Judgment("MESSAGE", 0.9, "premature"), POLICY, d, {}).action == "MESSAGE"
+
+
+def test_fail_on_timeline_means_buyer_wins_not_broken_evidence():
+    j = Judgment("REFUND", 0.9, "seller late", checks=[{"id": "timeline", "result": "FAIL",
+                                                       "finding": "refund due 10 Oct, not issued"}])
+    assert apply_policy(j, POLICY, dispute(20, reason="CREDIT_NOT_PROCESSED", msg="where is my refund"), {}).action == "REFUND"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

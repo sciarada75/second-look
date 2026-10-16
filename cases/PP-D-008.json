@@ -3,6 +3,7 @@
   "dispute_id": "PP-D-008",
   "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
   "status": "WAITING_FOR_SELLER_RESPONSE",
+  "create_time": "2026-10-14T09:00:00Z",
   "dispute_life_cycle_stage": "INQUIRY",
   "dispute_amount": {
    "currency_code": "EUR",
@@ -12,6 +13,7 @@
   "disputed_transactions": [
    {
     "seller_transaction_id": "TX00008",
+    "create_time": "2026-09-25T10:00:00Z",
     "buyer": {
      "name": "Buyer"
     },
@@ -32,12 +34,14 @@
   ]
  },
  "seller_records": {
+  "order_date": "2026-09-25T10:00:00Z",
   "tracking": {
    "carrier": "DHL",
-   "tracking_number": "JD0001",
+   "tracking_number": "JD0008",
    "status": "DELIVERED",
    "delivered_to_paypal_address": true,
-   "last_update_days_ago": 2
+   "shipped_date": "2026-09-26",
+   "last_update": "2026-10-12"
   },
   "items": [
    {
