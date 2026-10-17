@@ -94,7 +94,10 @@ def gather(pp, dispute: dict, root: Path) -> dict:
         shop = json.loads(shop_file.read_text())
         records["handling_time_promised"] = shop.get("handling_time")
         records["return_policy"] = shop.get("return_policy")
-        listing = [shop.get("listings", {}).get(i["name"]) for i in records["items"]]
+        # match by listing name inside the item name, any case: buyers type "art print x3" for "Art print"
+        listings = shop.get("listings", {})
+        listing = [next((t for n, t in listings.items() if n.lower() in (i["name"] or "").lower()), None)
+                   for i in records["items"]]
         records["listing_text"] = " | ".join(x for x in listing if x) or None
         for k in ("handling_time_promised", "return_policy", "listing_text"):
             sources[k] = "shop.json (the shop's published terms)"

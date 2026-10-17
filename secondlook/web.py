@@ -52,6 +52,8 @@ EVIDENCE_LABEL = {
     "order_date": "Ordered", "items": "Items", "ship_to": "Ships to", "tracking": "Tracking",
     "handling_time_promised": "Your promise", "return_policy": "Your returns policy",
     "listing_text": "Your listing", "fulfilment_status": "Status", "planned_ship_date": "Planned shipping",
+    "packing_slip_qty": "Packing slip says", "shipment_weight_g": "Parcel weighed (g)",
+    "unit_weight_g": "One item weighs (g)", "envelope_weight_g": "Empty envelope weighs (g)",
 }
 
 e = html.escape
@@ -147,7 +149,7 @@ def evidence(r: dict) -> str:
             t = _t(v)
             v = f"{t:%d %b %Y, %H:%M}" if t else v
         tag = src.get(k, "practice case")
-        tag = {"PayPal Transaction Search": "PayPal order"}.get(tag, tag)
+        tag = {"PayPal Transaction Search": "PayPal order", "seller's notes": "Your notes"}.get(tag, tag)
         tag = "Your shop terms" if tag.startswith("shop.json") else tag
         tag = "PayPal tracking" if tag.startswith("PayPal tracking") else tag
         rows.append(f'<div class="ev"><dt>{e(label)}</dt><dd>{e(str(v))}'
@@ -298,12 +300,13 @@ def case_page(dispute_id: str, flash: str = "") -> str:
         banner = '<div class="sent"><b>PayPal is reviewing this case.</b></div>'
     saved = _saved(dispute_id)
     if not saved:
-        right = banner + ('<form class="run" method="post" action="/d/{0}/review"><h2>Ten checks before you answer</h2>'
+        # the dispute id goes in by replace(), not format(): the script below has braces of its own
+        right = banner + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
                  '<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
                  'would run, and recommends one answer. Nothing is sent until you approve.</p>'
                  '<button>Take a second look</button></form>'
                  '<script>document.querySelector(".run").addEventListener("submit",e=>{const b=e.target.querySelector("button");'
-                 'b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";});</script>').format(e(dispute_id))
+                 'b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";});</script>').replace("DISPUTE_ID", e(dispute_id))
     else:
         dec, sent = saved
         j = dec.judgment
