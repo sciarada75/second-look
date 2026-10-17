@@ -90,31 +90,37 @@ command the assistant.
 The number that matters to a seller is **unjustified refunds**: money given back when the right
 answer was to defend.
 
-| judge | correct (after guard) | AI alone | unjustified refunds | sent to the seller |
+| judge | correct (after guard) | unjustified refunds | losing fights | sent to the seller |
 |---|---|---|---|---|
-| `rules` baseline | 11/16 | 11/16 | 0 | 3 |
-| `claude` (Opus 5.5, effort high) | **15/16** | **16/16** | **0** | 3 |
+| `rules` baseline | 11/16 | 0 | see `eval --judge rules` | 3 |
+| `claude` (Opus 5.5, effort high) | **16/16** | **0** | **0** | 2 |
 
-Measured 2026-10-16 on 16 cases we wrote ourselves, and tuned the prompt on: read it as a
-development score, not a guarantee. A held-out set of new cases is the honest next measure. The one miss after the guard is a borderline case (a parcel lost
-in transit): the model recommends the right refund, at a confidence that lands either side of the
-seller's 0.75 bar from run to run. Below the bar the guard hands it to the seller, by design.
+Two costly mistakes are counted separately: an **unjustified refund** (money given back when the
+seller should have defended) and a **losing fight** (defending a case the buyer is right about).
+
+Measured 2026-10-17 on 16 cases we wrote ourselves, and tuned the prompt on: read it as a
+development score, not a guarantee. A held-out set of new cases is the honest next measure.
+One right answer (case 006, a shirt that "doesn't fit") was decided by a human who hadn't written
+the case, after the model and the case author disagreed. The score checks the action, not yet the
+wording of the reply to the buyer.
 
 **The eval earned its keep.** Building it found: a guard that compared the whole order with the
 refund cap instead of the partial refund proposed; a guard that couldn't read "20.00 EUR"; a
 checklist that used FAIL for both "the buyer wins" and "the evidence is broken"; a new "just reply"
 action that the model over-used until the prompt said why evidence protects a seller and a message
-doesn't; and three shortcuts in our own test data, each caught by the model's timeline and
-evidence checks. Every fix is in the git history, most with a test.
+doesn't; a prompt sentence of ours ("shipped counts as evidence") that made the model defend a
+parcel lost in transit; and three shortcuts in our own test data, each caught by the model's
+timeline and evidence checks. Every fix is in the git history, most with a test.
 
-**Cost:** about 2.3k input and 2k output tokens per dispute on Opus 5.5, about **$0.05 per dispute**
+**Cost:** about 2.5k input and 2k output tokens per dispute on Opus 5.5, about **$0.05 per dispute**
 (a full 16-case run is about $0.80). A competitor model charges 25% of what it recovers: about
 EUR 10 on a EUR 42 dispute.
 
 ## Honest status
 
-- Tested against a live PayPal sandbox account: listing and reading a real dispute work. Sending
-  evidence (`approve`) is written to the docs but not yet exercised.
+- Tested against a live PayPal sandbox account: reading disputes, gathering evidence (Transaction
+  Search, tracking), registering tracking and sending a reply to the buyer all work. Submitting
+  evidence (`provide-evidence`) is written to the docs but not yet exercised live.
 - The model judge needs an Anthropic API key; without one, the rules baseline runs.
 - Not escrow, not arbitration, not legal advice. The assistant recommends; a human decides.
 

@@ -76,7 +76,11 @@ def print_decision(d: Decision, dispute: dict) -> None:
 def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
     did, note = dispute["dispute_id"], d.judgment.draft_message or d.judgment.reasoning
     if d.action == "DEFEND":
-        return pp.defend(did, note, records.get("tracking"))
+        # Evidence keeps seller protection; the message keeps the buyer informed. Both, in that order.
+        result = {"evidence": pp.defend(did, d.judgment.reasoning, records.get("tracking"))}
+        if d.judgment.draft_message:
+            result["message"] = pp.message(did, d.judgment.draft_message)
+        return result
     if d.action == "REFUND":
         return pp.refund(did, note)
     if d.action == "PARTIAL_REFUND":
@@ -89,11 +93,13 @@ def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
     return {"status": "NOT_EXECUTED", "reason": "ASK_SELLER: decide, then approve a specific action"}
 
 
-def run_eval(pp, backend: str) -> int:
+def run_eval(pp, backend: str, only=None) -> int:
     if not isinstance(pp, MockPayPal):
         print("eval runs on cases/ only; unset PAYPAL_CLIENT_ID to use the mock"); return 2
     cases = sorted(pp.cases_dir.glob("*.json"))
-    hits, bad_money, asked, rows, details = 0, 0, 0, [], []
+    if only:  # cheap iteration on a few cases; a full run is still required before quoting a score
+        cases = [c for c in cases if c.stem in only]
+    hits, bad_money, bad_fights, asked, rows, details = 0, 0, 0, 0, [], []
     for f in cases:
         case = json.loads(f.read_text())
         truth = case["ground_truth"]["action"]
@@ -103,17 +109,23 @@ def run_eval(pp, backend: str) -> int:
         # the metric Claudia cares about: money given back when the truth was "defend"
         unjustified = d.action in ("REFUND", "PARTIAL_REFUND", "REPLACE") and truth == "DEFEND"
         bad_money += unjustified
+        # the other costly mistake: defending a case the buyer is right about
+        lost_fight = d.action == "DEFEND" and truth in ("REFUND", "PARTIAL_REFUND", "REPLACE")
+        bad_fights += lost_fight
         asked += d.action == "ASK_SELLER"
         details.append({"case": case["dispute"]["dispute_id"], "truth": truth, "ai": d.judgment.action,
                         "after_guard": d.action, "confidence": d.judgment.confidence, "guard_notes": d.reasons,
-                        "checks": d.judgment.checks, "reasoning": d.judgment.reasoning})
+                        "checks": d.judgment.checks, "reasoning": d.judgment.reasoning,
+                        "draft_message": d.judgment.draft_message})
         rows.append((case["dispute"]["dispute_id"], truth, d.judgment.action, d.action,
-                     "ok" if ok else ("UNJUSTIFIED REFUND" if unjustified else "miss")))
+                     "ok" if ok else ("UNJUSTIFIED REFUND" if unjustified else
+                                      "LOSING FIGHT" if lost_fight else "miss")))
     print(f"\njudge={backend}  cases={len(cases)}")
     print(f"{'case':<10}{'truth':<16}{'AI said':<16}{'after guard':<16}result")
     for r in rows:
         print(f"{r[0]:<10}{r[1]:<16}{r[2]:<16}{r[3]:<16}{r[4]}")
-    print(f"\ncorrect: {hits}/{len(cases)}   unjustified refunds: {bad_money}   routed to seller: {asked}")
+    print(f"\ncorrect: {hits}/{len(cases)}   unjustified refunds: {bad_money}   "
+          f"losing fights: {bad_fights}   routed to seller: {asked}")
     out = ROOT / ".tmp" / f"eval-{backend}-details.json"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(details, indent=1, ensure_ascii=False))
@@ -132,6 +144,7 @@ def main(argv=None) -> int:
     ap.add_argument("cmd", choices=["list", "review", "approve", "eval", "evidence", "ship"])
     ap.add_argument("dispute_id", nargs="?")
     ap.add_argument("--judge", default="rules", choices=list(judge_mod.BACKENDS))
+    ap.add_argument("--only", nargs="*", help="eval: run only these case ids (for iterating; not a score)")
     ap.add_argument("--carrier", default="DHL")
     ap.add_argument("--tracking", help="ship: the tracking number to register with PayPal")
     ap.add_argument("--action", help="approve: the action you reviewed and approve; refused if the "
@@ -150,7 +163,7 @@ def main(argv=None) -> int:
             print(f"  {d['dispute_id']}  {d['reason']:<40} {d['dispute_amount']['value']} {d['dispute_amount']['currency_code']}  due {d.get('seller_response_due_date','?')}")
         return 0
     if a.cmd == "eval":
-        return run_eval(pp, a.judge)
+        return run_eval(pp, a.judge, a.only)
     if not a.dispute_id:
         ap.error("dispute_id required")
     case = load_case(pp, a.dispute_id)

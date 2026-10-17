@@ -70,7 +70,7 @@ CASES = [
     case(6, NAD, 64.00, ["Too small, doesn't fit. Not as described."],
          {"items": [{"name": "Cotton shirt M", "qty": 1}], "listing_text": "Size chart in photos. M = chest 100 cm.",
           "order_variant": "M", "buyer_photos": []},
-         "DEFEND", "Sent the size ordered; size chart was in the listing. Fit is not SNAD. Offer exchange as goodwill, not a refund."),
+         "MESSAGE", "Decided by Claudia 2026-10-17. Fit is not 'not as described'. Ask the buyer for proof the shirt does not match the size in the listing (e.g. a photo of the label) and offer an exchange as goodwill. Do not rely on a chest measurement the buyer reports: it cannot be verified."),
     case(7, NR, 120.00, ["I never received this. Please refund."],
          {"items": [{"name": "Leather bag", "qty": 1}], "tracking": tr("DELIVERED", False, 5),
           "shipped_to": "an address the buyer gave in a message, not the PayPal one"},

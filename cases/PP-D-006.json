@@ -46,7 +46,7 @@
   ]
  },
  "ground_truth": {
-  "action": "DEFEND",
-  "why": "Sent the size ordered; size chart was in the listing. Fit is not SNAD. Offer exchange as goodwill, not a refund."
+  "action": "MESSAGE",
+  "why": "Decided by Claudia 2026-10-17. Fit is not 'not as described'. Ask the buyer for proof the shirt does not match the size in the listing (e.g. a photo of the label) and offer an exchange as goodwill. Do not rely on a chest measurement the buyer reports: it cannot be verified."
  }
 }
