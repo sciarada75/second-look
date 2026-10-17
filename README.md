@@ -51,6 +51,16 @@ Each result is PASS (favours the seller), FAIL (favours the buyer), INCONSISTENT
 contradicts itself), UNCLEAR or N/A. INCONSISTENT on the timeline or the evidence stops everything:
 nobody defends or pays on broken evidence unseen.
 
+## The seller's screen
+
+`python3 -m secondlook serve` opens a small local web app. The inbox lists open disputes by the
+buyer's own words. A dispute opens as a case file: the claim, a timeline drawn to scale (the gap
+between payment and dispute is labelled), and the evidence, each fact tagged with where it came
+from (PayPal dispute, PayPal order, PayPal tracking, your shop terms). "Take a second look" runs
+the ten checks; the page then shows the recommendation, any change your limits made and why, the
+reply (editable), and one Approve button that sends exactly what is on screen. Practice cases are
+one click away and never reach PayPal.
+
 ## How it works
 
 ```
@@ -75,6 +85,7 @@ PayPal Disputes API ──► judge (Claude) ──► guard (code, seller's pol
 ## Try it
 
 ```bash
+python3 -m secondlook serve             # the seller's screen: http://127.0.0.1:8765
 python3 cases/make_cases.py            # writes the 15 test disputes
 python3 -m secondlook list             # disputes waiting for the seller
 python3 -m secondlook review PP-D-014  # judgment + guard, nothing executed

@@ -143,7 +143,7 @@ def run_eval(pp, backend: str, only=None) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="secondlook", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["list", "review", "approve", "eval", "evidence", "ship"])
+    ap.add_argument("cmd", choices=["list", "review", "approve", "eval", "evidence", "ship", "serve"])
     ap.add_argument("dispute_id", nargs="?")
     ap.add_argument("--judge", default="rules", choices=list(judge_mod.BACKENDS))
     ap.add_argument("--only", nargs="*", help="eval: run only these case ids (for iterating; not a score)")
@@ -166,6 +166,10 @@ def main(argv=None) -> int:
         return 0
     if a.cmd == "eval":
         return run_eval(pp, a.judge, a.only)
+    if a.cmd == "serve":
+        from .web import serve
+        serve()
+        return 0
     if not a.dispute_id:
         ap.error("dispute_id required")
     case = load_case(pp, a.dispute_id)
