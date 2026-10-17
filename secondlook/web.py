@@ -140,7 +140,8 @@ def evidence(r: dict) -> str:
         if k == "items":
             v = ", ".join(f'{i["name"]} × {i["qty"]}' for i in v or [])
         elif k == "tracking":
-            v = (f'{v.get("carrier")} {v.get("tracking_number")}, {v.get("status", "").lower()}'
+            courier = v and (v.get("carrier_name_other") if v.get("carrier") == "OTHER" else v.get("carrier"))
+            v = (f'{courier or "Courier"} {v.get("tracking_number")}, {v.get("status", "").lower()}'
                  if v else "none registered yet")
         elif k == "order_date":
             t = _t(v)

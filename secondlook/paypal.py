@@ -77,9 +77,11 @@ class PayPalDisputes:
         payload: Dict = {"evidences": [{"evidence_type": "PROOF_OF_FULFILLMENT",
                                         "notes": note}]}
         if tracking and tracking.get("tracking_number"):
-            payload["evidences"][0]["evidence_info"] = {"tracking_info": [
-                {"carrier_name": tracking.get("carrier", "OTHER"),
-                 "tracking_number": tracking["tracking_number"]}]}
+            info = {"carrier_name": tracking.get("carrier") or "OTHER",
+                    "tracking_number": tracking["tracking_number"]}
+            if info["carrier_name"] == "OTHER" and tracking.get("carrier_name_other"):
+                info["carrier_name_other"] = tracking["carrier_name_other"]
+            payload["evidences"][0]["evidence_info"] = {"tracking_info": [info]}
         boundary = "----SecondLook" + str(int(time.time()))
         body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"input\"; filename=\"input.json\"\r\n"
                 f"Content-Type: application/json\r\n\r\n{json.dumps(payload)}\r\n--{boundary}--\r\n").encode()
@@ -110,11 +112,15 @@ class PayPalDisputes:
         return self._call("POST", f"/v1/customer/disputes/{dispute_id}/send-message",
                           {"message": text})
 
-    def add_tracking(self, transaction_id: str, tracking_number: str, carrier: str = "DHL") -> dict:
-        """What the shop does when it ships: register the tracking number with PayPal."""
-        return self._call("POST", "/v1/shipping/trackers-batch", {"trackers": [{
-            "transaction_id": transaction_id, "tracking_number": tracking_number,
-            "status": "SHIPPED", "carrier": carrier}]})
+    def add_tracking(self, transaction_id: str, tracking_number: str, carrier: str = "OTHER",
+                     carrier_name_other: Optional[str] = None) -> dict:
+        """What the shop does when it ships: register the tracking number with PayPal.
+        carrier is PayPal's code (e.g. "DHL"); "OTHER" takes the courier's name in carrier_name_other."""
+        tracker = {"transaction_id": transaction_id, "tracking_number": tracking_number,
+                   "status": "SHIPPED", "carrier": carrier}
+        if carrier == "OTHER" and carrier_name_other:
+            tracker["carrier_name_other"] = carrier_name_other
+        return self._call("POST", "/v1/shipping/trackers-batch", {"trackers": [tracker]})
 
 
 class MockPayPal:

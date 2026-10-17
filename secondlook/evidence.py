@@ -77,7 +77,8 @@ def gather(pp, dispute: dict, root: Path) -> dict:
         trackers = _trackers(pp, tx_id) if tx_id else []
         if trackers:
             tr = trackers[-1]
-            records["tracking"] = {"carrier": tr.get("carrier"), "tracking_number": tr.get("tracking_number"),
+            records["tracking"] = {"carrier": tr.get("carrier"), "carrier_name_other": tr.get("carrier_name_other"),
+                                   "tracking_number": tr.get("tracking_number"),
                                    "status": tr.get("status"), "shipped_date": tr.get("shipment_date"),
                                    "last_update": _iso(tr.get("last_updated_time"))}
             sources["tracking"] = "PayPal tracking"

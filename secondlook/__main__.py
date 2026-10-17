@@ -147,7 +147,8 @@ def main(argv=None) -> int:
     ap.add_argument("dispute_id", nargs="?")
     ap.add_argument("--judge", default="rules", choices=list(judge_mod.BACKENDS))
     ap.add_argument("--only", nargs="*", help="eval: run only these case ids (for iterating; not a score)")
-    ap.add_argument("--carrier", default="DHL")
+    ap.add_argument("--carrier", default="OTHER", help="ship: PayPal's carrier code; OTHER takes --carrier-name")
+    ap.add_argument("--carrier-name", help="ship: the courier's name when --carrier is OTHER")
     ap.add_argument("--tracking", help="ship: the tracking number to register with PayPal")
     ap.add_argument("--action", help="approve: the action you reviewed and approve; refused if the "
                                      "recommendation shown now differs")
@@ -179,7 +180,7 @@ def main(argv=None) -> int:
         if not a.tracking:
             ap.error("--tracking required")
         print(json.dumps(pp.add_tracking(case["dispute"]["disputed_transactions"][0]["seller_transaction_id"],
-                                         a.tracking, a.carrier), ensure_ascii=False))
+                                         a.tracking, a.carrier, a.carrier_name), ensure_ascii=False))
         return 0
     d = review(pp, a.dispute_id, a.judge)
     print(f"[{mode}] judge={a.judge}")
