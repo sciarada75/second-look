@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from . import judge as judge_mod
+from . import evidence
 from .guard import apply_policy, Decision, CHECKS
 from .paypal import client_from_env, MockPayPal
 
@@ -40,10 +41,9 @@ def load_policy() -> dict:
 def load_case(pp, dispute_id: str) -> dict:
     if isinstance(pp, MockPayPal):
         return pp.get_case(dispute_id)
-    # Real sandbox: the dispute comes from PayPal, the seller's records from a local file.
-    rec = ROOT / "records" / f"{dispute_id}.json"
-    return {"dispute": pp.get_dispute(dispute_id),
-            "seller_records": json.loads(rec.read_text()) if rec.exists() else {}}
+    # Real sandbox: the dispute and the evidence come from PayPal, labelled by source.
+    dispute = pp.get_dispute(dispute_id)
+    return {"dispute": dispute, "seller_records": evidence.gather(pp, dispute, ROOT)}
 
 
 def review(pp, dispute_id: str, backend: str) -> Decision:
@@ -129,9 +129,11 @@ def run_eval(pp, backend: str) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="secondlook", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["list", "review", "approve", "eval"])
+    ap.add_argument("cmd", choices=["list", "review", "approve", "eval", "evidence", "ship"])
     ap.add_argument("dispute_id", nargs="?")
     ap.add_argument("--judge", default="rules", choices=list(judge_mod.BACKENDS))
+    ap.add_argument("--carrier", default="DHL")
+    ap.add_argument("--tracking", help="ship: the tracking number to register with PayPal")
     ap.add_argument("--action", help="approve: the action you reviewed and approve; refused if the "
                                      "recommendation shown now differs")
     a = ap.parse_args(argv)
@@ -152,6 +154,14 @@ def main(argv=None) -> int:
     if not a.dispute_id:
         ap.error("dispute_id required")
     case = load_case(pp, a.dispute_id)
+    if a.cmd == "evidence":
+        print(json.dumps(case["seller_records"], indent=1, ensure_ascii=False)); return 0
+    if a.cmd == "ship":
+        if not a.tracking:
+            ap.error("--tracking required")
+        print(json.dumps(pp.add_tracking(case["dispute"]["disputed_transactions"][0]["seller_transaction_id"],
+                                         a.tracking, a.carrier), ensure_ascii=False))
+        return 0
     d = review(pp, a.dispute_id, a.judge)
     print(f"[{mode}] judge={a.judge}")
     print_decision(d, case["dispute"])

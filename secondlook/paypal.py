@@ -110,6 +110,12 @@ class PayPalDisputes:
         return self._call("POST", f"/v1/customer/disputes/{dispute_id}/send-message",
                           {"message": text})
 
+    def add_tracking(self, transaction_id: str, tracking_number: str, carrier: str = "DHL") -> dict:
+        """What the shop does when it ships: register the tracking number with PayPal."""
+        return self._call("POST", "/v1/shipping/trackers-batch", {"trackers": [{
+            "transaction_id": transaction_id, "tracking_number": tracking_number,
+            "status": "SHIPPED", "carrier": carrier}]})
+
 
 class MockPayPal:
     """Same interface, no network. Disputes come from cases/, actions go to a log."""

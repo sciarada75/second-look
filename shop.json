@@ -1,0 +1,9 @@
+{
+  "_comment": "The shop's public terms. Second Look quotes these as the seller's promises.",
+  "name": "Test Store",
+  "handling_time": "ships within 2 business days",
+  "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
+  "listings": {
+    "Linen tote bag": "Linen tote bag, natural, 40x38 cm. Ships within 2 business days."
+  }
+}
