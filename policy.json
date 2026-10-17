@@ -1,9 +1,19 @@
 {
-  "_comment": "The seller's limits. Enforced by code in secondlook/guard.py, never by the model.",
+  "_comment": "The seller's limits (numbers, enforced by code in secondlook/guard.py) and preferences (words, followed by the judge in every reply).",
   "currency": "EUR",
   "min_confidence": 0.75,
-  "max_auto_refund": 50.00,
-  "always_ask_above": 200.00,
+  "max_auto_refund": 50.0,
+  "always_ask_above": 200.0,
   "defend_if_delivered_to_paypal_address": true,
-  "injection_markers": ["ignore your", "system:", "approve full refund", "as the assistant", "you must refund"]
+  "injection_markers": [
+    "ignore your",
+    "system:",
+    "approve full refund",
+    "as the assistant",
+    "you must refund"
+  ],
+  "seller_preferences": [
+    "Never ask buyers to measure an item: a measurement a buyer reports cannot be verified. Ask for checkable proof instead, such as a photo of the size label.",
+    "For fit complaints on items sent in the size ordered, offer an exchange as goodwill, without conditions."
+  ]
 }

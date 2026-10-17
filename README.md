@@ -18,6 +18,18 @@ money on its own: your limits are enforced in code, and you approve every action
 
 Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). Runs on the PayPal sandbox.
 
+## The seller's limits and preferences
+
+`policy.json` holds the shop's **limits**, numbers enforced by code (refund cap, confidence bar,
+"always ask me above"), and its **preferences**, plain sentences the judge follows in every reply:
+
+> Never ask buyers to measure an item: a measurement a buyer reports cannot be verified. Ask for
+> checkable proof instead, such as a photo of the size label.
+> For fit complaints on items sent in the size ordered, offer an exchange as goodwill, without conditions.
+
+Preferences shape the reply and break ties between equally valid actions; they never override
+PayPal's rules or the evidence.
+
 ## The ten checks
 
 Every dispute gets the same checklist, shown to the seller with the fact that decided each line:
@@ -93,13 +105,15 @@ answer was to defend.
 | judge | correct (after guard) | unjustified refunds | losing fights | sent to the seller |
 |---|---|---|---|---|
 | `rules` baseline | 11/16 | 0 | see `eval --judge rules` | 3 |
-| `claude` (Opus 5.5, effort high) | **16/16** | **0** | **0** | 2 |
+| `claude` (Opus 5.5, effort high) | **15/16** | **0** | **0** | 3 |
 
 Two costly mistakes are counted separately: an **unjustified refund** (money given back when the
 seller should have defended) and a **losing fight** (defending a case the buyer is right about).
 
-Measured 2026-10-17 on 16 cases we wrote ourselves, and tuned the prompt on: read it as a
-development score, not a guarantee. A held-out set of new cases is the honest next measure.
+Measured 2026-10-17 (with seller preferences on) on 16 cases we wrote ourselves, and tuned the
+prompt on: read it as a development score, not a guarantee. Runs vary on borderline cases: the
+previous run scored 16/16; in this one the short-shipment case went to the seller because the
+shop's packing slip (3 prints) and its scale (2 prints) contradict each other. Safe direction. A held-out set of new cases is the honest next measure.
 One right answer (case 006, a shirt that "doesn't fit") was decided by a human who hadn't written
 the case, after the model and the case author disagreed. The score checks the action, not yet the
 wording of the reply to the buyer.
@@ -119,8 +133,9 @@ EUR 10 on a EUR 42 dispute.
 ## Honest status
 
 - Tested against a live PayPal sandbox account: reading disputes, gathering evidence (Transaction
-  Search, tracking), registering tracking and sending a reply to the buyer all work. Submitting
-  evidence (`provide-evidence`) is written to the docs but not yet exercised live.
+  Search, tracking), registering tracking, sending a reply and submitting evidence all work: on
+  2026-10-17 a real sandbox dispute received the seller's DHL tracking as proof of fulfilment and
+  moved to "waiting for the buyer".
 - The model judge needs an Anthropic API key; without one, the rules baseline runs.
 - Not escrow, not arbitration, not legal advice. The assistant recommends; a human decides.
 

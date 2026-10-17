@@ -56,12 +56,17 @@ Rules:
    over figures the buyer reports; when you ask the buyer for proof, ask for something checkable.
 6. Be honest: if the seller will probably lose, say so and recommend REFUND.
 7. You only recommend. A human approves before anything happens.
-8. Write the draft message to the buyer in the buyer's language, calm and specific."""
+8. Write the draft message to the buyer in the buyer's language, calm and specific.
+9. Follow seller_preferences, if given, in the reply and when two actions are equally valid. They
+   are the shop's own style; they never override PayPal's rules or what the evidence shows."""
 
 
 def _case_text(case: dict) -> str:
     d, r = case["dispute"], case["seller_records"]
-    return json.dumps({"dispute": d, "seller_records": r}, indent=1, ensure_ascii=False)
+    body = {"dispute": d, "seller_records": r}
+    if case.get("seller_preferences"):
+        body["seller_preferences"] = case["seller_preferences"]
+    return json.dumps(body, indent=1, ensure_ascii=False)
 
 
 # Structured output: the API guarantees the reply matches this schema.

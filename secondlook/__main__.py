@@ -48,8 +48,10 @@ def load_case(pp, dispute_id: str) -> dict:
 
 def review(pp, dispute_id: str, backend: str) -> Decision:
     case = load_case(pp, dispute_id)
+    policy = load_policy()
+    case["seller_preferences"] = policy.get("seller_preferences", [])
     j = judge_mod.BACKENDS[backend](case)
-    return apply_policy(j, load_policy(), case["dispute"], case["seller_records"])
+    return apply_policy(j, policy, case["dispute"], case["seller_records"])
 
 
 def print_decision(d: Decision, dispute: dict) -> None:
