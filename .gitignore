@@ -3,3 +3,7 @@
 __pycache__/
 *.pyc
 records/
+video/public/footage/
+video/public/audio/
+video/node_modules/
+video/out/
