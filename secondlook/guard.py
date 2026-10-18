@@ -113,7 +113,9 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         rels = {l.get("rel") for l in dispute.get("links", [])}
         if "provide_evidence" in rels:
             can.add("DEFEND")
-        if "send_message" in rels:
+        # PayPal keeps the send_message link while it waits for the buyer, but refuses a second seller
+        # message then (422, seen live 2026-10-18): one message, then the buyer's turn.
+        if "send_message" in rels and dispute.get("status") != "WAITING_FOR_BUYER_RESPONSE":
             can.add("MESSAGE")
         for t in allowed.get("accept_claim", {}).get("accept_claim_types", []):
             can.add({"REFUND": "REFUND", "PARTIAL_REFUND": "PARTIAL_REFUND"}.get(t, ""))

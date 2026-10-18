@@ -81,6 +81,15 @@ def test_message_is_allowed_when_paypal_offers_send_message():
     assert apply_policy(Judgment("MESSAGE", 0.9, "premature"), POLICY, d, {}).action == "MESSAGE"
 
 
+def test_no_second_message_while_paypal_waits_for_the_buyer():
+    d = dispute(20)
+    d["status"] = "WAITING_FOR_BUYER_RESPONSE"
+    d["allowed_response_options"] = {"accept_claim": {"accept_claim_types": ["REFUND"]}}
+    d["links"] = [{"rel": "send_message"}, {"rel": "provide_evidence"}]
+    assert apply_policy(Judgment("MESSAGE", 0.9, "premature"), POLICY, d, {}).action == "ASK_SELLER"
+    assert apply_policy(Judgment("DEFEND", 0.9, "shipped"), POLICY, d, {}).action == "DEFEND"
+
+
 def test_fail_on_timeline_means_buyer_wins_not_broken_evidence():
     j = Judgment("REFUND", 0.9, "seller late", checks=[{"id": "timeline", "result": "FAIL",
                                                        "finding": "refund due 10 Oct, not issued"}])
