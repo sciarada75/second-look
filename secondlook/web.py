@@ -111,6 +111,10 @@ def remove_rule(index: int) -> None:
         POLICY.write_text(json.dumps(pol, indent=2, ensure_ascii=False) + "\n")
 
 
+# a send button works once: the first click locks it (PayPal refuses a second message anyway)
+LOCK = ('<script>document.querySelectorAll(".send").forEach(f=>f.addEventListener("submit",e=>{'
+        'const b=e.target.querySelector("button");b.disabled=true;b.textContent="Sending to PayPal…";}));</script>')
+
 TEACH = ('<details class="teach"><summary>Teach it for next time</summary>'
          '<label for="rule">A rule in plain words. Second Look follows it in every future review.</label>'
          '<input id="rule" name="rule" maxlength="300" '
@@ -432,8 +436,8 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                  '<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
                  'would run, and recommends one answer. Nothing is sent until you approve.</p>'
                  '<button>Take a second look</button></form>'
-                 '<script>document.querySelector(".run").addEventListener("submit",e=>{const b=e.target.querySelector("button");'
-                 'b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";});</script>').replace("DISPUTE_ID", e(dispute_id))
+                 '<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.querySelector("button");'
+                 'b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>').replace("DISPUTE_ID", e(dispute_id))
     else:
         dec, sent = saved
         j = dec.judgment
@@ -455,26 +459,26 @@ def case_page(dispute_id: str, flash: str = "") -> str:
             action_part = done + (f'<form class="run" method="post" action="/d/{e(dispute_id)}/review"><div class="stale">'
                            f'<b>This answer is out of date:</b> {e("; ".join(changes))}.</div>'
                            f'<button>Take a fresh look</button></form>'
-                           '<script>document.querySelector(".run").addEventListener("submit",e=>{const b=e.target.'
-                           'querySelector("button");b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";});</script>')
+                           '<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.'
+                           'querySelector("button");b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>')
         elif sent:
             action_part = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>'
         elif dec.action == "ASK_SELLER" and j.draft_message:
-            action_part = (f'<form method="post" action="/d/{e(dispute_id)}/approve">'
+            action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
                            f'<label class="reply" for="reply">Before you decide, ask the buyer</label>'
                            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
                            f'<input type="hidden" name="action" value="MESSAGE">'
                            f'<div class="approve"><button>Send this question</button>'
-                           f'<span>Sends only this message. No money moves.</span></div>' + TEACH + '</form>')
+                           f'<span>Sends only this message. No money moves.</span></div>' + TEACH + '</form>' + LOCK)
         elif dec.action == "ASK_SELLER":
             action_part = '<p class="conf">Nothing to send: read the checks and decide.</p>'
         else:
-            action_part = (f'<form method="post" action="/d/{e(dispute_id)}/approve">'
+            action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
                            f'<label class="reply" for="reply">Your reply to the buyer</label>'
                            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
                            f'<input type="hidden" name="action" value="{e(dec.action)}">'
                            f'<div class="approve"><button>Approve: {e(ACTION.get(dec.action, dec.action).lower())}</button>'
-                           f'<span>Sends exactly this to PayPal.</span></div>' + TEACH + '</form>')
+                           f'<span>Sends exactly this to PayPal.</span></div>' + TEACH + '</form>' + LOCK)
         right = f'{banner}{flash}{verdict}{action_part}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
     return PAGE.format(title=f"{msg[:40]} | Second Look", mode="Practice case" if practice else "PayPal sandbox", body=body)
@@ -537,6 +541,8 @@ class Handler(BaseHTTPRequestHandler):
                 did = parts[1]
                 saved = _saved(did)
                 chosen = form.get("action", [""])[0]
+                if saved and saved[1]:
+                    return self._redirect(f"/d/{did}")  # already sent: a second click sends nothing
                 if not saved or not may_approve(saved[0].action, chosen):
                     return self._send("This answer changed since you saw it. Reload the page.", 409)
                 dec = saved[0]
