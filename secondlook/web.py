@@ -76,9 +76,33 @@ def _saved(dispute_id: str):
                     overridden=raw["overridden"]), raw.get("sent")
 
 
-def _save(dispute_id: str, d: Decision, sent=None) -> None:
+def _save(dispute_id: str, d: Decision, sent=None, seen=None) -> None:
     REVIEWS.mkdir(parents=True, exist_ok=True)
-    (REVIEWS / f"{dispute_id}.json").write_text(json.dumps({**asdict(d), "sent": sent}, ensure_ascii=False))
+    (REVIEWS / f"{dispute_id}.json").write_text(json.dumps({**asdict(d), "sent": sent, "seen": seen},
+                                                           ensure_ascii=False))
+
+
+# What a review was based on. If any of it changes, the review is out of date and Approve is withdrawn:
+# the seller must never approve an answer to a situation that no longer exists.
+CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the case to another stage",
+           "amount": "the amount in dispute changed", "tracking": "tracking was added or changed",
+           "ship_to": "PayPal now shows the buyer's address"}
+
+
+def _seen(case: dict) -> dict:
+    d, r = case["dispute"], case["seller_records"]
+    return {"buyer_messages": sum(1 for m in d.get("messages", []) if m.get("posted_by") == "BUYER"),
+            "stage": d.get("dispute_life_cycle_stage"), "amount": d["dispute_amount"]["value"],
+            "tracking": (r.get("tracking") or {}).get("tracking_number"), "ship_to": bool(r.get("ship_to"))}
+
+
+def _changes(dispute_id: str, case: dict) -> list:
+    f = REVIEWS / f"{dispute_id}.json"
+    seen = json.loads(f.read_text()).get("seen") if f.exists() else None
+    if seen is None:
+        return ["this review was saved before Second Look tracked changes"]
+    now = _seen(case)
+    return [CHANGED[k] for k in CHANGED if seen.get(k) != now.get(k)]
 
 
 def _t(iso):
@@ -279,6 +303,7 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 .approve{{display:flex;gap:18px;align-items:center;margin-top:16px}} .approve span{{color:var(--soft)}}
 .sent{{padding:18px 22px;background:#E8F0EA;border-left:4px solid var(--pass);margin-bottom:24px}}
 .sent b{{font-size:20px}}
+.stale{{padding:14px 18px;background:#FBF3E4;border-left:4px solid var(--incon);margin:0 0 14px}}
 .back{{display:inline-block;margin-bottom:26px;color:var(--soft)}}
 @media (max-width:1100px){{.case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
@@ -355,7 +380,15 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                    f'<p>{e(lead)}</p>'
                    + (f'<details><summary>Full reasoning</summary><p>{e(rest)}</p></details>' if rest else "")
                    + f'{guard}</section>')
-        if sent:
+        changes = _changes(dispute_id, case)
+        done = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>' if sent else ""
+        if changes:
+            action_part = done + (f'<form class="run" method="post" action="/d/{e(dispute_id)}/review"><div class="stale">'
+                           f'<b>This answer is out of date:</b> {e("; ".join(changes))}.</div>'
+                           f'<button>Take a fresh look</button></form>'
+                           '<script>document.querySelector(".run").addEventListener("submit",e=>{const b=e.target.'
+                           'querySelector("button");b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";});</script>')
+        elif sent:
             action_part = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>'
         elif dec.action == "ASK_SELLER" and j.draft_message:
             action_part = (f'<form method="post" action="/d/{e(dispute_id)}/approve">'
@@ -419,7 +452,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "review":
                 from .__main__ import review
                 did = parts[1]
-                _save(did, review(_client(did), did, "claude"))
+                dec = review(_client(did), did, "claude")
+                _save(did, dec, seen=_seen(_case(did)))
                 return self._redirect(f"/d/{did}")
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "approve":
                 from .__main__ import execute
@@ -433,6 +467,9 @@ class Handler(BaseHTTPRequestHandler):
                 dec.action = chosen  # on "your call" the seller may send the drafted question
                 dec.judgment.draft_message = form.get("message", [dec.judgment.draft_message])[0]
                 case = _case(did)
+                if not saved[1] and _changes(did, case):
+                    return self._send("Something changed since this review. Reload the page.", 409)
+                seen = json.loads((REVIEWS / f"{did}.json").read_text()).get("seen")
                 result = execute(_client(did), dec, case["dispute"], case["seller_records"])
                 sent = {"DEFEND": "Evidence submitted and reply sent.",
                         "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
@@ -441,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(_client(did), MockPayPal):
                     sent += " (Practice case: logged, not sent to PayPal.)"
                 dec.action = recommended  # the page keeps showing what was recommended
-                _save(did, dec, sent)
+                _save(did, dec, sent, seen)
                 return self._redirect(f"/d/{did}")
             self._send("Not found", 404)
         except Exception as err:
