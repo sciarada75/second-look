@@ -554,7 +554,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send("Something changed since this review. Reload the page.", 409)
                 seen = json.loads((REVIEWS / f"{did}.json").read_text()).get("seen")
                 result = execute(_client(did), dec, case["dispute"], case["seller_records"])
-                sent = {"DEFEND": "Evidence submitted and reply sent.",
+                sent = {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
+                        else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
                         "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
                         "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
                         "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
