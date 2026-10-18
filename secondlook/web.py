@@ -147,11 +147,17 @@ def evidence(r: dict) -> str:
         tag = {"PayPal Transaction Search": "PayPal order", "seller's notes": "Your notes"}.get(tag, tag)
         tag = "Your shop terms" if tag.startswith("shop.json") else tag
         tag = "PayPal tracking" if tag.startswith("PayPal tracking") else tag
+        # the tag's look says how much the fact can be relied on: PayPal's records, your published terms, your word
+        kind = "paypal" if tag.startswith("PayPal") else "shop" if tag == "Your shop terms" else \
+               "notes" if tag == "Your notes" else "practice"
         rows.append(f'<div class="ev"><dt>{e(label)}</dt><dd>{e(str(v))}'
-                    f'<span class="src">{e(tag)}</span></dd></div>')
+                    f'<span class="src {kind}">{e(tag)}</span></dd></div>')
     for k, why in (r.get("unavailable") or {}).items():
         rows.append(f'<div class="ev missing"><dt>{e(EVIDENCE_LABEL.get(k, k))}</dt><dd>{e(why)}</dd></div>')
-    return f'<dl class="evidence">{"".join(rows)}</dl>'
+    legend = ('<p class="legend"><span class="src paypal">PayPal</span> PayPal\'s own records '
+              '<span class="src shop">Your shop terms</span> what you published '
+              '<span class="src notes">Your notes</span> your word only</p>')
+    return f'{legend}<dl class="evidence">{"".join(rows)}</dl>'
 
 
 def plain(text: str) -> str:
@@ -241,7 +247,11 @@ h1.page{{font-size:36px;line-height:1.2;margin:0 0 6px}}
 h2{{font-size:19px;margin:0 0 14px}}
 .evidence{{margin:0}} .ev{{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:10px 0;border-top:1px solid var(--rule)}}
 .ev dt{{color:var(--soft)}} .ev dd{{margin:0}}
-.src{{display:inline-block;margin-left:10px;padding:1px 8px;font-size:13px;background:var(--kraft-bg);color:#6E4F27;border-left:3px solid var(--kraft)}}
+.src{{display:inline-block;margin-left:10px;padding:1px 8px;font-size:13px;font-weight:500;background:var(--kraft-bg);color:#6E4F27;border-left:3px solid var(--kraft)}}
+.src.paypal{{background:var(--ink);color:#fff;border-left-color:var(--ink)}}
+.src.shop{{background:var(--kraft-bg);color:#6E4F27;border-left-color:var(--kraft)}}
+.src.notes{{background:transparent;color:var(--soft);border:1px dashed var(--soft);border-left-width:1px}}
+.legend{{color:var(--soft);font-size:14px;margin:-4px 0 12px}} .legend .src{{margin-left:0;margin-right:4px}} .legend .src+.src,.legend .src:not(:first-child){{margin-left:14px}}
 .ev.missing dd{{color:var(--incon)}}
 /* second look */
 .look{{border-left:1px solid var(--rule);padding-left:56px}}
