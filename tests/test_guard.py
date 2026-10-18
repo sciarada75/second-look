@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from secondlook.guard import Judgment, apply_policy  # noqa: E402
+from secondlook.guard import Judgment, apply_policy, may_approve  # noqa: E402
 
 POLICY = {"min_confidence": 0.75, "max_auto_refund": 50.0, "always_ask_above": 200.0,
           "defend_if_delivered_to_paypal_address": True,
@@ -85,6 +85,13 @@ def test_fail_on_timeline_means_buyer_wins_not_broken_evidence():
     j = Judgment("REFUND", 0.9, "seller late", checks=[{"id": "timeline", "result": "FAIL",
                                                        "finding": "refund due 10 Oct, not issued"}])
     assert apply_policy(j, POLICY, dispute(20, reason="CREDIT_NOT_PROCESSED", msg="where is my refund"), {}).action == "REFUND"
+
+
+def test_your_call_allows_a_question_but_never_money():
+    assert may_approve("ASK_SELLER", "MESSAGE")
+    for money in ("REFUND", "PARTIAL_REFUND", "REPLACE", "DEFEND"):
+        assert not may_approve("ASK_SELLER", money)
+    assert not may_approve("MESSAGE", "REFUND") and may_approve("REFUND", "REFUND")
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .guard import CHECKS, Decision, Judgment
+from .guard import may_approve, CHECKS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,12 +41,7 @@ ACTION_SAYS = {
     "PARTIAL_REFUND": "PayPal offers the buyer the amount below.",
     "REPLACE": "PayPal tells the buyer a replacement is on its way.",
     "MESSAGE": "Only the reply is sent. No money moves.",
-    "ASK_SELLER": "Nothing is sent. Read the checks and decide.",
-}
-RESULT = {
-    "PASS": ("Favours you", "pass"), "FAIL": ("Favours the buyer", "fail"),
-    "INCONSISTENT": ("Evidence doesn't add up", "incon"), "UNCLEAR": ("Not enough to tell", "unclear"),
-    "NOT_APPLICABLE": ("Doesn't apply", "na"),
+    "ASK_SELLER": "Nothing is sent until you choose. Start with what doesn't add up.",
 }
 EVIDENCE_LABEL = {
     "order_date": "Ordered", "items": "Items", "ship_to": "Ships to", "tracking": "Tracking",
@@ -172,13 +167,37 @@ def first_sentences(text: str, n: int = 2):
     return " ".join(parts[:n]), " ".join(parts[n:])
 
 
+# The ten checks, grouped by what they mean for the decision, most decisive first.
+GROUPS = [
+    ("INCONSISTENT", "Doesn't add up: check these first", "incon"),
+    ("FAIL", "Supports the buyer's claim", "fail"),
+    ("PASS", "Speaks against the claim", "pass"),
+    ("UNCLEAR", "Can't tell yet", "unclear"),
+]
+
+
+def _bucket(c: dict) -> str:
+    # A clean "hidden instructions" check is not an argument against the buyer, only "nothing to flag";
+    # a hit is a red flag whatever label the judge gave it.
+    if c["id"] == "hidden_instructions":
+        return "CLEAN" if c["result"] in ("PASS", "NOT_APPLICABLE") else "INCONSISTENT"
+    return c["result"]
+
+
 def checks(j: Judgment) -> str:
-    rows = []
-    for c in j.checks:
-        word, cls = RESULT.get(c["result"], (c["result"], "na"))
-        rows.append(f'<li class="check {cls}"><span class="res">{e(word)}</span>'
-                    f'<b>{e(CHECKS.get(c["id"], c["id"]))}</b><q>{e(c["finding"])}</q></li>')
-    return f'<ol class="checks">{"".join(rows)}</ol>'
+    out = []
+    for result, title, cls in GROUPS:
+        rows = [f'<li class="check {cls}"><b>{e(CHECKS.get(c["id"], c["id"]))}</b><q>{e(c["finding"])}</q></li>'
+                for c in j.checks if _bucket(c) == result]
+        if rows:
+            out.append(f'<section class="group {cls}"><h4>{e(title)} <span>{len(rows)}</span></h4>'
+                       f'<ul class="checks">{"".join(rows)}</ul></section>')
+    na = [CHECKS.get(c["id"], c["id"]).lower() for c in j.checks if _bucket(c) == "NOT_APPLICABLE"]
+    if any(_bucket(c) == "CLEAN" for c in j.checks):
+        out.append('<p class="na-line">Nothing to flag: the buyer\'s text gives no orders to the assistant.</p>')
+    if na:
+        out.append(f'<p class="na-line">Not relevant here: {e("; ".join(na))}.</p>')
+    return "".join(out)
 
 
 PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -228,12 +247,16 @@ h2{{font-size:19px;margin:0 0 14px}}
 .look{{border-left:1px solid var(--rule);padding-left:56px}}
 .run button,.approve button{{font:700 19px "Schibsted Grotesk",sans-serif;padding:16px 28px;border:0;background:var(--ink);color:var(--paper);cursor:pointer}}
 .run p{{color:var(--soft)}}
-.checks{{list-style:none;padding:0;margin:0 0 30px}}
-.check{{display:grid;grid-template-columns:190px 1fr;gap:2px 18px;padding:11px 0;border-top:1px solid var(--rule)}}
-.check .res{{grid-row:1/3;font-weight:700;font-size:15px;padding-left:12px;border-left:4px solid}}
-.check b{{font-weight:500}} .check q{{color:var(--soft);font-size:16px;quotes:none}}
-.pass .res{{color:var(--pass);border-color:var(--pass)}} .fail .res{{color:var(--fail);border-color:var(--fail)}}
-.incon .res{{color:var(--incon);border-color:var(--incon)}} .unclear .res,.na .res{{color:var(--unclear);border-color:var(--rule)}}
+.group{{margin:0 0 22px;padding-left:16px;border-left:4px solid var(--rule)}}
+.group h4{{margin:0 0 4px;font-size:17px;font-weight:700}} .group h4 span{{font-weight:400;color:var(--soft);margin-left:6px}}
+.group.pass{{border-color:var(--pass)}} .group.pass h4{{color:var(--pass)}}
+.group.fail{{border-color:var(--fail)}} .group.fail h4{{color:var(--fail)}}
+.group.incon{{border-color:var(--incon);background:#FBF3E4;padding:12px 16px}} .group.incon h4{{color:var(--incon)}}
+.group.unclear h4{{color:var(--soft)}}
+.checks{{list-style:none;padding:0;margin:0}}
+.check{{padding:8px 0;border-top:1px solid var(--rule)}} .check:first-child{{border-top:0}}
+.check b{{display:block;font-weight:500}} .check q{{color:var(--soft);font-size:16px;quotes:none}}
+.na-line{{color:var(--soft);font-size:15px;margin:0 0 30px}}
 .verdict{{background:#fff;border:1px solid var(--rule);padding:28px 30px;margin-bottom:24px}}
 .verdict h3{{margin:0;font-size:34px;line-height:1.2}} .verdict .conf{{color:var(--soft);font-size:15px;margin:4px 0 14px}}
 .verdict p{{margin:0 0 10px;max-width:72ch}}
@@ -323,10 +346,16 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                    + (f'<details><summary>Full reasoning</summary><p>{e(rest)}</p></details>' if rest else "")
                    + f'{guard}</section>')
         if sent:
-            action_part = (f'<div class="sent"><b>Sent to PayPal: {e(ACTION.get(dec.action, dec.action).lower())}.</b>'
-                           f'<br>{e(sent)}</div>')
+            action_part = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>'
+        elif dec.action == "ASK_SELLER" and j.draft_message:
+            action_part = (f'<form method="post" action="/d/{e(dispute_id)}/approve">'
+                           f'<label class="reply" for="reply">Before you decide, ask the buyer</label>'
+                           f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
+                           f'<input type="hidden" name="action" value="MESSAGE">'
+                           f'<div class="approve"><button>Send this question</button>'
+                           f'<span>Sends only this message. No money moves.</span></div></form>')
         elif dec.action == "ASK_SELLER":
-            action_part = '<p class="conf">Nothing to approve: this one is your call.</p>'
+            action_part = '<p class="conf">Nothing to send: read the checks and decide.</p>'
         else:
             action_part = (f'<form method="post" action="/d/{e(dispute_id)}/approve">'
                            f'<label class="reply" for="reply">Your reply to the buyer</label>'
@@ -386,17 +415,22 @@ class Handler(BaseHTTPRequestHandler):
                 from .__main__ import execute
                 did = parts[1]
                 saved = _saved(did)
-                if not saved or saved[0].action != form.get("action", [""])[0]:
+                chosen = form.get("action", [""])[0]
+                if not saved or not may_approve(saved[0].action, chosen):
                     return self._send("This answer changed since you saw it. Reload the page.", 409)
                 dec = saved[0]
+                recommended = dec.action
+                dec.action = chosen  # on "your call" the seller may send the drafted question
                 dec.judgment.draft_message = form.get("message", [dec.judgment.draft_message])[0]
                 case = _case(did)
                 result = execute(_client(did), dec, case["dispute"], case["seller_records"])
-                sent = {"DEFEND": "Evidence submitted and reply sent.", "MESSAGE": "Reply sent.",
+                sent = {"DEFEND": "Evidence submitted and reply sent.",
+                        "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
                         "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
                         "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
                 if isinstance(_client(did), MockPayPal):
                     sent += " (Practice case: logged, not sent to PayPal.)"
+                dec.action = recommended  # the page keeps showing what was recommended
                 _save(did, dec, sent)
                 return self._redirect(f"/d/{did}")
             self._send("Not found", 404)

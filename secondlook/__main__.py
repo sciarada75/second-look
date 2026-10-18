@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -15,7 +16,7 @@ from pathlib import Path
 
 from . import judge as judge_mod
 from . import evidence
-from .guard import apply_policy, Decision, CHECKS
+from .guard import apply_policy, may_approve, Decision, CHECKS
 from .paypal import client_from_env, MockPayPal
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -189,8 +190,9 @@ def main(argv=None) -> int:
         # The seller approves a specific action they have seen, never "whatever the model says now".
         if not a.action:
             print("\nNot executed: say which action you approve, e.g. --action MESSAGE"); return 2
-        if a.action != d.action:
+        if not may_approve(d.action, a.action):
             print(f"\nNot executed: you approved {a.action}, but the recommendation is now {d.action}. Review again."); return 2
+        d = dataclasses.replace(d, action=a.action)  # ASK_SELLER + MESSAGE sends the drafted question
         print("\nexecuting:", json.dumps(execute(pp, d, case["dispute"], case["seller_records"]), ensure_ascii=False))
     return 0
 
