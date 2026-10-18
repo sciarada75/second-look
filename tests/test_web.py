@@ -36,6 +36,16 @@ def test_review_without_a_record_of_what_it_saw_is_out_of_date():
     assert web._changes("X", case())
 
 
+def test_rules_are_added_once_and_removed_by_position():
+    web.POLICY = Path(tempfile.mkdtemp()) / "policy.json"
+    web.POLICY.write_text(json.dumps({"max_auto_refund": 50, "seller_preferences": ["A"]}))
+    assert web.add_rule("  Never   promise a date. ") and not web.add_rule("Never promise a date.")
+    assert not web.add_rule("   ")
+    assert web._policy()["seller_preferences"] == ["A", "Never promise a date."]
+    web.remove_rule(0)
+    assert web._policy() == {"max_auto_refund": 50, "seller_preferences": ["Never promise a date."]}
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

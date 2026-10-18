@@ -82,6 +82,64 @@ def _save(dispute_id: str, d: Decision, sent=None, seen=None) -> None:
                                                            ensure_ascii=False))
 
 
+# ---------- the seller's rules ----------
+# Preferences are plain sentences the judge follows in every review (policy.json "seller_preferences").
+# This is how Second Look learns: from rules the seller writes and can read, never silently from past cases.
+POLICY = ROOT / "policy.json"
+
+
+def _policy() -> dict:
+    return json.loads(POLICY.read_text())
+
+
+def add_rule(text: str) -> bool:
+    text = " ".join(text.split())[:300]
+    pol = _policy()
+    rules = pol.setdefault("seller_preferences", [])
+    if not text or text in rules:
+        return False
+    rules.append(text)
+    POLICY.write_text(json.dumps(pol, indent=2, ensure_ascii=False) + "\n")
+    return True
+
+
+def remove_rule(index: int) -> None:
+    pol = _policy()
+    rules = pol.get("seller_preferences", [])
+    if 0 <= index < len(rules):
+        rules.pop(index)
+        POLICY.write_text(json.dumps(pol, indent=2, ensure_ascii=False) + "\n")
+
+
+TEACH = ('<details class="teach"><summary>Teach it for next time</summary>'
+         '<label for="rule">A rule in plain words. Second Look follows it in every future review.</label>'
+         '<input id="rule" name="rule" maxlength="300" '
+         'placeholder="For example: never promise a delivery date, only a shipping date."></details>')
+
+
+def rules_page(flash: str = "") -> str:
+    pol = _policy()
+    cur = pol.get("currency", "")
+    limits = [f'Refunds above {pol["max_auto_refund"]:.0f} {cur} always come back to you.',
+              f'Disputes above {pol["always_ask_above"]:.0f} {cur} always come back to you.',
+              f'Answers it is less than {pol["min_confidence"]:.0%} sure of come back to you.']
+    if pol.get("defend_if_delivered_to_paypal_address"):
+        limits.append("A parcel delivered to the buyer's PayPal address is always defended.")
+    rows = "".join(f'<li><span>{e(r)}</span><form method="post" action="/rules/remove">'
+                   f'<input type="hidden" name="i" value="{i}"><button class="quiet">Remove</button></form></li>'
+                   for i, r in enumerate(pol.get("seller_preferences", [])))
+    body = (f'<a class="back" href="/">All disputes</a><h1 class="page">Your rules</h1>{flash}'
+            '<section class="rules"><h2>How you like to answer</h2>'
+            '<p class="who">Plain sentences. Second Look follows them in every review, and you can change them any time.</p>'
+            f'<ul class="rulelist">{rows or "<li><span>No rules yet.</span></li>"}</ul>'
+            '<form method="post" action="/rules/add" class="addrule"><input name="rule" maxlength="300" '
+            'placeholder="Add a rule, for example: offer an exchange before a refund on fit complaints." '
+            'aria-label="New rule"><button>Add rule</button></form>'
+            '<h2>Your limits</h2><p class="who">Numbers, enforced by code after the AI has answered. '
+            'They can make an answer more careful, never more generous.</p>'
+            f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in limits)}</ul></section>')
+    return PAGE.format(title="Your rules | Second Look", mode="", body=body)
+
 # What a review was based on. If any of it changes, the review is out of date and Approve is withdrawn:
 # the seller must never approve an answer to a situation that no longer exists.
 CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the case to another stage",
@@ -243,6 +301,17 @@ a{{color:inherit}} :focus-visible{{outline:3px solid var(--kraft);outline-offset
 header.top{{display:flex;justify-content:space-between;align-items:baseline;padding:22px 56px;border-bottom:1px solid var(--rule)}}
 .brand{{font-weight:700;font-size:20px;text-decoration:none}} .brand small{{font-weight:400;color:var(--soft);margin-left:10px}}
 .mode{{color:var(--soft);font-size:15px}}
+header.top nav{{display:flex;gap:28px;align-items:baseline}} header.top nav a{{font-size:15px}}
+.teach{{margin-top:14px;color:var(--soft)}} .teach summary{{cursor:pointer;font-size:15px}}
+.teach label{{display:block;margin:10px 0 6px;font-size:15px}}
+.teach input,.addrule input{{width:100%;font:400 16px/1.4 "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff;color:var(--ink)}}
+.rules{{max-width:900px}} .rules h2{{margin-top:36px}}
+.rulelist,.limits{{list-style:none;padding:0;margin:0 0 18px}}
+.rulelist li{{display:flex;justify-content:space-between;gap:24px;align-items:center;padding:12px 0;border-top:1px solid var(--rule)}}
+.rulelist li span{{font-family:Newsreader,Georgia,serif;font-style:italic;font-size:19px}}
+.limits li{{padding:10px 0;border-top:1px solid var(--rule)}}
+.addrule{{display:flex;gap:12px}} .addrule button{{white-space:nowrap;font:700 16px "Schibsted Grotesk",sans-serif;padding:10px 20px;border:0;background:var(--ink);color:var(--paper);cursor:pointer}}
+button.quiet{{cursor:pointer;background:none;color:var(--soft);border:1px solid var(--rule);padding:6px 12px;font-size:14px}}
 main{{max-width:1720px;margin:0 auto;padding:40px 56px 80px}}
 q,blockquote,.quote{{font-family:Newsreader,Georgia,serif;font-style:italic}}
 /* inbox */
@@ -308,7 +377,7 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 @media (max-width:1100px){{.case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
 </style></head><body>
-<header class="top"><a class="brand" href="/">Second Look<small>Sell without fear.</small></a><span class="mode">{mode}</span></header>
+<header class="top"><a class="brand" href="/">Second Look<small>Sell without fear.</small></a><nav><a href="/rules">Your rules</a><span class="mode">{mode}</span></nav></header>
 <main>{body}</main></body></html>"""
 
 
@@ -396,7 +465,7 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
                            f'<input type="hidden" name="action" value="MESSAGE">'
                            f'<div class="approve"><button>Send this question</button>'
-                           f'<span>Sends only this message. No money moves.</span></div></form>')
+                           f'<span>Sends only this message. No money moves.</span></div>' + TEACH + '</form>')
         elif dec.action == "ASK_SELLER":
             action_part = '<p class="conf">Nothing to send: read the checks and decide.</p>'
         else:
@@ -405,7 +474,7 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
                            f'<input type="hidden" name="action" value="{e(dec.action)}">'
                            f'<div class="approve"><button>Approve: {e(ACTION.get(dec.action, dec.action).lower())}</button>'
-                           f'<span>Sends exactly this to PayPal.</span></div></form>')
+                           f'<span>Sends exactly this to PayPal.</span></div>' + TEACH + '</form>')
         right = f'{banner}{flash}{verdict}{action_part}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
     return PAGE.format(title=f"{msg[:40]} | Second Look", mode="Practice case" if practice else "PayPal sandbox", body=body)
@@ -439,6 +508,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send("", 204)
             if u.path == "/":
                 return self._send(inbox_page("practice" in parse_qs(u.query)))
+            if u.path == "/rules":
+                return self._send(rules_page())
             if u.path.startswith("/d/"):
                 return self._send(case_page(u.path[3:].strip("/")))
             self._send("Not found", 404)
@@ -449,6 +520,12 @@ class Handler(BaseHTTPRequestHandler):
         parts = urlparse(self.path).path.strip("/").split("/")
         form = parse_qs(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode())
         try:
+            if parts == ["rules", "add"]:
+                add_rule(form.get("rule", [""])[0])
+                return self._redirect("/rules")
+            if parts == ["rules", "remove"]:
+                remove_rule(int(form.get("i", ["-1"])[0]))
+                return self._redirect("/rules")
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "review":
                 from .__main__ import review
                 did = parts[1]
@@ -477,6 +554,9 @@ class Handler(BaseHTTPRequestHandler):
                         "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
                 if isinstance(_client(did), MockPayPal):
                     sent += " (Practice case: logged, not sent to PayPal.)"
+                rule = form.get("rule", [""])[0]
+                if add_rule(rule):
+                    sent += f" New rule saved: {' '.join(rule.split())}"
                 dec.action = recommended  # the page keeps showing what was recommended
                 _save(did, dec, sent, seen)
                 return self._redirect(f"/d/{did}")

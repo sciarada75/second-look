@@ -30,6 +30,13 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/)
 Preferences shape the reply and break ties between equally valid actions; they never override
 PayPal's rules or the evidence.
 
+**This is how Second Look learns: from you, in words you can read.** When you approve a reply you
+corrected, *Teach it for next time* saves your correction as a new preference; the *Your rules*
+page lists them all, next to the limits, and removes any of them. It does not learn silently from
+past cases: one odd case could then shift every later answer without anyone seeing it, while a
+written rule can be read, changed and tested again. The limits stay in code, out of reach of any
+rule: a preference can change how Second Look answers, never raise what it may refund on its own.
+
 ## The ten checks
 
 Every dispute gets the same checklist, shown to the seller with the fact that decided each line:
