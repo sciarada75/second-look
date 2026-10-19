@@ -116,7 +116,7 @@ def remove_rule(index: int) -> None:
 LOCK = ('<script>document.querySelectorAll(".send").forEach(f=>f.addEventListener("submit",e=>{'
         'const b=e.target.querySelector("button");b.disabled=true;b.textContent="Sending to PayPal…";}));</script>')
 
-TEACH = ('<details class="teach"><summary>Teach it for next time</summary>'
+TEACH = ('<details class="teach"><summary>Add a rule for next time (saved when you approve)</summary>'
          '<label for="rule">A rule in plain words. Second Look follows it in every future review.</label>'
          '<input id="rule" name="rule" maxlength="300" '
          'placeholder="For example: never promise a delivery date, only a shipping date."></details>')

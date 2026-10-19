@@ -39,7 +39,7 @@ no refund without you seeing it first (the numbers are yours to change). It only
 your shop: PayPal doesn't share a buyer's disputes with other sellers.
 
 **This is how Second Look learns: from you, in words you can read.** When you approve a reply you
-corrected, *Teach it for next time* saves your correction as a new preference; the *Your rules*
+corrected, *Add a rule for next time* saves your correction as a new preference; the *Your rules*
 page lists them all, next to the limits, and removes any of them. It does not learn silently from
 past cases: one odd case could then shift every later answer without anyone seeing it, while a
 written rule can be read, changed and tested again. The limits stay in code, out of reach of any
