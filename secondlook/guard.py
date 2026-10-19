@@ -135,6 +135,18 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         notes.append(f"The judge found the evidence inconsistent ({', '.join(failed)}); check it before anything is sent.")
         action = "ASK_SELLER"
 
+    # Rule 8: a buyer who disputes far more often than the shop's usual rate (the base rate, not a raw
+    # count) gets no money unseen. Only with enough orders to compare, and the numbers are the seller's.
+    h, rb = records.get("buyer_history_counts") or {}, policy.get("repeat_buyer") or {}
+    if h and rb and action in ("REFUND", "PARTIAL_REFUND", "REPLACE") and h.get("buyer_orders") \
+            and h.get("shop_disputes") and h.get("shop_orders", 0) >= rb.get("min_shop_orders", 20) \
+            and h.get("earlier_disputes", 0) >= rb.get("min_earlier_disputes", 2):
+        times = (h["buyer_disputes"] / h["buyer_orders"]) / (h["shop_disputes"] / h["shop_orders"])
+        if times >= rb.get("times_shop_rate", 3):
+            notes.append(f"This buyer disputes {times:.1f} times your shop's usual rate "
+                         f"({h['earlier_disputes']} earlier disputes with you). Routed to you.")
+            action = "ASK_SELLER"
+
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action))
 
 

@@ -49,6 +49,7 @@ EVIDENCE_LABEL = {
     "listing_text": "Your listing", "fulfilment_status": "Status", "planned_ship_date": "Planned shipping",
     "packing_slip_qty": "Packing slip says", "shipment_weight_g": "Parcel weighed (g)",
     "unit_weight_g": "One item weighs (g)", "envelope_weight_g": "Empty envelope weighs (g)",
+    "buyer_history": "This buyer",
 }
 
 e = html.escape
@@ -129,6 +130,11 @@ def rules_page(flash: str = "") -> str:
               f'Answers it is less than {pol["min_confidence"]:.0%} sure of come back to you.']
     if pol.get("defend_if_delivered_to_paypal_address"):
         limits.append("A parcel delivered to the buyer's PayPal address is always defended.")
+    rb = pol.get("repeat_buyer")
+    if rb:
+        limits.append(f'Refunds come back to you when a buyer disputes {rb["times_shop_rate"]:g} times more often than '
+                      f'your shop usually sees, with at least {rb["min_earlier_disputes"]} earlier disputes. '
+                      f'Compared only once your shop has {rb["min_shop_orders"]} orders in 90 days.')
     rows = "".join(f'<li><span>{e(r)}</span><form method="post" action="/rules/remove">'
                    f'<input type="hidden" name="i" value="{i}"><button class="quiet">Remove</button></form></li>'
                    for i, r in enumerate(pol.get("seller_preferences", [])))
@@ -230,7 +236,8 @@ def evidence(r: dict) -> str:
             t = _t(v)
             v = f"{t:%d %b %Y, %H:%M}" if t else v
         tag = src.get(k, "practice case")
-        tag = {"PayPal Transaction Search": "PayPal order", "seller's notes": "Your notes"}.get(tag, tag)
+        tag = {"PayPal Transaction Search": "PayPal order", "seller's notes": "Your notes",
+               "PayPal disputes and Transaction Search": "PayPal history"}.get(tag, tag)
         tag = "Your shop terms" if tag.startswith("shop.json") else tag
         tag = "PayPal tracking" if tag.startswith("PayPal tracking") else tag
         # the tag's look says how much the fact can be relied on: PayPal's records, your published terms, your word

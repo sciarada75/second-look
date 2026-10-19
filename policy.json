@@ -5,6 +5,11 @@
   "max_auto_refund": 50.0,
   "always_ask_above": 200.0,
   "defend_if_delivered_to_paypal_address": true,
+  "repeat_buyer": {
+    "times_shop_rate": 3,
+    "min_earlier_disputes": 2,
+    "min_shop_orders": 20
+  },
   "injection_markers": [
     "ignore your",
     "system:",

@@ -103,6 +103,25 @@ def test_your_call_allows_a_question_but_never_money():
     assert not may_approve("MESSAGE", "REFUND") and may_approve("REFUND", "REFUND")
 
 
+def history(buyer_disputes, buyer_orders, shop_disputes, shop_orders, earlier):
+    return {"buyer_history_counts": {"buyer_disputes": buyer_disputes, "buyer_orders": buyer_orders,
+                                     "shop_disputes": shop_disputes, "shop_orders": shop_orders,
+                                     "earlier_disputes": earlier}}
+
+
+def test_repeat_buyer_is_judged_against_the_shops_usual_rate():
+    pol = {**POLICY, "repeat_buyer": {"times_shop_rate": 3, "min_earlier_disputes": 2, "min_shop_orders": 20}}
+    refund = Judgment("REFUND", 0.95, "buyer is right")
+    # 3 disputes in 3 orders, where the shop sees 4 in 400: 100x the usual rate -> back to the seller
+    assert apply_policy(refund, pol, dispute(20), history(3, 3, 4, 400, 2)).action == "ASK_SELLER"
+    # same count, in a shop where one order in two ends in a dispute: 2x, under the bar -> the refund stands
+    assert apply_policy(refund, pol, dispute(20), history(3, 3, 200, 400, 2)).action == "REFUND"
+    # too few orders to compare fairly -> no verdict from the numbers
+    assert apply_policy(refund, pol, dispute(20), history(3, 3, 3, 3, 2)).action == "REFUND"
+    # never makes anything more generous: a defence stays a defence
+    assert apply_policy(Judgment("DEFEND", 0.9, "x"), pol, dispute(20), history(3, 3, 4, 400, 2)).action == "DEFEND"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
