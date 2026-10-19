@@ -1,0 +1,5 @@
+{
+  "_comment": "Applied ONLY to what the voice is given, never to what appears on screen. Whole-word, case-insensitive. Add an entry when a word is actually heard wrong, not on suspicion.",
+  "PayPal's": "Pay Pal's",
+  "PayPal": "Pay Pal"
+}

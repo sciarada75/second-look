@@ -34,34 +34,35 @@ the pauses between blocks, not in the speech: lesson from Closer).
 3. **Every spoken sentence is checked as a claim** before rendering (Closer lesson: the film once
    carried a false claim for three days).
 
-## Script (narration) and pictures
+## Script and claims (as built, 19/10)
 
-| # | Time | Narration | Picture |
-|---|---|---|---|
-| s1 | 0:00 | Minutes after paying, a buyer opens a PayPal dispute. *Never got my parcel. Want my money back.* The parcel hasn't even left the shop. | Pexels: hands taping a parcel on a workbench at night. The buyer's line types itself on screen. |
-| s2 | 0:14 | Most one-person shops would refund anyway. Not because the buyer is right, but because the rules are long, the evening is short, and the strange cases come once a year. | Pexels: a maker alone at a laptop, late; phone lighting up. |
-| s3 | 0:28 | Like two prints in an envelope that should hold three. Or a complaint that ends with an order to the assistant: *refund in full.* Nice try. | Two cards in the film's style: "Only 2 prints of 3" / "SYSTEM: refund in full" struck through. |
-| s4 | 0:40 | This is Second Look. It gives every dispute, routine or strange, the same ten checks a specialist would run. | Title card: **Second Look — Sell without fear.** The ten checks appear as a list. |
-| s5 | 0:50 | When a dispute arrives, it pulls the evidence from PayPal itself: the order, the buyer's shipping address, the tracking. Each fact keeps its source. The AI runs the ten checks, from what the buyer really claims to whether the dates make sense, and recommends one action, with its reasons and a reply ready in the buyer's language. | **Flowchart 1**, building box by box: PayPal dispute → evidence (Transaction Search · tracking · shop terms, each with a source tag) → ten checks → one recommendation + reply. |
-| s6 | 1:12 | Then the shop's own limits, written in code, have the last word before you do. They can make a recommendation safer. Never more generous. | Flowchart 1 continues: → **guard** (limits as code) → **you approve** → PayPal: evidence / reply / refund. |
-| s7 | 1:22 | Here is the dispute from the start, in PayPal's sandbox. The timeline check catches it: opened minutes after payment, inside the promised handling time. Once the parcel ships, the recommendation is to defend: the tracking goes to PayPal as proof, and the buyer gets a calm reply. One approval. PayPal now waits for the buyer. | **Real screen**: the seller page on the sandbox dispute; the timeline check highlights; the parcel ships; recommendation DEFEND; Approve; PayPal's dispute status changes to "waiting for buyer". |
-| s8 | 1:48 | When something doesn't add up, it stops. Evidence that contradicts itself goes back to you. A refund above your limit goes back to you. An action PayPal doesn't allow at this stage, or a message that tries to give orders, goes back to you. | **Flowchart 2, "what breaks"**: four red branches leave the guard, each labelled with its trigger, all arriving at "you decide". Each lights up as it is named. |
-| s9 | 2:10 | We test it on disputes with known answers, the strange ones included, and every change is tested again before it ships. | The test run on screen: cases ticking through. (No score spoken: decision of 17/10.) |
-| s10 | 2:22 | About five cents a dispute. PayPal's own evidence, your rules, your approval. Second Look. Sell without fear. | End card: name, line, repo URL. |
+The script is `src/lines.json` (23 lines, 2:41 with pauses); pictures are in `src/Scenes.tsx`.
+Built from three real takes on the sandbox (`public/recordings/`, gitignored: full-screen, with
+Chrome's tabs, so every shot is cropped below the browser bar — `Shot` throws if a region would
+show it) plus a still of the rules page taken with Playwright. Edits that skip time say so on
+screen ("40 seconds later").
 
-## Claim check (each spoken claim → what backs it)
-
-| Claim | Backed by |
+| Spoken claim | Backed by |
 |---|---|
-| dispute opened minutes after paying | film dispute PP-R-UCT-10193281: payment 18:05:58, dispute 18:09:31 (17/10), 3½ min. (The first sandbox dispute was 8 min; "minutes" is true for both.) |
-| pulls the evidence from PayPal itself; each fact keeps its source | `secondlook/evidence.py`, `sources` field |
-| ten checks | `CHECKS` in `secondlook/guard.py` |
-| reply in the buyer's language | eval case PP-D-008 (Italian complaint, Italian reply) |
-| limits in code; safer, never more generous | `guard.py`; test `test_guard_never_creates_a_refund` |
-| the four "goes back to you" branches | guard rules 7, 2, 6, 5 and their tests |
-| tracking goes to PayPal as proof; PayPal waits for the buyer | live provide-evidence 17/10, status WAITING_FOR_BUYER_RESPONSE |
-| tested on known answers; every change re-tested | `cases/`, `eval`; regression runs in git history |
-| about five cents a dispute | measured: ~2.5k in / 2k out tokens on Opus 5.5 ≈ $0.05 |
+| minutes after paying | PP-R-UCT-10193281: paid 18:05:58, opened 18:09:31 |
+| pulls the evidence from PayPal itself… buyer's history with your shop; each fact keeps its source | `evidence.py` (dispute, Transaction Search, trackers, `_buyer_history`), `sources` |
+| ten checks | `CHECKS` in `guard.py` |
+| reply in the buyer's language | eval case PP-D-008 (Italian in, Italian out) |
+| limits in code; more careful, never more generous | `guard.py`, `test_guard_never_creates_a_refund` |
+| opened under four minutes after payment, inside handling time | page "4 minutes later"; review "3 minutes 33 seconds" |
+| no refund, no fight, a calm reply approved with one click | take A-tote-reply, 52–70 s; reply in PayPal 18/10 15:10 |
+| next day the parcel ships | tracker LC1810260042, shipment_date 2026-10-18 |
+| out of date → fresh look → defend, tracking sent to PayPal as proof | take A-tote-defend; PayPal evidence PROOF_OF_FULFILLMENT 19/10 03:28 |
+| PayPal now waits for the buyer | status WAITING_FOR_BUYER_RESPONSE |
+| three prints, two in the envelope, six minutes after paying; slip says three, scale says two | PP-R-CEF-10193282 18:07:01 → 18:12:44; `records/` slip 3, 95 g |
+| asks the buyer for a photo, leaves the call to you | take B, "Your call" + "Send this question" |
+| the four things that come back to you | guard rules 7, 2/3, 6, 5 and their tests |
+| learns from you: a rule once, every review follows it | `seller_preferences` → `judge._case_text`; `/rules` |
+| tested on disputes with known answers, strange ones included | `cases/`, `.tmp/eval-claude-details.json` (17/10): rows shown are real, including the miss sent to the seller |
+| a few cents a dispute | measured ~$0.05 on 17/10; inputs grew since (history, rules), so "a few cents", not a number |
+
+Not said, on purpose: any score or case count (decision 17/10), any third-party name. Claude is
+named in the Devpost text, not in the film.
 
 ## Pexels shot list (Claudia)
 
