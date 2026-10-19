@@ -30,6 +30,14 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/)
 Preferences shape the reply and break ties between equally valid actions; they never override
 PayPal's rules or the evidence.
 
+**A buyer's history is read against your shop's usual rate, never as a raw count.** Three disputes
+is a lot for a shop with a thousand orders and two disputes, and normal where one order in three
+ends in one. Second Look counts this buyer's disputes and orders with your shop and sets them next
+to your shop's own rate over the last 90 days, from PayPal's records. Below 20 orders it says the
+comparison isn't fair yet instead of making one. A buyer who disputes 3 times your usual rate gets
+no refund without you seeing it first (the numbers are yours to change). It only sees disputes with
+your shop: PayPal doesn't share a buyer's disputes with other sellers.
+
 **This is how Second Look learns: from you, in words you can read.** When you approve a reply you
 corrected, *Teach it for next time* saves your correction as a new preference; the *Your rules*
 page lists them all, next to the limits, and removes any of them. It does not learn silently from
