@@ -8,6 +8,8 @@ Sources, in order of trust:
                                          shop's usual rate (the base rate), last 90 days
   5. shop.json                          the shop's public promises: listing text, handling time, returns
   6. records/<dispute_id>.json          the seller's own notes (photos, weights, history); optional
+  7. costs (costs.py)                   what refunding, settling or losing a claim would cost: PayPal's fee
+                                         table, PayPal's fee on this payment, the shop's own item costs
 
 Every fact keeps its source in records["sources"], so the judge can cite it and the seller can
 check it. A source that is unavailable is reported, never invented.
@@ -18,6 +20,9 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib import parse
+
+from . import ledger
+from .costs import escalated, high_volume, paths
 
 
 def _day_window(iso: str):
@@ -43,44 +48,83 @@ def _transaction(pp, tx_id: str, when: str) -> dict:
 WINDOW_DAYS = 90
 
 
+def since(now: datetime) -> datetime:
+    """How far back to read: the buyer history's 90 days, or the start of PayPal's high-volume quarter
+    (the three previous full calendar months), whichever is earlier."""
+    q = datetime.combine(ledger.quarter_window(now.date())[0], datetime.min.time())
+    return min(q, now - timedelta(days=WINDOW_DAYS))
+
+
 def _orders(pp, until: datetime) -> list:
-    """Payments received in the window, as (payer_id, date). Transaction Search allows 31 days per query."""
-    out, fmt, end = [], "%Y-%m-%dT%H:%M:%SZ", until
-    while end > until - timedelta(days=WINDOW_DAYS):
-        start = max(end - timedelta(days=31), until - timedelta(days=WINDOW_DAYS))
+    """Payments received since since(): payer, email, name, date, amount and PayPal's fee.
+    Transaction Search allows 31 days per query."""
+    out, fmt, end, first = [], "%Y-%m-%dT%H:%M:%SZ", until, since(until)
+    while end > first:
+        start = max(end - timedelta(days=31), first)
         q = parse.urlencode({"start_date": start.strftime(fmt), "end_date": end.strftime(fmt),
                              "fields": "transaction_info,payer_info", "page_size": 500})
         for t in pp._call("GET", f"/v1/reporting/transactions?{q}").get("transaction_details", []):
-            ti = t["transaction_info"]
+            ti, pi = t["transaction_info"], t.get("payer_info", {})
             # T00xx = a payment received; funding (T19xx) and holds (T11xx) are not orders
             if ti.get("transaction_event_code", "").startswith("T00") and \
                     float(ti.get("transaction_amount", {}).get("value", 0)) > 0:
-                out.append(t.get("payer_info", {}).get("account_id"))
+                name = pi.get("payer_name") or {}
+                out.append({"payer_id": pi.get("account_id"), "email": pi.get("email_address"),
+                            "name": name.get("alternate_full_name") or " ".join(
+                                x for x in (name.get("given_name"), name.get("surname")) if x) or None,
+                            "date": ti.get("transaction_initiation_date", "")[:10],
+                            "amount": float(ti["transaction_amount"]["value"]),
+                            "fee": abs(float((ti.get("fee_amount") or {}).get("value", 0))),
+                            "transaction_id": ti.get("transaction_id")})
         end = start
     return out
 
 
-def _buyer_history(pp, dispute: dict) -> dict:
-    """This buyer against the shop's own base rate. A raw count means nothing: 3 disputes is a lot for a
-    shop with 1,000 orders and 2 disputes, and normal where one order in three ends in a dispute."""
-    buyer = ((dispute.get("disputed_transactions") or [{}])[0].get("buyer") or {}).get("payer_id")
+def shop_disputes(pp, now: datetime) -> list:
+    """Every dispute the shop had in the window, as full objects (the list omits buyer and outcome)."""
+    first = since(now).strftime("%Y-%m-%dT%H:%M:%S")
+    return [pp.get_dispute(d["dispute_id"]) for d in pp._call("GET", "/v1/customer/disputes?page_size=50").get("items", [])
+            if d.get("create_time", "")[:19] >= first]
+
+
+def history(dispute: dict, disputes: list, orders: list, today) -> dict:
+    """This buyer against the shop's own base rate, last 90 days. A raw count means nothing: 3 disputes is a
+    lot for a shop with 1,000 orders and 2 disputes, and normal where one order in three ends in a dispute."""
+    buyer = ledger.buyer_of(dispute)
     if not buyer:
         return {}
-    now = datetime.utcnow()
-    since = (now - timedelta(days=WINDOW_DAYS)).strftime("%Y-%m-%dT%H:%M:%S")
-    disputes, earlier_outcomes = [], []
-    for d in pp._call("GET", "/v1/customer/disputes?page_size=50").get("items", []):
-        if d.get("create_time", "")[:19] < since:
-            continue
-        full = d if d["dispute_id"] == dispute.get("dispute_id") else pp.get_dispute(d["dispute_id"])
-        who = ((full.get("disputed_transactions") or [{}])[0].get("buyer") or {}).get("payer_id")
-        disputes.append(who)
-        if who == buyer and d["dispute_id"] != dispute.get("dispute_id"):
-            earlier_outcomes.append((full.get("dispute_outcome") or {}).get("outcome_code") or "still open")
-    orders = _orders(pp, now)
-    return {"window_days": WINDOW_DAYS, "buyer_orders": orders.count(buyer), "buyer_disputes": disputes.count(buyer),
-            "earlier_disputes": len(earlier_outcomes), "earlier_outcomes": earlier_outcomes,
-            "shop_orders": len(orders), "shop_disputes": len(disputes)}
+    first = (today - timedelta(days=WINDOW_DAYS)).isoformat()
+    disputes = [d for d in disputes if d.get("create_time", "")[:10] >= first]
+    orders = [o for o in orders if o["date"] >= first]
+    earlier = [d for d in disputes if ledger.buyer_of(d) == buyer and d["dispute_id"] != dispute.get("dispute_id")]
+    closed = [d for d in disputes if d.get("status") == "RESOLVED"]
+    return {"window_days": WINDOW_DAYS, "buyer_orders": sum(1 for o in orders if o.get("payer_id") == buyer),
+            "buyer_disputes": sum(1 for d in disputes if ledger.buyer_of(d) == buyer),
+            "earlier_disputes": len(earlier),
+            "earlier_outcomes": [ledger.OUTCOME_LABEL.get(ledger.outcome(d), "still open") for d in earlier],
+            "earlier_escalated": sum(1 for d in earlier if escalated(d)),
+            "shop_orders": len(orders), "shop_disputes": len(disputes),
+            "shop_closed": len(closed), "shop_escalated": sum(1 for d in closed if escalated(d))}
+
+
+def cost_paths(dispute: dict, records: dict, shop: dict, disputes: list, orders: list, today) -> dict:
+    """What refunding now, settling in the dispute, or losing a claim would cost this shop."""
+    amt = dispute["dispute_amount"]
+    costs = shop.get("costs", {})
+    item_cost = postage = None
+    if costs:
+        listings = costs.get("listings", {})
+        per_item = [next((v for n, v in listings.items() if n.lower() in (i["name"] or "").lower()), None)
+                    for i in records.get("items", [])]
+        if per_item and all(v is not None for v in per_item):
+            item_cost = round(sum(v * i["qty"] for v, i in zip(per_item, records["items"])), 2)
+            postage = costs.get("postage")
+    start, end = ledger.quarter_window(today)
+    q = lambda iso: start <= (ledger._day(iso) or today) < end  # noqa: E731
+    hv = high_volume(sum(1 for d in disputes if escalated(d) and q(d.get("create_time"))),
+                     sum(1 for o in orders if q(o["date"])))
+    return {**paths(float(amt["value"]), amt["currency_code"], records.get("paypal_fee"), item_cost, postage,
+                    hv["high_volume"]), "threshold": hv}
 
 
 def describe_history(h: dict, min_shop_orders: int = 20) -> str:
@@ -94,11 +138,37 @@ def describe_history(h: dict, min_shop_orders: int = 20) -> str:
     elif h["buyer_orders"] and h["shop_disputes"]:
         times = (h["buyer_disputes"] / h["buyer_orders"]) / (h["shop_disputes"] / h["shop_orders"])
         text += f" This buyer disputes {times:.1f} times your shop's usual rate."
+    if "earlier_escalated" in h:
+        text += " " + ledger.describe_escalations(h["earlier_disputes"], h["earlier_escalated"],
+                                                  h["shop_closed"], h["shop_escalated"])
     return text
 
 
 def _trackers(pp, tx_id: str) -> list:
     return pp._call("GET", f"/v1/shipping/trackers?transaction_id={tx_id}").get("trackers", [])
+
+
+def add_history(records: dict, sources: dict, dispute: dict, disputes: list, orders: list, policy: dict,
+                source: str, today) -> None:
+    h = history(dispute, disputes, orders, today)
+    if h:
+        records["buyer_history_counts"] = h
+        records["buyer_history"] = describe_history(h, (policy.get("repeat_buyer") or {}).get("min_shop_orders", 20))
+        sources["buyer_history"] = sources["buyer_history_counts"] = source
+
+
+def add_shop_terms(records: dict, sources: dict, shop: dict) -> None:
+    if not shop:
+        return
+    records["handling_time_promised"] = shop.get("handling_time")
+    records["return_policy"] = shop.get("return_policy")
+    # match by listing name inside the item name, any case: buyers type "art print x3" for "Art print"
+    listings = shop.get("listings", {})
+    listing = [next((t for n, t in listings.items() if n.lower() in (i["name"] or "").lower()), None)
+               for i in records.get("items", [])]
+    records["listing_text"] = " | ".join(x for x in listing if x) or None
+    for k in ("handling_time_promised", "return_policy", "listing_text"):
+        sources[k] = "shop.json (the shop's published terms)"
 
 
 def gather(pp, dispute: dict, root: Path) -> dict:
@@ -117,6 +187,10 @@ def gather(pp, dispute: dict, root: Path) -> dict:
     # 2. what PayPal knows about the order
     try:
         t = _transaction(pp, tx_id, order_time) if tx_id and order_time else {}
+        fee = (t.get("transaction_info") or {}).get("fee_amount")
+        if fee:
+            records["paypal_fee"] = abs(float(fee["value"]))  # PayPal keeps it on a refund
+            sources["paypal_fee"] = "PayPal Transaction Search"
         ship = t.get("shipping_info") or {}
         if ship.get("address"):
             a = ship["address"]
@@ -148,29 +222,19 @@ def gather(pp, dispute: dict, root: Path) -> dict:
         unavailable["tracking"] = "PayPal tracking unavailable: " + str(e)[:120]
 
     # 4. this buyer's history with the shop, against the shop's usual rate
+    disputes, orders = [], []
     try:
-        h = _buyer_history(pp, dispute)
-        if h:
-            records["buyer_history_counts"] = h
-            pol = json.loads((root / "policy.json").read_text()) if (root / "policy.json").exists() else {}
-            records["buyer_history"] = describe_history(h, (pol.get("repeat_buyer") or {}).get("min_shop_orders", 20))
-            sources["buyer_history"] = sources["buyer_history_counts"] = "PayPal disputes and Transaction Search"
+        now = datetime.utcnow()
+        disputes, orders = shop_disputes(pp, now), _orders(pp, now)
+        pol = json.loads((root / "policy.json").read_text()) if (root / "policy.json").exists() else {}
+        add_history(records, sources, dispute, disputes, orders, pol, "PayPal disputes and Transaction Search", now.date())
     except RuntimeError as e:
         unavailable["buyer_history"] = "Buyer history unavailable: " + str(e)[:120]
 
     # 5. the shop's public promises
     shop_file = root / "shop.json"
-    if shop_file.exists():
-        shop = json.loads(shop_file.read_text())
-        records["handling_time_promised"] = shop.get("handling_time")
-        records["return_policy"] = shop.get("return_policy")
-        # match by listing name inside the item name, any case: buyers type "art print x3" for "Art print"
-        listings = shop.get("listings", {})
-        listing = [next((t for n, t in listings.items() if n.lower() in (i["name"] or "").lower()), None)
-                   for i in records["items"]]
-        records["listing_text"] = " | ".join(x for x in listing if x) or None
-        for k in ("handling_time_promised", "return_policy", "listing_text"):
-            sources[k] = "shop.json (the shop's published terms)"
+    shop = json.loads(shop_file.read_text()) if shop_file.exists() else {}
+    add_shop_terms(records, sources, shop)
 
     # 6. the seller's own notes, which override nothing PayPal said, only add
     notes = root / "records" / f"{dispute['dispute_id']}.json"
@@ -180,6 +244,10 @@ def gather(pp, dispute: dict, root: Path) -> dict:
             if v not in (None, [], "") and (k not in records or records[k] in (None, [], "")):
                 records[k] = v
                 sources[k] = "seller's notes"
+
+    # 7. what each way out would cost: PayPal's fee table, PayPal's fee on this payment, the shop's own costs
+    records["costs"] = cost_paths(dispute, records, shop, disputes, orders, datetime.utcnow().date())
+    sources["costs"] = "PayPal fee rules + your costs"
 
     records["sources"] = sources
     if unavailable:

@@ -18,8 +18,11 @@ from dataclasses import asdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from datetime import timedelta
+from urllib.parse import parse_qs, unquote, urlparse
 
+from . import evidence as evidence_mod, ledger
+from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
 from .guard import may_approve, CHECKS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
 
@@ -58,6 +61,8 @@ e = html.escape
 # ---------- data ----------
 
 def _client(dispute_id: str | None = None):
+    if is_demo(dispute_id):
+        return DemoPayPal()
     if dispute_id and (ROOT / "cases" / f"{dispute_id}.json").exists():
         return MockPayPal(ROOT / "cases", ROOT / ".tmp" / "actions.jsonl")
     return client_from_env(ROOT)
@@ -148,7 +153,7 @@ def rules_page(flash: str = "") -> str:
             '<h2>Your limits</h2><p class="who">Numbers, enforced by code after the AI has answered. '
             'They can make an answer more careful, never more generous.</p>'
             f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in limits)}</ul></section>')
-    return PAGE.format(title="Your rules | Second Look", mode="", body=body)
+    return page("Your rules | Second Look", "", body)
 
 # What a review was based on. If any of it changes, the review is out of date and Approve is withdrawn:
 # the seller must never approve an answer to a situation that no longer exists.
@@ -385,15 +390,62 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 .sent b{{font-size:20px}}
 .stale{{padding:14px 18px;background:#FBF3E4;border-left:4px solid var(--incon);margin:0 0 14px}}
 .back{{display:inline-block;margin-bottom:26px;color:var(--soft)}}
-@media (max-width:1100px){{.case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
+/* demo label, deadlines, costs */
+.mode.demo{{background:var(--kraft-bg);color:#6E4F27;border-left:3px solid var(--kraft);padding:2px 10px;font-weight:500}}
+.demo-note{{display:inline-block;margin:0 0 8px;padding:6px 12px;background:var(--kraft-bg);border-left:3px solid var(--kraft);color:#6E4F27;font-size:15px}}
+.nobody{{margin:-22px 0 26px;padding:8px 12px;border-left:3px solid var(--incon);color:var(--ink);font-size:16px}}
+.cardlink{{margin:14px 0 0}}
+.costs{{margin:30px 0}} .costs table{{width:100%;border-collapse:collapse}}
+.costs th,.costs td{{text-align:left;vertical-align:top;padding:10px 12px 10px 0;border-top:1px solid var(--rule);font-size:16px}}
+.costs th{{font-weight:700;width:30%}} .costs td:last-child{{font-weight:500}}
+.cost-note{{color:var(--soft);font-size:15px;margin:10px 0 0}}
+/* overview */
+.kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0 36px}}
+.tile{{background:#fff;border:1px solid var(--rule);padding:18px 20px;display:flex;flex-direction:column;gap:4px}}
+.tile b{{font-size:34px;line-height:1.1;font-variant-numeric:tabular-nums}} .t-label{{font-weight:500}} .t-sub{{color:var(--soft);font-size:14px}}
+.ov-grid{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:start}}
+.bl-h{{font-size:15px;color:var(--soft);font-weight:500;margin:16px 0 6px}}
+.barlist{{list-style:none;padding:0;margin:0}}
+.barlist li{{display:grid;grid-template-columns:200px 1fr 40px;gap:12px;align-items:center;padding:5px 0}}
+.bl-track{{height:14px;background:transparent}} .bl-bar{{display:block;height:14px;background:var(--ink);border-radius:0 4px 4px 0;min-width:2px}}
+.bl-n{{font-variant-numeric:tabular-nums;text-align:right}}
+.meter{{position:relative;height:18px;background:var(--rule);margin:18px 0 26px}}
+.m-fill{{position:absolute;left:0;top:0;bottom:0;background:var(--ink);border-radius:0 4px 4px 0}}
+.m-line{{position:absolute;top:-6px;bottom:-6px;border-left:2px solid var(--incon)}} .m-line i{{position:absolute;top:26px;left:-14px;font-style:normal;font-size:14px;color:var(--incon)}}
+table.waiting{{width:100%;border-collapse:collapse;margin-top:8px}}
+.waiting th,.waiting td{{text-align:left;padding:10px 14px 10px 0;border-top:1px solid var(--rule);font-size:16px;vertical-align:top}}
+.waiting th{{font-size:14px;color:var(--soft);font-weight:500}}
+.api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
+@media (max-width:1100px){{.ov-grid{{grid-template-columns:1fr}} .barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
 </style></head><body>
-<header class="top"><a class="brand" href="/">Second Look<small>Sell without fear.</small></a><nav><a href="/rules">Your rules</a><span class="mode">{mode}</span></nav></header>
+<header class="top"><a class="brand" href="/">Second Look<small>Sell without fear.</small></a>{nav}</header>
 <main>{body}</main></body></html>"""
 
 
-def inbox_page(practice: bool) -> str:
-    pp = MockPayPal(ROOT / "cases", ROOT / ".tmp" / "actions.jsonl") if practice else client_from_env(ROOT)
+def page(title: str, mode: str, body: str, demo: bool = False) -> str:
+    q = "?shop=demo" if demo else ""
+    nav = (f'<nav><a href="/{q}">Disputes</a><a href="/overview{q}">Overview</a><a href="/rules">Your rules</a>'
+           f'<span class="mode{" demo" if demo else ""}">{e(DEMO_LABEL if demo else mode)}</span></nav>')
+    return PAGE.format(title=title, nav=nav, body=body)
+
+
+def _shop(src: str):
+    """The client, the shop's disputes and orders, and 'today' for a source: live sandbox or demo shop."""
+    if src == "demo":
+        pp = DemoPayPal()
+        return pp, pp.disputes(), pp.orders(), pp.today
+    pp = client_from_env(ROOT)
+    if isinstance(pp, MockPayPal):
+        raise RuntimeError("No PayPal keys in .env: the overview needs the live sandbox, or open the demo shop.")
+    now = datetime.utcnow()
+    return pp, evidence_mod.shop_disputes(pp, now), evidence_mod._orders(pp, now), now.date()
+
+
+def inbox_page(src: str) -> str:
+    practice, demo = src == "practice", src == "demo"
+    pp = DemoPayPal() if demo else MockPayPal(ROOT / "cases", ROOT / ".tmp" / "actions.jsonl") if practice else client_from_env(ROOT)
+    today = pp.today if demo else datetime.utcnow().date()
     items = []
     for state in (["REQUIRED_ACTION"] if practice else ["REQUIRED_ACTION", "REQUIRED_OTHER_PARTY_ACTION"]):
         items += pp.list_disputes(state)
@@ -402,20 +454,154 @@ def inbox_page(practice: bool) -> str:
         if d["dispute_id"] in seen:
             continue
         seen.add(d["dispute_id"])
-        full = d if practice else pp.get_dispute(d["dispute_id"])
+        full = d if practice or demo else pp.get_dispute(d["dispute_id"])
         msg = next((m["content"] for m in full.get("messages", []) if m.get("posted_by") == "BUYER"), "")
         due = _t(full.get("seller_response_due_date"))
-        waiting = "Waiting for the buyer" if full.get("status") == "WAITING_FOR_BUYER_RESPONSE" else (
-            f"Reply by {due:%d %b}" if due else "")
-        rows.append(f'<li><a href="/d/{e(d["dispute_id"])}"><blockquote>{e(msg)}</blockquote>'
-                    f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
-                    f'<span class="meta">{e(REASON.get(full.get("reason"), full.get("reason", "")))}. {e(waiting)}</span></a></li>')
-    other = '<a href="/">Your PayPal disputes</a>' if practice else '<a href="/?practice=1">Practice cases</a>'
-    body = (f'<h1 class="page">{"Practice cases" if practice else "Your PayPal disputes"}</h1>'
-            f'<p class="who">{other}</p>'
+        left = ledger.days_left(full, today)
+        claim = " PayPal claim." if full.get("dispute_life_cycle_stage") in ("CHARGEBACK", "PRE_ARBITRATION", "ARBITRATION") else ""
+        waiting = ("Waiting for the buyer" if full.get("status") == "WAITING_FOR_BUYER_RESPONSE" else
+                   f"Reply by {due:%d %b}" + (f" ({left} days left)" if left is not None and not practice else "") if due else "")
+        rows.append((full.get("status") != "WAITING_FOR_SELLER_RESPONSE", left if left is not None else 99,
+                     f'<li><a href="/d/{e(d["dispute_id"])}"><blockquote>{e(msg)}</blockquote>'
+                     f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
+                     f'<span class="meta">{e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}</span></a></li>'))
+    rows = [r[2] for r in sorted(rows, key=lambda r: (r[0], r[1]))] if not practice else [r[2] for r in rows]
+    other = ('<a href="/">Your PayPal disputes</a> · <a href="/?shop=demo">Demo shop</a>' if practice else
+             '<a href="/">Your PayPal disputes</a> · <a href="/?practice=1">Practice cases</a>' if demo else
+             '<a href="/?shop=demo">Demo shop</a> · <a href="/?practice=1">Practice cases</a>')
+    title = "Practice cases" if practice else f"{DemoPayPal().shop['name']}: open disputes" if demo else "Your PayPal disputes"
+    about = f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else ""
+    body = (f'<h1 class="page">{e(title)}</h1>{about}<p class="who">{other}</p>'
             + (f'<ul class="inbox">{"".join(rows)}</ul>' if rows else
                '<p class="empty">No open disputes. When a buyer opens one, it appears here.</p>'))
-    return PAGE.format(title="Second Look", mode="Practice cases" if practice else "PayPal sandbox", body=body)
+    return page("Second Look", "Practice cases" if practice else "PayPal sandbox", body, demo)
+
+
+def costs_block(c: dict | None, hist: dict | None) -> str:
+    """What each way out costs, from PayPal's fee rules, PayPal's fee on this payment and the shop's own costs."""
+    if not c:
+        return ""
+    cur = c["currency"]
+    m = lambda v: f"{v:,.2f} {cur}"  # noqa: E731
+    fee = f"PayPal's {m(c['paypal_fee'])} fee on the payment, which it keeps" if c.get("paypal_fee") is not None else "PayPal's fee on the payment"
+    oop = c["refund_now"]["out_of_pocket"]
+    rows = [("Refund now", f"{m(c['amount'])} back to the buyer.",
+             f"You're out {m(oop)}: the item, the postage and {fee}." if oop is not None else
+             f"You lose the item, the postage and {fee}. Add your item costs to see the total.")]
+    rows.append(("Settle it in the dispute", "Reply, or send your evidence. The buyer withdraws or lets it close.",
+                 "No PayPal dispute fee."))
+    lost = c["claim_lost"]
+    rows.append(("It becomes a claim, and you lose", f"{m(c['amount'])} back, plus a {m(lost['dispute_fee'])} PayPal fee.",
+                 f"You're out {m(lost['out_of_pocket'])}." if lost.get("out_of_pocket") is not None else ""))
+    won = c["claim_won"]["dispute_fee"]
+    rows.append(("It becomes a claim, and you win", "You keep the sale.",
+                 f"{m(won)} fee: you are a high-volume seller, charged even when you win." if won else "No fee."))
+    trs = "".join(f'<tr><th scope="row">{e(a)}</th><td>{e(b)}</td><td>{e(x)}</td></tr>' for a, b, x in rows)
+    notes = []
+    if hist and hist.get("earlier_disputes"):
+        notes.append(ledger.describe_escalations(hist["earlier_disputes"], hist["earlier_escalated"],
+                                                 hist["shop_closed"], hist["shop_escalated"]))
+    t = c.get("threshold") or {}
+    if t.get("counts"):
+        notes.append(f"Your claims last quarter: {t['claims']} in {t['sales']:,} sales ({t['ratio']:.2%}). "
+                     + ("You are above PayPal's 1.5% high-volume line." if t["high_volume"] else
+                        f"{t['claims_to_threshold']} more and you cross PayPal's 1.5% line, where every claim costs "
+                        f"{m(28.0 if cur == 'EUR' else 30.0)}."))
+    return (f'<section class="costs"><h2>What each way out costs</h2><table>{trs}</table>'
+            + "".join(f'<p class="cost-note">{e(n)}</p>' for n in notes) + '</section>')
+
+
+def bar_list(rows: list, total: int) -> str:
+    """One hue, counts written out: a list of how cases ended."""
+    out = []
+    for label, n in rows:
+        w = 100 * n / total if total else 0
+        out.append(f'<li title="{e(label)}: {n} of {total}"><span class="bl-label">{e(label)}</span>'
+                   f'<span class="bl-track"><span class="bl-bar" style="width:{w:.1f}%"></span></span>'
+                   f'<span class="bl-n">{n}</span></li>')
+    return f'<ul class="barlist">{"".join(out)}</ul>'
+
+
+def overview_page(src: str) -> str:
+    demo = src == "demo"
+    pp, disputes, orders, today = _shop(src)
+    cur = "EUR"
+    ov = ledger.overview(disputes, orders, today, cur)
+    m = lambda v: f"{v:,.0f} {cur}"  # noqa: E731
+    c, hv = ov["counts"], ov["high_volume"]
+    q = "?shop=demo" if demo else ""
+    tiles = [("Handled", f'{ov["handled"]}', f'closed in the last {ov["window_days"]} days'),
+             ("Settled before a claim", f'{ov["settled_before_claim"]} of {ov["handled"]}', "no PayPal dispute fee"),
+             ("Money kept", m(ov["kept"]), "won, withdrawn, or closed with no claim"),
+             ("Given back", m(ov["refunded"]), "refunds and accepted offers"),
+             ("Dispute fees", m(ov["fees_paid"]), "estimated from PayPal's fee table")]
+    kpis = "".join(f'<div class="tile"><span class="t-label">{e(a)}</span><b>{e(b)}</b><span class="t-sub">{e(x)}</span></div>'
+                   for a, b, x in tiles)
+    stayed = [(ledger.OUTCOME_LABEL[k], c[k]) for k in ("won", "withdrew", "closed") if c[k]]
+    back = [(ledger.OUTCOME_LABEL[k], c[k]) for k in ("settled_offer", "refunded", "covered", "lost_claim", "lost_no_reply") if c[k]]
+    meter_w = min(100, 100 * hv["ratio"] / 0.02) if hv["sales"] else 0
+    meter = (f'<section class="meter-box"><h2>PayPal\'s high-volume line</h2>'
+             f'<p class="who">Claims and card chargebacks against sales, {ov["quarter"][0]:%b}–'
+             f'{(ov["quarter"][1] - timedelta(days=1)):%b %Y} (PayPal counts the three previous full months). '
+             f'At 1.5% with more than 100 sales, every claim costs {m(28)}, even the ones you win.</p>'
+             f'<div class="meter" role="img" aria-label="{hv["ratio"]:.2%} of sales, line at 1.5%">'
+             f'<span class="m-fill" style="width:{meter_w:.1f}%"></span><span class="m-line" style="left:75%"><i>1.5%</i></span></div>'
+             f'<p><b>{hv["claims"]} claims in {hv["sales"]:,} sales: {hv["ratio"]:.2%}.</b> '
+             + ("Above the line." if hv["high_volume"] else f'{hv["claims_to_threshold"]} more claims this quarter and you cross it.')
+             + '</p></section>')
+    waits = "".join(
+        f'<tr><td><a href="/d/{e(w["dispute_id"])}">{e(w["reason"])}</a>'
+        f'<span class="t-sub">{e(" · " + w["buyer"] if w.get("buyer") else "")}{e(" · PayPal claim" if w["stage"] != "INQUIRY" else "")}</span></td>'
+        f'<td>{w["amount"]:.2f}</td>'
+        f'<td>{e(w["on"])}</td><td>{"" if w["days_left"] is None else e(str(w["days_left"]))}</td><td>{e(w["next"])}</td></tr>'
+        for w in ov["waiting"])
+    body = (f'<h1 class="page">Overview</h1>'
+            + (f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else "")
+            + f'<p class="who">Last {ov["window_days"]} days: {ov["disputes"]} disputes in {ov["orders"]:,} orders. '
+              f'From PayPal\'s own records: each case\'s stage and outcome.</p>'
+            f'<div class="kpis">{kpis}</div>'
+            f'<div class="ov-grid"><section><h2>How they ended</h2>'
+            f'<h3 class="bl-h">The money stayed with you</h3>{bar_list(stayed, ov["handled"])}'
+            f'<h3 class="bl-h">Money went back</h3>{bar_list(back, ov["handled"])}'
+            f'<p class="cost-note">{ov["escalated"]} of {ov["handled"]} went past the inquiry to a PayPal claim.</p></section>{meter}</div>'
+            f'<h2 style="margin-top:40px">Open now: {ov["open"]}</h2>'
+            f'<table class="waiting"><thead><tr><th>Case</th><th>Amount</th><th>Waiting on</th><th>Days left</th>'
+            f'<th>If nobody answers</th></tr></thead><tbody>{waits}</tbody></table>')
+    return page("Overview | Second Look", "PayPal sandbox", body, demo)
+
+
+def customer_page(key: str, src: str) -> str:
+    demo = src == "demo"
+    pp, disputes, orders, today = _shop(src)
+    cu = ledger.customer(key, disputes, orders)
+    q = "?shop=demo" if demo else ""
+    if not cu:
+        return page("Customer | Second Look", "PayPal sandbox", '<h1 class="page">No customer with that id or email.</h1>', demo)
+    rate = (f'{len(cu["disputes"])} disputes in {cu["orders"]} orders ({cu["dispute_rate"]:.0%}). '
+            f'Your shop: {cu["shop_dispute_rate"]:.1%}.' if cu["dispute_rate"] is not None else "")
+    if cu["times_shop_rate"]:
+        rate += f' {cu["times_shop_rate"]:.0f}× your usual rate.' if cu["times_shop_rate"] >= 2 else " About your usual rate."
+    rows = "".join(f'<tr><td>{e(x["opened"])}</td><td><a href="/d/{e(x["dispute_id"])}">{e(x["reason"])}</a></td>'
+                   f'<td>{x["amount"]:.2f}</td><td>{"PayPal claim" if x["escalated"] else "Inquiry"}</td><td>{e(x["outcome"])}</td></tr>'
+                   for x in cu["disputes"])
+    api = f'/api/customers/{cu["email"] or cu["payer_id"]}{q}'
+    body = (f'<a class="back" href="/overview{q}">Overview</a><h1 class="page">{e(cu["name"] or cu["payer_id"])}</h1>'
+            f'<p class="who">{e(cu["email"] or "")} · PayPal payer {e(cu["payer_id"])}</p>'
+            f'<div class="kpis">'
+            f'<div class="tile"><span class="t-label">Orders</span><b>{cu["orders"]}</b><span class="t-sub">{cu["spent"]:,.2f} EUR, since {e(cu["first_order"] or "")}</span></div>'
+            f'<div class="tile"><span class="t-label">Disputes</span><b>{len(cu["disputes"])}</b><span class="t-sub">{e(rate)}</span></div>'
+            f'<div class="tile"><span class="t-label">Taken to a claim</span><b>{cu["escalated"]}</b><span class="t-sub">past the inquiry</span></div>'
+            f'<div class="tile"><span class="t-label">Refunded</span><b>{cu["refunded"]:,.2f}</b><span class="t-sub">EUR</span></div></div>'
+            f'<table class="waiting"><thead><tr><th>Opened</th><th>Case</th><th>Amount</th><th>Went to</th><th>Outcome</th></tr></thead>'
+            f'<tbody>{rows or "<tr><td colspan=5>No disputes.</td></tr>"}</tbody></table>'
+            f'<section class="api"><h2>In your customer database</h2><p class="who">Your CRM or helpdesk can ask for this card '
+            f'when this customer orders or calls, by email or PayPal payer id:</p><code>GET {e(api)}</code></section>')
+    return page(f"{cu['name'] or 'Customer'} | Second Look", "PayPal sandbox", body, demo)
+
+
+def customer_json(key: str, src: str) -> dict | None:
+    _, disputes, orders, _today = _shop(src)
+    return ledger.customer(key, disputes, orders)
 
 
 def case_page(dispute_id: str, flash: str = "") -> str:
@@ -423,12 +609,20 @@ def case_page(dispute_id: str, flash: str = "") -> str:
     d, r = case["dispute"], case["seller_records"]
     msg = next((m["content"] for m in d.get("messages", []) if m.get("posted_by") == "BUYER"), "")
     amt = d["dispute_amount"]
-    practice = isinstance(_client(dispute_id), MockPayPal)
-    left = (f'<a class="back" href="/{"?practice=1" if practice else ""}">All disputes</a>'
+    demo = is_demo(dispute_id)
+    practice = not demo and isinstance(_client(dispute_id), MockPayPal)
+    today = DemoPayPal().today if demo else datetime.utcnow().date()
+    q = "?shop=demo" if demo else ""
+    buyer = ledger.buyer_of(d)
+    card = (f'<p class="cardlink"><a href="/customer/{e(buyer)}{q}">This customer\'s record with you</a></p>'
+            if buyer and not practice else "")
+    nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
+    left = (f'<a class="back" href="/{"?practice=1" if practice else q}">All disputes</a>'
             f'<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
-            f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>'
-            f'{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}')
+            f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
+            f'{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
+    costs = costs_block(r.get("costs"), r.get("buyer_history_counts"))
     banner = ""
     if d.get("status") == "WAITING_FOR_BUYER_RESPONSE":
         given = [ev for ev in d.get("evidences", []) if ev.get("source") == "SUBMITTED_BY_SELLER"]
@@ -439,7 +633,7 @@ def case_page(dispute_id: str, flash: str = "") -> str:
     saved = _saved(dispute_id)
     if not saved:
         # the dispute id goes in by replace(), not format(): the script below has braces of its own
-        right = banner + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
+        right = banner + costs + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
                  '<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
                  'would run, and recommends one answer. Nothing is sent until you approve.</p>'
                  '<button>Take a second look</button></form>'
@@ -486,9 +680,9 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                            f'<input type="hidden" name="action" value="{e(dec.action)}">'
                            f'<div class="approve"><button>Approve: {e(ACTION.get(dec.action, dec.action).lower())}</button>'
                            f'<span>Sends exactly this to PayPal.</span></div>' + TEACH + '</form>' + LOCK)
-        right = f'{banner}{flash}{verdict}{action_part}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
+        right = f'{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
-    return PAGE.format(title=f"{msg[:40]} | Second Look", mode="Practice case" if practice else "PayPal sandbox", body=body)
+    return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo)
 
 
 # ---------- server ----------
@@ -508,7 +702,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _fail(self, err: Exception):
-        self._send(PAGE.format(title="Something went wrong", mode="",
+        self._send(page("Something went wrong", "",
                                body=f'<h1 class="page">That didn\'t work.</h1>'
                                     f'<p>{e(str(err))}</p><p><a href="/">Back to the disputes</a></p>'), 500)
 
@@ -517,8 +711,23 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path == "/favicon.ico":
                 return self._send("", 204)
+            qs = parse_qs(u.query)
+            src = "demo" if qs.get("shop") == ["demo"] else "practice" if "practice" in qs else "live"
             if u.path == "/":
-                return self._send(inbox_page("practice" in parse_qs(u.query)))
+                return self._send(inbox_page(src))
+            if u.path == "/overview":
+                return self._send(overview_page(src))
+            if u.path.startswith("/customer/"):
+                return self._send(customer_page(u.path[len("/customer/"):].strip("/"), src))
+            if u.path.startswith("/api/customers/"):
+                # the integration: a CRM or helpdesk asks for a customer's record by email or PayPal payer id
+                cu = customer_json(unquote(u.path[len("/api/customers/"):].strip("/")), src)
+                b = json.dumps(cu if cu else {"error": "unknown customer"}, ensure_ascii=False, default=str).encode()
+                self.send_response(200 if cu else 404)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                return self.wfile.write(b)
             if u.path == "/rules":
                 return self._send(rules_page())
             if u.path.startswith("/d/"):
@@ -566,7 +775,9 @@ class Handler(BaseHTTPRequestHandler):
                         "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
                         "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
                         "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
-                if isinstance(_client(did), MockPayPal):
+                if is_demo(did):
+                    sent += " (Demo shop: logged, not sent to PayPal.)"
+                elif isinstance(_client(did), MockPayPal):
                     sent += " (Practice case: logged, not sent to PayPal.)"
                 rule = form.get("rule", [""])[0]
                 if add_rule(rule):
