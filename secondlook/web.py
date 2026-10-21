@@ -162,7 +162,7 @@ TEACH = ('<details class="teach"><summary>Suggest a rule for later (nothing chan
          'placeholder="For example: never promise a delivery date, only a shipping date."></details>')
 
 
-def rules_page(flash: str = "") -> str:
+def rules_page(flash: str = "", demo: bool = False) -> str:
     pol = _policy()
     cur = pol.get("currency", "")
     limits = [f'Refunds above {pol["max_auto_refund"]:.0f} {cur} always come back to you.',
@@ -190,6 +190,7 @@ def rules_page(flash: str = "") -> str:
               'below and against PayPal\'s rules. Edit the wording if it needs it. From the moment you accept it, '
               f'it applies to every review.</p><ul class="rulelist">{pending}</ul></section>') if pending else ""
     body = (f'<a class="back" href="/">All disputes</a><h1 class="page">Your rules</h1>{flash}{review}'
+            '<p class="who">The same rules and limits apply in every shop you open here.</p>'
             '<section class="rules"><h2>How you like to answer</h2>'
             '<p class="who">Plain sentences. Second Look follows them in every review, and you can change them any time.</p>'
             f'<ul class="rulelist">{rows or "<li><span>No rules yet.</span></li>"}</ul>'
@@ -199,7 +200,7 @@ def rules_page(flash: str = "") -> str:
             '<h2>Your limits</h2><p class="who">Numbers, enforced by code after the AI has answered. '
             'They can make an answer more careful, never more generous.</p>'
             f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in limits)}</ul></section>')
-    return page("Your rules | Second Look", "", body)
+    return page("Your rules | Second Look", "", body, demo)
 
 # What a review was based on. If any of it changes, the review is out of date and Approve is withdrawn:
 # the seller must never approve an answer to a situation that no longer exists.
@@ -368,7 +369,12 @@ header.top{{--ctx:var(--pass);--ctx-bg:#E8F0EA;display:flex;justify-content:spac
 header.top.demo{{--ctx:var(--kraft);--ctx-bg:#F6EDE0}} header.top.practice{{--ctx:var(--unclear);--ctx-bg:#ECEEEF}}
 .who-am-i{{display:flex;align-items:center;gap:26px}}
 .brand{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px;text-decoration:none}} .brand small{{font-weight:400;color:var(--soft);margin-left:4px}}
-.shop{{display:flex;align-items:center;gap:10px;padding-left:26px;border-left:1px solid var(--rule);font-weight:500}}
+.shop{{position:relative;padding-left:26px;border-left:1px solid var(--rule);font-weight:500}}
+.shop summary{{display:flex;align-items:center;gap:10px;cursor:pointer;list-style:none}} .shop summary::-webkit-details-marker{{display:none}}
+.switch{{font-size:13px;font-weight:500;color:var(--soft);border:1px solid var(--rule);padding:2px 8px;background:#fff}}
+.shop-menu{{position:absolute;top:46px;left:26px;z-index:5;background:#fff;border:1px solid var(--rule);box-shadow:0 8px 24px rgba(30,41,53,.12);min-width:300px}}
+.shop-menu a{{display:flex;align-items:center;gap:12px;padding:12px 16px;text-decoration:none;border-top:1px solid var(--rule)}} .shop-menu a:first-child{{border-top:0}}
+.shop-menu a:hover{{background:var(--paper)}} .shop-menu small{{display:block;color:var(--soft);font-size:13px;font-weight:400}}
 .mono{{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;color:#fff;font:700 13px "Schibsted Grotesk",sans-serif;letter-spacing:.5px}}
 .mode{{font-size:14px;font-weight:500;padding:3px 10px;border-left:3px solid var(--ctx);background:#fff;color:var(--ink)}}
 .count{{display:inline-block;margin-left:6px;padding:0 8px;border-radius:10px;background:var(--incon);color:#fff;font-size:12px;font-weight:700;text-decoration:none}}
@@ -516,16 +522,32 @@ def pill_for(d: dict) -> str:
 BADGE_COLOURS = ["#3E6B57", "#6B4E7A", "#9A5B3C", "#3F5D7D", "#7A6A3A"]
 
 
-def shop_badge(demo: bool) -> str:
+def _badge(name: str, colour: str | None) -> str:
+    initials = "".join(w[0] for w in name.replace("&", " ").split() if w[:1].isalnum())[:2].upper() or "?"
+    colour = colour or BADGE_COLOURS[sum(map(ord, name)) % len(BADGE_COLOURS)]
+    return f'<span class="mono" style="background:{e(colour)}" aria-hidden="true">{e(initials)}</span>'
+
+
+def shop_badge(context: str) -> str:
+    """Which shop you're in, and the switch to the other one (and to the practice cases)."""
     try:
-        shop = DemoPayPal().shop if demo else json.loads((ROOT / "shop.json").read_text())
+        demo_shop = DemoPayPal().shop
+        live_shop = json.loads((ROOT / "shop.json").read_text())
     except (OSError, ValueError):
         return ""
-    name = shop.get("name", "")
-    initials = "".join(w[0] for w in name.replace("&", " ").split() if w[:1].isalnum())[:2].upper() or "?"
-    colour = shop.get("brand_colour") or BADGE_COLOURS[sum(map(ord, name)) % len(BADGE_COLOURS)]
-    return (f'<span class="shop"><span class="mono" style="background:{e(colour)}" aria-hidden="true">{e(initials)}</span>'
-            f'{e(name)}</span>')
+    shops = [("demo", demo_shop.get("name", "Demo shop"), "demo shop, made-up data", demo_shop.get("brand_colour"), "/?shop=demo"),
+             ("live", live_shop.get("name", "Your shop"), "your PayPal sandbox", live_shop.get("brand_colour"), "/?shop=live")]
+    if context == "practice":
+        here = '<span class="mono" style="background:#7D858E" aria-hidden="true">PC</span>Practice cases'
+    else:
+        _, name, _, colour, _ = next(x for x in shops if x[0] == context)
+        here = f'{_badge(name, colour)}{e(name)}'
+    menu = "".join(f'<a href="{url}">{_badge(name, colour)}<span>{e(name)}<small>{e(what)}</small></span></a>'
+                   for key, name, what, colour, url in shops if key != context)
+    menu += ('<a href="/?practice=1"><span class="mono" style="background:#7D858E" aria-hidden="true">PC</span>'
+             '<span>Practice cases<small>test disputes with known answers</small></span></a>' if context != "practice" else "")
+    return (f'<details class="shop"><summary>{here}<span class="switch">Switch</span></summary>'
+            f'<div class="shop-menu">{menu}</div></details>')
 
 
 MARK = ('<svg class="mark-logo" width="30" height="22" viewBox="0 0 30 22" aria-hidden="true">'
@@ -537,9 +559,9 @@ def page(title: str, mode: str, body: str, demo: bool = False) -> str:
     waiting = len(suggestions())
     rules = f'Your rules<span class="count">{waiting} to review</span>' if waiting else "Your rules"
     context = "demo" if demo else "practice" if mode.startswith("Practice") else "live"
-    nav = (f'<nav><a href="/{q}">Disputes</a><a href="/overview{q}">Overview</a><a href="/rules">{rules}</a>'
+    nav = (f'<nav><a href="/{q}">Disputes</a><a href="/overview">Overview</a><a href="/rules">{rules}</a>'
            f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
-    return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(demo), mark=MARK)
+    return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(context), mark=MARK)
 
 
 def _shop(src: str):
@@ -578,8 +600,8 @@ def inbox_page(src: str) -> str:
                      f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
                      f'<span class="meta">{pill_for(full)} {e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}</span></a></li>'))
     rows = [r[2] for r in sorted(rows, key=lambda r: (r[0], r[1]))] if not practice else [r[2] for r in rows]
-    other = ('<a href="/">Your PayPal disputes</a> · <a href="/?shop=demo">Demo shop</a>' if practice else
-             '<a href="/">Your PayPal disputes</a> · <a href="/?practice=1">Practice cases</a>' if demo else
+    other = ('<a href="/?shop=live">Your PayPal disputes</a> · <a href="/?shop=demo">Demo shop</a>' if practice else
+             '<a href="/?shop=live">Your PayPal disputes</a> · <a href="/?practice=1">Practice cases</a>' if demo else
              '<a href="/?shop=demo">Demo shop</a> · <a href="/?practice=1">Practice cases</a>')
     title = "Practice cases" if practice else f"{DemoPayPal().shop['name']}: open disputes" if demo else "Your PayPal disputes"
     about = f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else ""
@@ -707,7 +729,9 @@ def overview_page(src: str) -> str:
             + (f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else "")
             + f'<p class="who">Last {ov["window_days"]} days: {ov["disputes"]} disputes in {ov["orders"]:,} orders. '
               f'From PayPal\'s own records: each case\'s stage and outcome.</p>'
-            f'<div class="kpis">{kpis}</div>'
+            + ('' if ov["handled"] else '<p class="demo-note">No closed cases in this shop yet: the history fills in as cases '
+                 'close. To see an overview with a history, <a href="/overview?shop=demo">open the demo shop</a>.</p>')
+            + f'<div class="kpis">{kpis}</div>'
             f'<div class="ov-grid"><section><h2>How they ended</h2>'
             f'<h3 class="bl-h">The money stayed with you</h3>{bar_list(stayed, ov["handled"])}'
             f'<h3 class="bl-h">Money went back</h3>{bar_list(back, ov["handled"])}'
@@ -983,9 +1007,13 @@ def api_open(src: str) -> list:
 # ---------- server ----------
 
 class Handler(BaseHTTPRequestHandler):
+    _cookie = None
+
     def _send(self, body: str, code: int = 200):
         b = body.encode()
         self.send_response(code)
+        if self._cookie:
+            self.send_header("Set-Cookie", self._cookie)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
@@ -1015,7 +1043,14 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/favicon.ico":
                 return self._send("", 204)
             qs = parse_qs(u.query)
-            src = "demo" if qs.get("shop") == ["demo"] else "practice" if "practice" in qs else "live"
+            # The shop you're in stays the same from page to page: an Overview of one shop next to the
+            # disputes of another made no sense (Claudia, 21/10). Demo by default: it has a history.
+            asked = (qs.get("shop") or [""])[0]
+            if asked in ("demo", "live"):
+                self._cookie = f"sl_shop={asked}; Path=/; SameSite=Lax"
+            jar = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+            shop = asked if asked in ("demo", "live") else jar.get("sl_shop", "demo")
+            src = "practice" if "practice" in qs else shop
             if u.path == "/":
                 return self._send(inbox_page(src))
             if u.path == "/overview":
@@ -1036,7 +1071,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return self.wfile.write(b)
             if u.path == "/rules":
-                return self._send(rules_page())
+                return self._send(rules_page(demo=shop == "demo"))
             if u.path.startswith("/d/"):
                 return self._send(case_page(u.path[3:].strip("/")))
             self._send("Not found", 404)
