@@ -1,4 +1,4 @@
-# Film draft 2 — script for Claudia's review (20/10)
+# Film draft 2 — script (20/10; Claudia's go 21/10 with her additions to sections 4 and 6)
 
 Target under 2:50. Each line is spoken; [brackets] are pictures. Every claim is checked in the
 table at the bottom before rendering. Edit freely: your words beat mine.
@@ -27,6 +27,9 @@ table at the bottom before rendering. Edit freely: your words beat mine.
 - Second Look works inside those first days, while a dispute is still cheap. It pulls the evidence
   from PayPal, runs the ten checks a specialist would, and shows what each way out would cost,
   before you choose.
+- And it isn't only about money. The answer is ready in under a minute: polite, correct, and about
+  this buyer's claim, not a template. A seller who is clearly there, and knows the order, reassures
+  an honest buyer, and gives a dishonest one a reason to think twice.
 
 ## 5. Live on PayPal (1:20–1:45)
 [the live sandbox takes: tote bag, reply, then the tracking sent as proof]
@@ -43,7 +46,10 @@ table at the bottom before rendering. Edit freely: your words beat mine.
 - A pulled thread on a napkin: first, a photo. A parcel lost for two weeks: refund it, the buyer is right.
 - At a glance: how every case ended, what you kept, what you paid, and for every open case, what
   PayPal does if nobody answers.
-- When a customer orders or calls, your customer database can show the same record.
+- It has its own screen, but your shop already works somewhere: a helpdesk, a team chat, a CRM.
+  So it connects both ways. Your systems can read a case, ask for a review, and approve it, under the
+  same limits. And Second Look tells them when a review is ready, or an answer has gone out.
+  [split screen: the case as JSON in a helpdesk-like panel · the notification arriving]
 
 ## 7. The guard and you (2:25–2:40)
 [flow: AI → your limits in code → you approve → PayPal]
@@ -68,4 +74,7 @@ table at the bottom before rendering. Edit freely: your words beat mine.
 | two people, ~1,700 orders in 90 days, made-up | demo/shop.json (1,730 orders in the window), label on every page |
 | took two of three earlier disputes to a claim; delivered to his PayPal address | DEMO-026/027/028; DEMO-031 tracking DELIVERED to the PayPal address; review = DEFEND |
 | what PayPal does if nobody answers | ledger.if_nobody_answers: HELP1083 (10 days), Purchase Protection (20 days), API due-date rules |
+| answer ready in under a minute; specific to the claim | reviews measured ~25–40 s (live takes 17–19/10); the reply cites the case's own dates, tracking, items |
+| reassures an honest buyer, a reason for a dishonest one to think twice | purpose, said as such — not a measured effect; don't turn it into a number |
+| connects both ways; read, review, approve under the same limits; tells them when a review is ready or an answer has gone out | `/api/disputes`, `/api/disputes/<id>`, `…/review`, `…/approve` share `web.approve` with the page; `notify()` posts `review.ready` / `answer.sent` to `SECONDLOOK_NOTIFY_URL`; tried end to end 21/10 on PP-D-001 with a local receiver |
 | a few cents a dispute | ~$0.05 measured 17/10; inputs grew (costs, history), so "a few cents", not a number |

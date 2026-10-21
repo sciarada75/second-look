@@ -55,9 +55,7 @@ comparison isn't fair yet instead of making one. A buyer who disputes 3 times yo
 no refund without you seeing it first (the numbers are yours to change). It only sees disputes with
 your shop: PayPal doesn't share a buyer's disputes with other sellers.
 
-**This is how Second Look learns: from you, in words you can read.** When you approve a reply you
-corrected, *Add a rule for next time* saves your correction as a new preference; the *Your rules*
-page lists them all, next to the limits, and removes any of them. It does not learn silently from
+**This is how Second Look learns: from you, in words you can read.** When a case shows you a rule worth having, *Suggest a rule* sends it to the *Your rules* page, where it waits next to the case it came from until you accept, reword or discard it: a rule written mid-dispute, tired or upset, can clash with your other rules or PayPal's, and it changes every later review. The *Your rules* page lists them all, next to the limits, and removes any of them. It does not learn silently from
 past cases: one odd case could then shift every later answer without anyone seeing it, while a
 written rule can be read, changed and tested again. The limits stay in code, out of reach of any
 rule: a preference can change how Second Look answers, never raise what it may refund on its own.
@@ -121,6 +119,28 @@ one click away and never reach PayPal.
   page. The PayPal sandbox has one buyer and can't age an order, so it can't show a shop's quarter;
   the demo shop runs the same code on a busier one. The live sandbox disputes stay the proof that
   it runs on PayPal.
+
+## Connect it to what you already use
+
+Second Look has its own screen, but a shop already works somewhere: a helpdesk, a team chat, a CRM,
+its own order system. So it connects both ways, on the same machine (127.0.0.1), with the same rules
+as the screen.
+
+**Your systems → Second Look** (JSON):
+
+| | |
+|---|---|
+| `GET /api/disputes` | the open cases, with the recommended answer once reviewed |
+| `GET /api/disputes/<id>` | one case: what was said, the evidence and its sources, the review, the drafted reply, the ten checks, whether the review is out of date |
+| `POST /api/disputes/<id>/review` | ask for a review (the AI runs; a few cents) |
+| `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…"}`: send the answer. Exactly the page's checks: only the recommended action (or the question on "your call"), refused if the case changed, sent once |
+| `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
+
+**Second Look → your systems**: set `SECONDLOOK_NOTIFY_URL` in `.env` and Second Look POSTs a small
+JSON event there when a review is ready (`review.ready`: case, recommended answer, confidence) and
+when an answer is sent (`answer.sent`). A failed notification is logged and never blocks the answer.
+
+Add `?shop=demo` or `?practice=1` to try any of it on the demo shop or the practice cases, without keys.
 
 ## How it works
 

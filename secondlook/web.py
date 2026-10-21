@@ -874,6 +874,112 @@ def case_page(dispute_id: str, flash: str = "") -> str:
     return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo)
 
 
+# ---------- one path for the page and for other systems ----------
+# Approving through the API runs exactly the checks the page runs: same review, same limits, same
+# "out of date" test, sent once. A connected system can only do what the seller could do here.
+
+def notify(event: str, payload: dict) -> None:
+    """Second Look -> other systems: POST a small JSON event to the address in SECONDLOOK_NOTIFY_URL
+    (a helpdesk, a team chat, a CRM). Never blocks or breaks the seller's action; failures are logged."""
+    import os
+    from urllib import request as rq
+    url = os.environ.get("SECONDLOOK_NOTIFY_URL")
+    if not url:
+        return
+    body = json.dumps({"event": event, **payload}, ensure_ascii=False, default=str).encode()
+    try:
+        rq.urlopen(rq.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"}), timeout=5)
+    except Exception as err:  # noqa: BLE001 - a notification must never stop the answer
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        with open(ROOT / ".tmp" / "notify.log", "a") as f:
+            f.write(f"{datetime.utcnow():%Y-%m-%d %H:%M} {event} {payload.get('dispute_id')}: {err}\n")
+
+
+def run_review(did: str) -> Decision:
+    from .__main__ import review
+    dec = review(_client(did), did, "claude")
+    _save(did, dec, seen=_seen(_case(did)))
+    notify("review.ready", {"dispute_id": did, "recommended": dec.action, "confidence": dec.judgment.confidence,
+                            "limits_changed_it": dec.overridden})
+    return dec
+
+
+def approve(did: str, chosen: str, message: str | None, rule: str = "") -> tuple[int, str]:
+    """Send the answer the seller chose. Returns (HTTP status, what happened)."""
+    from .__main__ import execute
+    saved = _saved(did)
+    if saved and saved[1]:
+        return 200, saved[1]  # already sent: a second approval sends nothing
+    if not saved or not may_approve(saved[0].action, chosen, saved[0].judgment.action):
+        return 409, "This answer changed since you saw it, or it can't be sent as it is. Look again."
+    dec = saved[0]
+    recommended = dec.action
+    dec.action = chosen  # on "your call" the seller may send the drafted question
+    if message is not None:
+        dec.judgment.draft_message = message
+    case = _case(did)
+    if _changes(did, case):
+        return 409, "Something changed since this review. Take a fresh look."
+    seen = json.loads((REVIEWS / f"{did}.json").read_text()).get("seen")
+    result = execute(_client(did), dec, case["dispute"], case["seller_records"])
+    sent = {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
+            else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
+            "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
+            "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
+            "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
+    if is_demo(did):
+        sent += " (Demo shop: logged, not sent to PayPal.)"
+    elif isinstance(_client(did), MockPayPal):
+        sent += " (Practice case: logged, not sent to PayPal.)"
+    if suggest_rule(rule or "", did):
+        sent += " Your rule suggestion waits on Your rules for review."
+    dec.action = recommended  # the page keeps showing what was recommended
+    _save(did, dec, sent, seen)
+    notify("answer.sent", {"dispute_id": did, "action": chosen, "what_happened": sent})
+    return 200, sent
+
+
+def api_case(did: str) -> dict:
+    """Other systems -> Second Look: one case as data, what the page shows."""
+    case = _case(did)
+    d, r = case["dispute"], case["seller_records"]
+    saved = _saved(did)
+    out = {"dispute_id": did, "reason": d.get("reason"), "status": d.get("status"),
+           "stage": d.get("dispute_life_cycle_stage"), "amount": d.get("dispute_amount"),
+           "buyer": ledger.buyer_of(d), "messages": d.get("messages", []),
+           "evidence": {k: v for k, v in r.items() if k not in ("sources", "unavailable")},
+           "sources": r.get("sources", {}), "review": None}
+    if saved:
+        dec, sent = saved
+        out["review"] = {"recommended": dec.action, "ai_said": dec.judgment.action, "confidence": dec.judgment.confidence,
+                         "limits_notes": dec.reasons, "reasoning": dec.judgment.reasoning,
+                         "draft_reply": dec.judgment.draft_message, "checks": dec.judgment.checks,
+                         "sent": sent, "out_of_date": _changes(did, case)}
+    return out
+
+
+def api_open(src: str) -> list:
+    """Every open case in a shop, with its review if there is one."""
+    if src == "demo":
+        pp = DemoPayPal()
+        items = [d for d in pp.disputes() if d.get("status") != "RESOLVED"]
+    else:
+        pp = MockPayPal(ROOT / "cases", ROOT / ".tmp" / "actions.jsonl") if src == "practice" else client_from_env(ROOT)
+        items, seen = [], set()
+        for state in (["REQUIRED_ACTION"] if src == "practice" else ["REQUIRED_ACTION", "REQUIRED_OTHER_PARTY_ACTION"]):
+            for d in pp.list_disputes(state):
+                if d["dispute_id"] not in seen:
+                    seen.add(d["dispute_id"])
+                    items.append(d if src == "practice" else pp.get_dispute(d["dispute_id"]))
+    out = []
+    for d in items:
+        saved = _saved(d["dispute_id"])
+        out.append({"dispute_id": d["dispute_id"], "reason": d.get("reason"), "status": d.get("status"),
+                    "amount": d.get("dispute_amount"), "buyer": ledger.buyer_of(d),
+                    "recommended": saved[0].action if saved else None, "sent": saved[1] if saved else None})
+    return out
+
+
 # ---------- server ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -889,6 +995,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(303)
         self.send_header("Location", to)
         self.end_headers()
+
+    def _json(self, data, code: int = 200):
+        b = json.dumps(data, ensure_ascii=False, default=str).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
 
     def _fail(self, err: Exception):
         self._send(page("Something went wrong", "",
@@ -908,6 +1022,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(overview_page(src))
             if u.path.startswith("/customer/"):
                 return self._send(customer_page(u.path[len("/customer/"):].strip("/"), src))
+            if u.path.rstrip("/") == "/api/disputes":
+                return self._json(api_open(src))
+            if u.path.startswith("/api/disputes/"):
+                return self._json(api_case(unquote(u.path[len("/api/disputes/"):].strip("/"))))
             if u.path.startswith("/api/customers/"):
                 # the integration: a CRM or helpdesk asks for a customer's record by email or PayPal payer id
                 cu = customer_json(unquote(u.path[len("/api/customers/"):].strip("/")), src)
@@ -927,7 +1045,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")
-        form = parse_qs(self.rfile.read(int(self.headers.get("Content-Length", 0))).decode())
+        raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        form = parse_qs(raw.decode()) if not self.path.startswith("/api/") else {}
         try:
             if parts == ["rules", "add"]:
                 add_rule(form.get("rule", [""])[0])
@@ -942,44 +1061,20 @@ class Handler(BaseHTTPRequestHandler):
                 remove_rule(int(form.get("i", ["-1"])[0]))
                 return self._redirect("/rules")
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "review":
-                from .__main__ import review
-                did = parts[1]
-                dec = review(_client(did), did, "claude")
-                _save(did, dec, seen=_seen(_case(did)))
-                return self._redirect(f"/d/{did}")
+                run_review(parts[1])
+                return self._redirect(f"/d/{parts[1]}")
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "approve":
-                from .__main__ import execute
-                did = parts[1]
-                saved = _saved(did)
-                chosen = form.get("action", [""])[0]
-                if saved and saved[1]:
-                    return self._redirect(f"/d/{did}")  # already sent: a second click sends nothing
-                if not saved or not may_approve(saved[0].action, chosen, saved[0].judgment.action):
-                    return self._send("This answer changed since you saw it. Reload the page.", 409)
-                dec = saved[0]
-                recommended = dec.action
-                dec.action = chosen  # on "your call" the seller may send the drafted question
-                dec.judgment.draft_message = form.get("message", [dec.judgment.draft_message])[0]
-                case = _case(did)
-                if not saved[1] and _changes(did, case):
-                    return self._send("Something changed since this review. Reload the page.", 409)
-                seen = json.loads((REVIEWS / f"{did}.json").read_text()).get("seen")
-                result = execute(_client(did), dec, case["dispute"], case["seller_records"])
-                sent = {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
-                        else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
-                        "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
-                        "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
-                        "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
-                if is_demo(did):
-                    sent += " (Demo shop: logged, not sent to PayPal.)"
-                elif isinstance(_client(did), MockPayPal):
-                    sent += " (Practice case: logged, not sent to PayPal.)"
-                rule = form.get("rule", [""])[0]
-                if suggest_rule(rule, did):
-                    sent += " Your rule suggestion waits on Your rules for review."
-                dec.action = recommended  # the page keeps showing what was recommended
-                _save(did, dec, sent, seen)
-                return self._redirect(f"/d/{did}")
+                code, text = approve(parts[1], form.get("action", [""])[0], form.get("message", [None])[0], form.get("rule", [""])[0])
+                return self._redirect(f"/d/{parts[1]}") if code == 200 else self._send(text, code)
+            # the API: the same review and the same approval, as JSON
+            if len(parts) == 4 and parts[:2] == ["api", "disputes"] and parts[3] in ("review", "approve"):
+                did = parts[2]
+                if parts[3] == "review":
+                    run_review(did)
+                    return self._json(api_case(did))
+                data = json.loads(raw or b"{}")
+                code, text = approve(did, data.get("action", ""), data.get("message"), data.get("rule", ""))
+                return self._json({"dispute_id": did, "result": text}, code)
             self._send("Not found", 404)
         except Exception as err:
             self._fail(err)

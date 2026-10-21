@@ -59,6 +59,15 @@ def test_a_rule_suggested_from_a_case_changes_nothing_until_accepted():
     assert web._policy()["seller_preferences"] == ["A", "Never promise a delivery date."] and web.suggestions() == []
 
 
+def test_a_notification_that_fails_never_stops_the_answer():
+    import os
+    os.environ["SECONDLOOK_NOTIFY_URL"] = "http://127.0.0.1:9/nowhere"   # nothing listens there
+    web.ROOT = Path(tempfile.mkdtemp())
+    web.notify("answer.sent", {"dispute_id": "X"})                         # must not raise
+    assert "answer.sent X" in (web.ROOT / ".tmp" / "notify.log").read_text()
+    del os.environ["SECONDLOOK_NOTIFY_URL"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
