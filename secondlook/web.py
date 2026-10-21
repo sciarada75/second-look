@@ -117,12 +117,47 @@ def remove_rule(index: int) -> None:
         POLICY.write_text(json.dumps(pol, indent=2, ensure_ascii=False) + "\n")
 
 
+# A rule written in the middle of a dispute (tired, upset, one case in view) can clash with other rules or
+# PayPal's, and it changes every later review. So a case can only SUGGEST a rule; it waits on the rules
+# page, next to the case it came from, until the seller accepts, edits or discards it there.
+SUGGESTED = ROOT / "records" / "suggested_rules.json"
+
+
+def suggestions() -> list:
+    try:
+        return json.loads(SUGGESTED.read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def suggest_rule(text: str, case_id: str = "") -> bool:
+    text = " ".join(text.split())[:300]
+    items = suggestions()
+    if not text or any(x["text"] == text for x in items) or text in _policy().get("seller_preferences", []):
+        return False
+    items.append({"text": text, "from_case": case_id, "date": datetime.utcnow().strftime("%Y-%m-%d")})
+    SUGGESTED.parent.mkdir(parents=True, exist_ok=True)
+    SUGGESTED.write_text(json.dumps(items, indent=1, ensure_ascii=False) + "\n")
+    return True
+
+
+def settle_suggestion(index: int, accept_as: str | None) -> None:
+    """Accept (with the seller's final wording) or discard one suggestion."""
+    items = suggestions()
+    if 0 <= index < len(items):
+        items.pop(index)
+        if accept_as:
+            add_rule(accept_as)
+        SUGGESTED.write_text(json.dumps(items, indent=1, ensure_ascii=False) + "\n")
+
+
 # a send button works once: the first click locks it (PayPal refuses a second message anyway)
 LOCK = ('<script>document.querySelectorAll(".send").forEach(f=>f.addEventListener("submit",e=>{'
         'const b=e.target.querySelector("button");b.disabled=true;b.textContent="Sending to PayPal…";}));</script>')
 
-TEACH = ('<details class="teach"><summary>Add a rule for next time (saved when you approve)</summary>'
-         '<label for="rule">A rule in plain words. Second Look follows it in every future review.</label>'
+TEACH = ('<details class="teach"><summary>Suggest a rule for later (nothing changes now)</summary>'
+         '<label for="rule">Write it down while it is fresh. It waits on Your rules, next to this case, '
+         'until you read it there with your other rules and accept it.</label>'
          '<input id="rule" name="rule" maxlength="300" '
          'placeholder="For example: never promise a delivery date, only a shipping date."></details>')
 
@@ -143,7 +178,18 @@ def rules_page(flash: str = "") -> str:
     rows = "".join(f'<li><span>{e(r)}</span><form method="post" action="/rules/remove">'
                    f'<input type="hidden" name="i" value="{i}"><button class="quiet">Remove</button></form></li>'
                    for i, r in enumerate(pol.get("seller_preferences", [])))
-    body = (f'<a class="back" href="/">All disputes</a><h1 class="page">Your rules</h1>{flash}'
+    pending = "".join(
+        f'<li><form method="post" action="/rules/accept" class="sugg"><input type="hidden" name="i" value="{i}">'
+        f'<textarea name="text" rows="2" aria-label="Suggested rule">{e(x["text"])}</textarea>'
+        f'<span class="t-sub">Suggested {e(x.get("date", ""))}'
+        + (f' from <a href="/d/{e(x["from_case"])}{"?shop=demo" if is_demo(x["from_case"]) else ""}">{e(x["from_case"])}</a>' if x.get("from_case") else "")
+        + f'</span><span class="sugg-actions"><button>Accept as written</button>'
+        f'<button class="quiet" formaction="/rules/discard">Discard</button></span></form></li>'
+        for i, x in enumerate(suggestions()))
+    review = ('<section class="pending"><h2>Suggested, waiting for you</h2><p class="who">Read each one against your rules '
+              'below and against PayPal\'s rules. Edit the wording if it needs it. From the moment you accept it, '
+              f'it applies to every review.</p><ul class="rulelist">{pending}</ul></section>') if pending else ""
+    body = (f'<a class="back" href="/">All disputes</a><h1 class="page">Your rules</h1>{flash}{review}'
             '<section class="rules"><h2>How you like to answer</h2>'
             '<p class="who">Plain sentences. Second Look follows them in every review, and you can change them any time.</p>'
             f'<ul class="rulelist">{rows or "<li><span>No rules yet.</span></li>"}</ul>'
@@ -212,10 +258,12 @@ def timeline(case: dict) -> str:
         return ""
     t0, t1 = points[0][1], points[-1][1]
     span = max((t1 - t0).total_seconds(), 1)
-    marks, prev, last_x = [], None, -100.0
+    marks, prev, last_x, level = [], None, -100.0, 0
     for label, t in points:
         x = 3 + 94 * (t - t0).total_seconds() / span
-        lift = " lift" if x - last_x < 9 else ""  # two events close together: stagger the labels
+        # events close together take turns: below the line, above it, higher above it
+        level = (level + 1) % 3 if x - last_x < 9 else 0
+        lift = ["", " lift", " lift2"][level]
         gap = f'<span class="gap">{e(_gap(prev, t))}</span>' if prev and label == "Dispute opened" else ""
         when = f"{t:%d %b}" if (t.hour, t.minute) == (0, 0) else f"{t:%d %b, %H:%M}"
         marks.append(f'<li class="mark{lift}{" hot" if gap else ""}" style="left:{x:.2f}%">'
@@ -248,8 +296,8 @@ def evidence(r: dict) -> str:
         # the tag's look says how much the fact can be relied on: PayPal's records, your published terms, your word
         kind = "paypal" if tag.startswith("PayPal") else "shop" if tag == "Your shop terms" else \
                "notes" if tag == "Your notes" else "practice"
-        rows.append(f'<div class="ev"><dt>{e(label)}</dt><dd>{e(str(v))}'
-                    f'<span class="src {kind}">{e(tag)}</span></dd></div>')
+        rows.append(f'<div class="ev"><dt>{e(label)}</dt><dd>{e(str(v))}</dd>'
+                    f'<dd class="tag"><span class="src {kind}">{e(tag)}</span></dd></div>')
     for k, why in (r.get("unavailable") or {}).items():
         rows.append(f'<div class="ev missing"><dt>{e(EVIDENCE_LABEL.get(k, k))}</dt><dd>{e(why)}</dd></div>')
     legend = ('<p class="legend"><span class="src paypal">PayPal</span> PayPal\'s own records '
@@ -314,9 +362,32 @@ PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 *{{box-sizing:border-box}}
 body{{margin:0;background:var(--paper);color:var(--ink);font:400 17px/1.55 "Schibsted Grotesk",system-ui,sans-serif}}
 a{{color:inherit}} :focus-visible{{outline:3px solid var(--kraft);outline-offset:2px}}
-header.top{{display:flex;justify-content:space-between;align-items:baseline;padding:22px 56px;border-bottom:1px solid var(--rule)}}
-.brand{{font-weight:700;font-size:20px;text-decoration:none}} .brand small{{font-weight:400;color:var(--soft);margin-left:10px}}
-.mode{{color:var(--soft);font-size:15px}}
+/* context colour: green = your live PayPal shop, kraft = the made-up demo shop, grey = practice cases */
+header.top{{--ctx:var(--pass);--ctx-bg:#E8F0EA;display:flex;justify-content:space-between;align-items:center;padding:18px 56px;
+  border-top:6px solid var(--ctx);border-bottom:1px solid var(--rule);background:linear-gradient(var(--ctx-bg),var(--paper) 140%)}}
+header.top.demo{{--ctx:var(--kraft);--ctx-bg:#F6EDE0}} header.top.practice{{--ctx:var(--unclear);--ctx-bg:#ECEEEF}}
+.who-am-i{{display:flex;align-items:center;gap:26px}}
+.brand{{display:flex;align-items:center;gap:10px;font-weight:700;font-size:20px;text-decoration:none}} .brand small{{font-weight:400;color:var(--soft);margin-left:4px}}
+.shop{{display:flex;align-items:center;gap:10px;padding-left:26px;border-left:1px solid var(--rule);font-weight:500}}
+.mono{{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;color:#fff;font:700 13px "Schibsted Grotesk",sans-serif;letter-spacing:.5px}}
+.mode{{font-size:14px;font-weight:500;padding:3px 10px;border-left:3px solid var(--ctx);background:#fff;color:var(--ink)}}
+.count{{display:inline-block;margin-left:6px;padding:0 8px;border-radius:10px;background:var(--incon);color:#fff;font-size:12px;font-weight:700;text-decoration:none}}
+.pill{{display:inline-block;padding:2px 10px;border-radius:12px;font-size:13px;font-weight:700;margin-right:6px;vertical-align:1px}}
+.pill.you{{background:#F6E6C8;color:#7A4E0C}} .pill.buyer{{background:#DDEBE1;color:var(--pass)}}
+.pill.paypal{{background:#E4E7EA;color:var(--soft)}} .pill.onclaim{{background:#EEDDE9;color:var(--fail)}}
+.filters{{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}}
+.filters input,.filters select{{font:400 16px "Schibsted Grotesk",sans-serif;padding:9px 12px;border:1px solid var(--rule);background:#fff;color:var(--ink)}}
+.filters input{{min-width:320px}}
+.exposure{{margin:10px 0 26px;max-width:1100px}}
+.xchart{{list-style:none;padding:0;margin:0}}
+.xchart li{{display:grid;grid-template-columns:300px 1fr 120px;grid-template-rows:auto auto;gap:2px 16px;align-items:center;padding:8px 0}}
+.xchart .x-label{{font-weight:500}} .xchart b{{text-align:right;font-variant-numeric:tabular-nums;font-size:20px}}
+.xchart .t-sub{{grid-column:2/4}}
+.x-track{{height:20px;background:#ECEEE8}} .x-bar{{display:block;height:20px;border-radius:0 4px 4px 0}}
+.xchart .pass .x-bar{{background:var(--pass)}} .xchart .incon .x-bar{{background:var(--incon)}} .xchart .fail .x-bar{{background:var(--fail)}}
+.pending{{background:#FBF3E4;border-left:4px solid var(--incon);padding:18px 22px;margin:0 0 30px;max-width:900px}}
+.sugg{{display:grid;grid-template-columns:1fr;gap:8px;width:100%}} .sugg textarea{{min-height:64px;font-family:Newsreader,Georgia,serif;font-style:italic;font-size:18px}}
+.sugg-actions{{display:flex;gap:12px}} .sugg-actions button:first-child{{font:700 15px "Schibsted Grotesk",sans-serif;padding:8px 16px;border:0;background:var(--ink);color:var(--paper);cursor:pointer}}
 header.top nav{{display:flex;gap:28px;align-items:baseline}} header.top nav a{{font-size:15px}}
 .teach{{margin-top:14px;color:var(--soft)}} .teach summary{{cursor:pointer;font-size:15px}}
 .teach label{{display:block;margin:10px 0 6px;font-size:15px}}
@@ -343,19 +414,19 @@ h1.page{{font-size:36px;line-height:1.2;margin:0 0 6px}}
 /* case */
 .case{{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:64px;align-items:start}}
 .claim{{margin:0 0 6px;font-size:44px;line-height:1.15}} .claim::before{{content:"\\201C"}} .claim::after{{content:"\\201D"}}
-.who{{color:var(--soft);margin:0 0 34px}}
+.who{{color:var(--soft);margin:0 0 34px}} .case .pill{{margin-bottom:10px}}
 .ruler{{position:relative;list-style:none;margin:30px 0 30px;padding:0;height:190px}}
 .ruler::before{{content:"";position:absolute;left:0;right:0;top:95px;border-top:2px solid var(--ink)}}
 .mark{{position:absolute;top:89px;width:0}}
 .mark::before{{content:"";position:absolute;left:-7px;top:0;width:14px;height:14px;border-radius:50%;background:var(--ink)}}
 .mark .lab{{position:absolute;left:0;top:24px;transform:translateX(-50%);width:170px;text-align:center}}
-.mark.lift .lab{{top:auto;bottom:16px}}
+.mark.lift .lab{{top:auto;bottom:16px}} .mark.lift2 .lab{{top:auto;bottom:56px}}
 .mark b{{display:block;font-size:15px}} .mark time{{display:block;font-size:14px;color:var(--soft)}}
 .mark.hot::before{{background:var(--incon);box-shadow:0 0 0 5px #F3E3C4}}
 .gap{{display:block;margin-top:2px;font-family:Newsreader,serif;font-style:italic;font-size:19px;color:var(--incon)}}
 h2{{font-size:19px;margin:0 0 14px}}
-.evidence{{margin:0}} .ev{{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:10px 0;border-top:1px solid var(--rule)}}
-.ev dt{{color:var(--soft)}} .ev dd{{margin:0}}
+.evidence{{margin:0}} .ev{{display:grid;grid-template-columns:150px 1fr 150px;gap:12px;padding:10px 0;border-top:1px solid var(--rule)}}
+.ev dt{{color:var(--soft)}} .ev dd{{margin:0}} .ev dd.tag{{text-align:right}} .ev dd.tag .src{{margin-left:0}}
 .src{{display:inline-block;margin-left:10px;padding:1px 8px;font-size:13px;font-weight:500;background:var(--kraft-bg);color:#6E4F27;border-left:3px solid var(--kraft)}}
 .src.paypal{{background:var(--ink);color:#fff;border-left-color:var(--ink)}}
 .src.shop{{background:var(--kraft-bg);color:#6E4F27;border-left-color:var(--kraft)}}
@@ -392,13 +463,14 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 .talk b{{display:block;font-size:14px;font-weight:500;color:var(--soft)}} .talk q{{quotes:none;font-family:Newsreader,Georgia,serif;font-style:italic;font-size:19px}}
 .talk li.buyer{{border-color:var(--fail)}} .talk li.you{{border-color:var(--ink)}} .talk li.proof{{border-color:var(--pass)}}
 .stale{{padding:14px 18px;background:#FBF3E4;border-left:4px solid var(--incon);margin:0 0 14px}}
-.back{{display:inline-block;margin-bottom:26px;color:var(--soft)}}
+.back{{display:block;margin-bottom:18px;color:var(--soft)}} .draft summary{{cursor:pointer;color:var(--soft)}} .draft p{{color:var(--soft)}}
 /* demo label, deadlines, costs */
 .mode.demo{{background:var(--kraft-bg);color:#6E4F27;border-left:3px solid var(--kraft);padding:2px 10px;font-weight:500}}
 .demo-note{{display:inline-block;margin:0 0 8px;padding:6px 12px;background:var(--kraft-bg);border-left:3px solid var(--kraft);color:#6E4F27;font-size:15px}}
 .nobody{{margin:-22px 0 26px;padding:8px 12px;border-left:3px solid var(--incon);color:var(--ink);font-size:16px}}
 .cardlink{{margin:14px 0 0}}
-.costs{{margin:30px 0}} .costs table{{width:100%;border-collapse:collapse}}
+.costs{{margin:30px 0;border:1px solid var(--rule);background:#fff;padding:14px 18px}} .costs table{{width:100%;border-collapse:collapse;margin-top:12px}}
+.costs summary{{cursor:pointer;display:grid;gap:4px}} .costs summary b{{font-size:19px}} .costs summary span{{color:var(--soft);font-size:15px}}
 .costs th,.costs td{{text-align:left;vertical-align:top;padding:10px 12px 10px 0;border-top:1px solid var(--rule);font-size:16px}}
 .costs th{{font-weight:700;width:30%}} .costs td:last-child{{font-weight:500}}
 .cost-note{{color:var(--soft);font-size:15px;margin:10px 0 0}}
@@ -422,15 +494,52 @@ table.waiting{{width:100%;border-collapse:collapse;margin-top:8px}}
 @media (max-width:1100px){{.ov-grid{{grid-template-columns:1fr}} .barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
 </style></head><body>
-<header class="top"><a class="brand" href="/">Second Look<small>Sell without fear.</small></a>{nav}</header>
+<header class="top {context}"><div class="who-am-i"><a class="brand" href="/">{mark}Second Look<small>Sell without fear.</small></a>{shop}</div>{nav}</header>
 <main>{body}</main></body></html>"""
+
+
+def pill_for_on(on: str, stage: str | None = None) -> str:
+    """Colour says whose move it is: amber = yours, green = the buyer's, grey = PayPal's, plum = a claim."""
+    if stage and stage != "INQUIRY":
+        return '<span class="pill onclaim">PayPal claim</span>'
+    cls, text = {"you": ("you", "Your move"), "the buyer": ("buyer", "Waiting for the buyer"),
+                 "PayPal": ("paypal", "PayPal reviewing")}.get(on, ("paypal", on))
+    return f'<span class="pill {cls}">{e(text)}</span>'
+
+
+def pill_for(d: dict) -> str:
+    on = {"WAITING_FOR_SELLER_RESPONSE": "you", "WAITING_FOR_BUYER_RESPONSE": "the buyer"}.get(d.get("status"), "PayPal")
+    return pill_for_on(on, d.get("dispute_life_cycle_stage"))
+
+
+# The shop's badge: initials on its own colour, so a glance says whose shop this is.
+BADGE_COLOURS = ["#3E6B57", "#6B4E7A", "#9A5B3C", "#3F5D7D", "#7A6A3A"]
+
+
+def shop_badge(demo: bool) -> str:
+    try:
+        shop = DemoPayPal().shop if demo else json.loads((ROOT / "shop.json").read_text())
+    except (OSError, ValueError):
+        return ""
+    name = shop.get("name", "")
+    initials = "".join(w[0] for w in name.replace("&", " ").split() if w[:1].isalnum())[:2].upper() or "?"
+    colour = shop.get("brand_colour") or BADGE_COLOURS[sum(map(ord, name)) % len(BADGE_COLOURS)]
+    return (f'<span class="shop"><span class="mono" style="background:{e(colour)}" aria-hidden="true">{e(initials)}</span>'
+            f'{e(name)}</span>')
+
+
+MARK = ('<svg class="mark-logo" width="30" height="22" viewBox="0 0 30 22" aria-hidden="true">'
+        '<circle cx="11" cy="11" r="9" fill="#B5874F"/><circle cx="19" cy="11" r="9" fill="none" stroke="#1E2935" stroke-width="3"/></svg>')
 
 
 def page(title: str, mode: str, body: str, demo: bool = False) -> str:
     q = "?shop=demo" if demo else ""
-    nav = (f'<nav><a href="/{q}">Disputes</a><a href="/overview{q}">Overview</a><a href="/rules">Your rules</a>'
-           f'<span class="mode{" demo" if demo else ""}">{e(DEMO_LABEL if demo else mode)}</span></nav>')
-    return PAGE.format(title=title, nav=nav, body=body)
+    waiting = len(suggestions())
+    rules = f'Your rules<span class="count">{waiting} to review</span>' if waiting else "Your rules"
+    context = "demo" if demo else "practice" if mode.startswith("Practice") else "live"
+    nav = (f'<nav><a href="/{q}">Disputes</a><a href="/overview{q}">Overview</a><a href="/rules">{rules}</a>'
+           f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
+    return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(demo), mark=MARK)
 
 
 def _shop(src: str):
@@ -467,7 +576,7 @@ def inbox_page(src: str) -> str:
         rows.append((full.get("status") != "WAITING_FOR_SELLER_RESPONSE", left if left is not None else 99,
                      f'<li><a href="/d/{e(d["dispute_id"])}"><blockquote>{e(msg)}</blockquote>'
                      f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
-                     f'<span class="meta">{e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}</span></a></li>'))
+                     f'<span class="meta">{pill_for(full)} {e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}</span></a></li>'))
     rows = [r[2] for r in sorted(rows, key=lambda r: (r[0], r[1]))] if not practice else [r[2] for r in rows]
     other = ('<a href="/">Your PayPal disputes</a> · <a href="/?shop=demo">Demo shop</a>' if practice else
              '<a href="/">Your PayPal disputes</a> · <a href="/?practice=1">Practice cases</a>' if demo else
@@ -475,6 +584,10 @@ def inbox_page(src: str) -> str:
     title = "Practice cases" if practice else f"{DemoPayPal().shop['name']}: open disputes" if demo else "Your PayPal disputes"
     about = f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else ""
     body = (f'<h1 class="page">{e(title)}</h1>{about}<p class="who">{other}</p>'
+            + ('<div class="filters" role="search"><input id="q" type="search" placeholder="Search what the buyer said, reason, amount" '
+               'aria-label="Search disputes"></div><script>addEventListener("DOMContentLoaded",()=>{const q=document.getElementById("q"),rows=[...document.querySelectorAll(".inbox li")];'
+               'q.addEventListener("input",()=>rows.forEach(r=>r.hidden=!!q.value&&!r.textContent.toLowerCase().includes(q.value.toLowerCase())))});</script>'
+               if len(rows) > 3 else "")
             + (f'<ul class="inbox">{"".join(rows)}</ul>' if rows else
                '<p class="empty">No open disputes. When a buyer opens one, it appears here.</p>'))
     return page("Second Look", "Practice cases" if practice else "PayPal sandbox", body, demo)
@@ -510,8 +623,12 @@ def costs_block(c: dict | None, hist: dict | None) -> str:
                      + ("You are above PayPal's 1.5% high-volume line." if t["high_volume"] else
                         f"{t['claims_to_threshold']} more and you cross PayPal's 1.5% line, where every claim costs "
                         f"{m(28.0 if cur == 'EUR' else 30.0)}."))
-    return (f'<section class="costs"><h2>What each way out costs</h2><table>{trs}</table>'
-            + "".join(f'<p class="cost-note">{e(n)}</p>' for n in notes) + '</section>')
+    lost_oop = lost.get("out_of_pocket")
+    gist = ("Refund now: you're out " + (m(oop) if oop is not None else "the item and postage")
+            + ". Settle it in the dispute: no fee. Lose a claim: you're out "
+            + (m(lost_oop) if lost_oop is not None else f"the item, postage and a {m(lost['dispute_fee'])} fee") + ".")
+    return (f'<details class="costs"><summary><b>What each way out costs</b><span>{e(gist)}</span></summary><table>{trs}</table>'
+            + "".join(f'<p class="cost-note">{e(n)}</p>' for n in notes) + '</details>')
 
 
 def bar_list(rows: list, total: int) -> str:
@@ -552,11 +669,39 @@ def overview_page(src: str) -> str:
              f'<p><b>{hv["claims"]} claims in {hv["sales"]:,} sales: {hv["ratio"]:.2%}.</b> '
              + ("Above the line." if hv["high_volume"] else f'{hv["claims_to_threshold"]} more claims this quarter and you cross it.')
              + '</p></section>')
+    ex = ledger.exposure(disputes, today, hv["high_volume"], cur)
+    top = max(ex["all_lost"], 1)
+    bars = [("If you win them all", ex["all_won"], "pass",
+             "Nothing leaves your account." if not ex["all_won"] else "High-volume fee on every claim, even won."),
+            (f"If they end like your last {ex['closed']} cases", ex["like_before"], "incon",
+             f"{ex['share']:.0%} of the money disputed actually left your account." if ex["share"] is not None else "No closed cases yet to compare with."),
+            ("If you lose them all", ex["all_lost"], "fail",
+             f"Every refund, plus a {m(28 if hv['high_volume'] else 14)} PayPal fee on each.")]
+    chart = "".join(
+        f'<li class="{cls}"><span class="x-label">{e(a)}</span><span class="x-track"><span class="x-bar" '
+        f'style="width:{0 if v is None else max(0.4, 100 * v / top):.1f}%"></span></span>'
+        f'<b>{"—" if v is None else e(m(v))}</b><span class="t-sub">{e(note)}</span></li>' for a, v, cls, note in bars)
+    exposure_box = (f'<section class="exposure"><h2>What the {ex["open"]} open cases could cost</h2>'
+                    f'<p class="who">{m(ex["at_stake"])} in dispute. Money that would leave your account: refunds and '
+                    'PayPal dispute fees. When you refund, the goods and the postage are lost on top.</p>'
+                    f'<ul class="xchart">{chart}</ul></section>')
+    reasons = sorted({w["reason"] for w in ov["waiting"]})
+    filters = ('<div class="filters" role="search"><input id="q" type="search" placeholder="Search buyer, reason, case" '
+               'aria-label="Search open cases"><select id="on" aria-label="Waiting on"><option value="">Waiting on anyone</option>'
+               '<option value="you">Waiting on you</option><option value="the buyer">Waiting on the buyer</option>'
+               '<option value="PayPal">Waiting on PayPal</option></select><select id="why" aria-label="Reason">'
+               '<option value="">Any reason</option>' + "".join(f'<option>{e(r)}</option>' for r in reasons) + '</select>'
+               '<span id="shown" class="t-sub"></span></div>'
+               '<script>addEventListener("DOMContentLoaded",()=>{const q=document.getElementById("q"),on=document.getElementById("on"),why=document.getElementById("why"),'
+               'n=document.getElementById("shown"),rows=[...document.querySelectorAll("table.waiting tbody tr")];'
+               'const f=()=>{let k=0;rows.forEach(r=>{const ok=(!q.value||r.textContent.toLowerCase().includes(q.value.toLowerCase()))'
+               '&&(!on.value||r.dataset.on===on.value)&&(!why.value||r.dataset.why===why.value);r.hidden=!ok;k+=ok});'
+               'n.textContent=k+" of "+rows.length+" shown"};[q,on,why].forEach(x=>x.addEventListener("input",f));f()});</script>')
     waits = "".join(
-        f'<tr><td><a href="/d/{e(w["dispute_id"])}">{e(w["reason"])}</a>'
+        f'<tr data-on="{e(w["on"])}" data-why="{e(w["reason"])}"><td><a href="/d/{e(w["dispute_id"])}{q}">{e(w["reason"])}</a>'
         f'<span class="t-sub">{e(" · " + w["buyer"] if w.get("buyer") else "")}{e(" · PayPal claim" if w["stage"] != "INQUIRY" else "")}</span></td>'
         f'<td>{w["amount"]:.2f}</td>'
-        f'<td>{e(w["on"])}</td><td>{"" if w["days_left"] is None else e(str(w["days_left"]))}</td><td>{e(w["next"])}</td></tr>'
+        f'<td>{pill_for_on(w["on"], w["stage"])}</td><td>{"" if w["days_left"] is None else e(str(w["days_left"]))}</td><td>{e(w["next"])}</td></tr>'
         for w in ov["waiting"])
     body = (f'<h1 class="page">Overview</h1>'
             + (f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else "")
@@ -567,7 +712,7 @@ def overview_page(src: str) -> str:
             f'<h3 class="bl-h">The money stayed with you</h3>{bar_list(stayed, ov["handled"])}'
             f'<h3 class="bl-h">Money went back</h3>{bar_list(back, ov["handled"])}'
             f'<p class="cost-note">{ov["escalated"]} of {ov["handled"]} went past the inquiry to a PayPal claim.</p></section>{meter}</div>'
-            f'<h2 style="margin-top:40px">Open now: {ov["open"]}</h2>'
+            f'<h2 style="margin-top:40px">Open now: {ov["open"]}</h2>{exposure_box}{filters}'
             f'<table class="waiting"><thead><tr><th>Case</th><th>Amount</th><th>Waiting on</th><th>Days left</th>'
             f'<th>If nobody answers</th></tr></thead><tbody>{waits}</tbody></table>')
     return page("Overview | Second Look", "PayPal sandbox", body, demo)
@@ -644,7 +789,7 @@ def case_page(dispute_id: str, flash: str = "") -> str:
             if buyer and not practice else "")
     nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
     left = (f'<a class="back" href="/{"?practice=1" if practice else q}">All disputes</a>'
-            f'<p class="claim quote">{e(msg)}</p>'
+            f'{pill_for(d)}<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
             f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
             f'{conversation(d)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
@@ -701,6 +846,13 @@ def case_page(dispute_id: str, flash: str = "") -> str:
         elif nothing_to_do:
             action_part = ('<p class="conf">Kept for reference: nothing to send while PayPal waits for the buyer. '
                            'If they write again, Second Look marks this answer out of date.</p>')
+        elif dec.action == "ASK_SELLER" and dec.overridden and j.action in ("REFUND", "PARTIAL_REFUND", "REPLACE"):
+            # The reply was written for the money action your limits stopped: it promises that money.
+            # Sending it as "a question" would make the promise without your approval.
+            action_part = (f'<div class="stale"><b>The drafted reply promises a {e(ACTION.get(j.action, j.action).lower())}, '
+                           'which your limits stopped.</b> Decide first. If you refund, do it in PayPal, then come back: '
+                           'Second Look will see the change and draft a reply that matches.</div>'
+                           f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(j.draft_message)}</p></details>')
         elif dec.action == "ASK_SELLER" and j.draft_message:
             action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
                            f'<label class="reply" for="reply">Before you decide, ask the buyer</label>'
@@ -780,6 +932,12 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["rules", "add"]:
                 add_rule(form.get("rule", [""])[0])
                 return self._redirect("/rules")
+            if parts == ["rules", "accept"]:
+                settle_suggestion(int(form.get("i", ["-1"])[0]), form.get("text", [""])[0])
+                return self._redirect("/rules")
+            if parts == ["rules", "discard"]:
+                settle_suggestion(int(form.get("i", ["-1"])[0]), None)
+                return self._redirect("/rules")
             if parts == ["rules", "remove"]:
                 remove_rule(int(form.get("i", ["-1"])[0]))
                 return self._redirect("/rules")
@@ -796,7 +954,7 @@ class Handler(BaseHTTPRequestHandler):
                 chosen = form.get("action", [""])[0]
                 if saved and saved[1]:
                     return self._redirect(f"/d/{did}")  # already sent: a second click sends nothing
-                if not saved or not may_approve(saved[0].action, chosen):
+                if not saved or not may_approve(saved[0].action, chosen, saved[0].judgment.action):
                     return self._send("This answer changed since you saw it. Reload the page.", 409)
                 dec = saved[0]
                 recommended = dec.action
@@ -817,8 +975,8 @@ class Handler(BaseHTTPRequestHandler):
                 elif isinstance(_client(did), MockPayPal):
                     sent += " (Practice case: logged, not sent to PayPal.)"
                 rule = form.get("rule", [""])[0]
-                if add_rule(rule):
-                    sent += f" New rule saved: {' '.join(rule.split())}"
+                if suggest_rule(rule, did):
+                    sent += " Your rule suggestion waits on Your rules for review."
                 dec.action = recommended  # the page keeps showing what was recommended
                 _save(did, dec, sent, seen)
                 return self._redirect(f"/d/{did}")

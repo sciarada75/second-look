@@ -158,6 +158,31 @@ def overview(disputes: list, orders: list, today: date, currency: str = "EUR") -
     }
 
 
+def exposure(disputes: list, today: date, high_volume_now: bool, currency: str = "EUR") -> dict:
+    """Money the open cases could take out of the account: refunds plus PayPal dispute fees.
+
+    all_won: nothing leaves (a high-volume seller still pays the fee on a claim won; counted as if
+    every open case became a claim, the worst case of winning). all_lost: every open case refunded in
+    full after a lost claim. like_before: the open amount times the share that actually left the
+    account on the shop's closed cases in the window (refunds + estimated dispute fees, against the
+    amount disputed). No probabilities are invented: the shop's own record is the rate.
+    """
+    first = (today - timedelta(days=WINDOW_DAYS)).isoformat()
+    open_ = [d for d in disputes if d.get("status") != "RESOLVED"]
+    closed = [d for d in disputes if d.get("status") == "RESOLVED" and d.get("create_time", "")[:10] >= first]
+    standard, hv = DISPUTE_FEE.get(currency, (0.0, 0.0))
+    claim_fee = hv if high_volume_now else standard
+    at_stake = round(sum(amount_of(d) for d in open_), 2)
+    fees_closed = sum(hv if high_volume_now else standard if outcome(d) in ("lost_claim", "lost_no_reply") else 0
+                      for d in closed if escalated(d))
+    disputed_closed = sum(amount_of(d) for d in closed)
+    share = (sum(refunded(d) for d in closed) + fees_closed) / disputed_closed if disputed_closed else None
+    return {"open": len(open_), "at_stake": at_stake, "closed": len(closed), "share": share,
+            "all_won": round(hv * len(open_), 2) if high_volume_now else 0.0,
+            "all_lost": round(at_stake + claim_fee * len(open_), 2),
+            "like_before": round(at_stake * share, 2) if share is not None else None}
+
+
 def describe_escalations(buyer_earlier: int, buyer_escalated: int, shop_closed: int, shop_escalated: int) -> str:
     """One neutral sentence: how often this buyer took a dispute to a claim, next to the shop's usual rate."""
     if not buyer_earlier:

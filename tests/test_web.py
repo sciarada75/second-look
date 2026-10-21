@@ -46,6 +46,19 @@ def test_rules_are_added_once_and_removed_by_position():
     assert web._policy() == {"max_auto_refund": 50, "seller_preferences": ["Never promise a date."]}
 
 
+def test_a_rule_suggested_from_a_case_changes_nothing_until_accepted():
+    tmp = Path(tempfile.mkdtemp())
+    web.POLICY, web.SUGGESTED = tmp / "policy.json", tmp / "suggested.json"
+    web.POLICY.write_text(json.dumps({"seller_preferences": ["A"]}))
+    assert web.suggest_rule("Never promise a date.", "PP-1") and not web.suggest_rule("Never promise a date.")
+    assert web._policy()["seller_preferences"] == ["A"]                       # nothing applied yet
+    web.settle_suggestion(0, "Never promise a delivery date.")                # accepted, reworded
+    assert web._policy()["seller_preferences"] == ["A", "Never promise a delivery date."] and web.suggestions() == []
+    web.suggest_rule("Refund everyone.", "PP-2")
+    web.settle_suggestion(0, None)                                            # discarded
+    assert web._policy()["seller_preferences"] == ["A", "Never promise a delivery date."] and web.suggestions() == []
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

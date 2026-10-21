@@ -150,8 +150,12 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action))
 
 
-def may_approve(recommended: str, chosen: str) -> bool:
+def may_approve(recommended: str, chosen: str, drafted_for: str | None = None) -> bool:
     """The seller approves the action they were shown, never "whatever the model says now".
     One exception: on "your call" (ASK_SELLER) they may send the drafted question, because a
-    message moves no money: it is never more generous than the recommendation."""
-    return chosen == recommended or (recommended == "ASK_SELLER" and chosen == "MESSAGE")
+    message moves no money: it is never more generous than the recommendation. Not when the draft
+    was written for a money action the limits stopped (`drafted_for`): that draft promises the
+    money, and sending it would make the promise unapproved (seen 21/10 on DEMO-034)."""
+    if recommended == "ASK_SELLER" and chosen == "MESSAGE":
+        return drafted_for not in ("REFUND", "PARTIAL_REFUND", "REPLACE")
+    return chosen == recommended

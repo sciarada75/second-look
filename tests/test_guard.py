@@ -122,6 +122,13 @@ def test_repeat_buyer_is_judged_against_the_shops_usual_rate():
     assert apply_policy(Judgment("DEFEND", 0.9, "x"), pol, dispute(20), history(3, 3, 4, 400, 2)).action == "DEFEND"
 
 
+def test_a_draft_written_for_a_stopped_refund_is_never_sent_as_a_question():
+    assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="REFUND")
+    assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="PARTIAL_REFUND")
+    assert may_approve("ASK_SELLER", "MESSAGE", drafted_for="ASK_SELLER")
+    assert may_approve("ASK_SELLER", "MESSAGE", drafted_for="DEFEND")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

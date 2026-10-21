@@ -98,6 +98,24 @@ def test_demo_shop_runs_through_the_same_code():
     assert ov["handled"] == sum(ov["counts"].values()) and ov["open"] == 12
 
 
+
+def test_exposure_uses_the_shops_own_record_not_invented_odds():
+    from datetime import date
+    def d(i, status, amount, outcome=None, refunded=None):
+        x = {"dispute_id": f"X{i}", "status": status, "create_time": "2026-10-01T10:00:00Z",
+             "dispute_amount": {"currency_code": "EUR", "value": f"{amount:.2f}"}, "dispute_life_cycle_stage": "INQUIRY"}
+        if outcome:
+            x["dispute_outcome"] = {"outcome_code": outcome}
+            if refunded:
+                x["dispute_outcome"]["amount_refunded"] = {"currency_code": "EUR", "value": f"{refunded:.2f}"}
+        return x
+    disputes = [d(1, "RESOLVED", 100, "RESOLVED_SELLER_FAVOUR"), d(2, "RESOLVED", 100, "RESOLVED_BUYER_FAVOUR", 100),
+                d(3, "WAITING_FOR_SELLER_RESPONSE", 50), d(4, "WAITING_FOR_BUYER_RESPONSE", 30)]
+    ex = ledger.exposure(disputes, date(2026, 10, 20), high_volume_now=False)
+    assert ex["at_stake"] == 80 and ex["all_won"] == 0
+    assert ex["all_lost"] == 80 + 2 * 14                       # every refund plus the standard claim fee
+    assert abs(ex["share"] - ledger.refunded(disputes[1]) / 200) < 1e-9 and ex["like_before"] == round(80 * ex["share"], 2)
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
