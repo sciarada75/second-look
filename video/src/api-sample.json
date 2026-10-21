@@ -1,0 +1,14 @@
+{
+ "dispute_id": "DEMO-031",
+ "status": "WAITING_FOR_SELLER_RESPONSE",
+ "amount": {
+  "currency_code": "EUR",
+  "value": "58.00"
+ },
+ "review": {
+  "recommended": "DEFEND",
+  "confidence": 0.85,
+  "draft_reply": "Hello Dario,\n\nThank you for getting in touch. Your linen apron was shipped on 10 October w…",
+  "out_of_date": []
+ }
+}

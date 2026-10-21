@@ -1048,8 +1048,11 @@ def api_open(src: str) -> list:
 
 class Handler(BaseHTTPRequestHandler):
     _cookie = None
+    _film = False
 
     def _send(self, body: str, code: int = 200):
+        if self._film:
+            body = body.replace("</style>", "*{animation:none!important;transition:none!important}</style>", 1)
         b = body.encode()
         self.send_response(code)
         if self._cookie:
@@ -1091,6 +1094,7 @@ class Handler(BaseHTTPRequestHandler):
             jar = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
             shop = asked if asked in ("demo", "live") else jar.get("sl_shop", "demo")
             src = "practice" if "practice" in qs else shop
+            self._film = "film" in qs  # the demo film loads pages live: no fade-ins half-way through a frame
             if u.path == "/":
                 return self._send(inbox_page(src))
             if u.path == "/overview":

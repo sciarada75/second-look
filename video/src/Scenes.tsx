@@ -115,7 +115,7 @@ export const Title: React.FC = () => {
 };
 
 // ---------- s5–s6: flowchart 1, how a dispute travels ----------
-const Box: React.FC<{x: number; y: number; w: number; h: number; on: number; title: string; tone?: string; children?: React.ReactNode}> = ({x, y, w, h, on, title, tone = theme.ink, children}) => {
+export const Box: React.FC<{x: number; y: number; w: number; h: number; on: number; title: string; tone?: string; children?: React.ReactNode}> = ({x, y, w, h, on, title, tone = theme.ink, children}) => {
   const frame = useCurrentFrame();
   const o = interpolate(frame, [on, on + 10], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   return (
@@ -127,7 +127,7 @@ const Box: React.FC<{x: number; y: number; w: number; h: number; on: number; tit
     </div>
   );
 };
-const Arrow: React.FC<{x1: number; y1: number; x2: number; y2: number; on: number; color?: string}> = ({x1, y1, x2, y2, on, color = theme.ink}) => {
+export const Arrow: React.FC<{x1: number; y1: number; x2: number; y2: number; on: number; color?: string}> = ({x1, y1, x2, y2, on, color = theme.ink}) => {
   const frame = useCurrentFrame();
   const p = interpolate(frame, [on, on + 10], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
   const x = x1 + (x2 - x1) * p;

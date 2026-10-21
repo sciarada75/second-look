@@ -12,17 +12,16 @@ export const LINES = lines as Record<string, string>;
 // to be read (a result appearing, a button being pressed).
 type Beat = {key: string; gap?: number};
 export const BEATS: Beat[] = [
-  {key: 's1a', gap: 0.5}, {key: 's1b', gap: 0.5}, {key: 's1c', gap: 1.0},
-  {key: 's2a', gap: 0.4}, {key: 's2b', gap: 1.0},
-  {key: 's3a', gap: 0.4}, {key: 's3b', gap: 1.0},
-  {key: 's4a', gap: 1.2},
-  {key: 's5a', gap: 0.5}, {key: 's5b', gap: 0.8},
-  {key: 's6a', gap: 1.4},
-  {key: 's7a', gap: 0.5}, {key: 's7b', gap: 0.8}, {key: 's7c', gap: 0.5}, {key: 's7d', gap: 1.5},
-  {key: 's8a', gap: 0.4}, {key: 's8b', gap: 0.5}, {key: 's8c', gap: 1.0}, {key: 's8d', gap: 1.2},
-  {key: 's9a', gap: 1.0}, {key: 's9b', gap: 1.2},
-  {key: 's10a', gap: 0.5}, {key: 's10b', gap: 2.5},
-];
+  {key: 's1a', gap: 0.5}, {key: 's1b', gap: 0.9},
+  {key: 's2a', gap: 0.4}, {key: 's2b', gap: 0.4}, {key: 's2c', gap: 0.9},
+  {key: 's3a', gap: 0.4}, {key: 's3b', gap: 0.9},
+  {key: 's4a', gap: 0.4}, {key: 's4b', gap: 0.4}, {key: 's4c', gap: 0.9},
+  {key: 's5a', gap: 0.5}, {key: 's5b', gap: 1.0},
+  {key: 's6a', gap: 0.4}, {key: 's6b', gap: 0.5}, {key: 's6c', gap: 0.5}, {key: 's6d', gap: 0.5}, {key: 's6e', gap: 0.9},
+  {key: 's6f', gap: 0.4}, {key: 's6g', gap: 0.9},
+  {key: 's7a', gap: 0.9},
+  {key: 's8a', gap: 2.2},
+]
 
 export type Timed = {key: string; from: number; to: number; next: number};
 
