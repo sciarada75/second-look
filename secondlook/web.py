@@ -388,6 +388,9 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 .approve{{display:flex;gap:18px;align-items:center;margin-top:16px}} .approve span{{color:var(--soft)}}
 .sent{{padding:18px 22px;background:#E8F0EA;border-left:4px solid var(--pass);margin-bottom:24px}}
 .sent b{{font-size:20px}}
+.talk{{list-style:none;padding:0;margin:0 0 28px;max-width:640px}} .talk li{{padding:10px 0 10px 16px;border-left:4px solid var(--rule);margin-bottom:8px}}
+.talk b{{display:block;font-size:14px;font-weight:500;color:var(--soft)}} .talk q{{quotes:none;font-family:Newsreader,Georgia,serif;font-style:italic;font-size:19px}}
+.talk li.buyer{{border-color:var(--fail)}} .talk li.you{{border-color:var(--ink)}} .talk li.proof{{border-color:var(--pass)}}
 .stale{{padding:14px 18px;background:#FBF3E4;border-left:4px solid var(--incon);margin:0 0 14px}}
 .back{{display:inline-block;margin-bottom:26px;color:var(--soft)}}
 /* demo label, deadlines, costs */
@@ -604,6 +607,29 @@ def customer_json(key: str, src: str) -> dict | None:
     return ledger.customer(key, disputes, orders)
 
 
+EVIDENCE_KIND = {"PROOF_OF_FULFILLMENT": "proof of shipment or delivery", "PROOF_OF_REFUND": "proof of refund",
+                 "PROOF_OF_RETURN": "proof of return"}
+
+
+def conversation(d: dict) -> str:
+    """Everything said and sent on this case, in order: a seller must see whether they already answered."""
+    items = [(m.get("time_posted") or "", "buyer" if m.get("posted_by") == "BUYER" else "you",
+              "Buyer" if m.get("posted_by") == "BUYER" else "You", m.get("content", "")) for m in d.get("messages", [])]
+    for ev in d.get("evidences", []):
+        if ev.get("source") == "SUBMITTED_BY_SELLER":
+            kind = EVIDENCE_KIND.get(ev.get("evidence_type"), str(ev.get("evidence_type", "evidence")).lower().replace("_", " "))
+            items.append((ev.get("date") or "~", "proof", "You sent PayPal", kind))
+    if not items:
+        return ""
+    rows = []
+    for when, cls, who, text in sorted(items, key=lambda x: x[0]):
+        t = _t(when)
+        stamp = f", {t:%d %b, %H:%M}" if t else ""
+        body = f"<q>{e(text)}</q>" if cls != "proof" else f"<span>{e(text)}</span>"
+        rows.append(f'<li class="{cls}"><b>{e(who)}{stamp}</b>{body}</li>')
+    return f'<h2>What\'s been said</h2><ol class="talk">{"".join(rows)}</ol>'
+
+
 def case_page(dispute_id: str, flash: str = "") -> str:
     case = _case(dispute_id)
     d, r = case["dispute"], case["seller_records"]
@@ -621,17 +647,25 @@ def case_page(dispute_id: str, flash: str = "") -> str:
             f'<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
             f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
-            f'{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
+            f'{conversation(d)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
     costs = costs_block(r.get("costs"), r.get("buyer_history_counts"))
     banner = ""
-    if d.get("status") == "WAITING_FOR_BUYER_RESPONSE":
-        given = [ev for ev in d.get("evidences", []) if ev.get("source") == "SUBMITTED_BY_SELLER"]
-        banner = ('<div class="sent"><b>' + ("Your evidence is with PayPal. " if given else "")
-                  + 'Waiting for the buyer.</b><br>PayPal will tell you if they reply or escalate.</div>')
+    given = [ev for ev in d.get("evidences", []) if ev.get("source") == "SUBMITTED_BY_SELLER"]
+    # You answered and PayPal holds your evidence: there is nothing to send until the buyer moves.
+    # (A second message is refused by PayPal; evidence it already has adds nothing.) When the buyer
+    # writes, the status changes and the review comes back by itself.
+    nothing_to_do = d.get("status") == "WAITING_FOR_BUYER_RESPONSE" and bool(given)
+    if nothing_to_do:
+        banner = ('<div class="sent"><b>You\'ve answered. Nothing to do now.</b><br>Your evidence is with PayPal and '
+                  'PayPal is waiting for the buyer. If they reply or escalate, this case comes back to you.</div>')
+    elif d.get("status") == "WAITING_FOR_BUYER_RESPONSE":
+        banner = ('<div class="sent"><b>Waiting for the buyer.</b><br>PayPal will tell you if they reply or escalate.</div>')
     elif d.get("status") == "UNDER_REVIEW":
         banner = '<div class="sent"><b>PayPal is reviewing this case.</b></div>'
     saved = _saved(dispute_id)
-    if not saved:
+    if nothing_to_do and not saved:
+        right = banner + costs
+    elif not saved:
         # the dispute id goes in by replace(), not format(): the script below has braces of its own
         right = banner + costs + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
                  '<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
@@ -664,6 +698,9 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                            'querySelector("button");b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>')
         elif sent:
             action_part = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>'
+        elif nothing_to_do:
+            action_part = ('<p class="conf">Kept for reference: nothing to send while PayPal waits for the buyer. '
+                           'If they write again, Second Look marks this answer out of date.</p>')
         elif dec.action == "ASK_SELLER" and j.draft_message:
             action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
                            f'<label class="reply" for="reply">Before you decide, ask the buyer</label>'
