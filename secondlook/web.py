@@ -189,7 +189,10 @@ def rules_page(flash: str = "", demo: bool = False) -> str:
     review = ('<section class="pending"><h2>Suggested, waiting for you</h2><p class="who">Read each one against your rules '
               'below and against PayPal\'s rules. Edit the wording if it needs it. From the moment you accept it, '
               f'it applies to every review.</p><ul class="rulelist">{pending}</ul></section>') if pending else ""
-    body = (f'<a class="back" href="/">All disputes</a><h1 class="page">Your rules</h1>{flash}{review}'
+    n = len(suggestions())
+    whatnow = (f'<p class="whatnow"><b>What now</b><span>{n} suggested rule{"s wait" if n != 1 else " waits"} for you just below. '
+               'Accept it as written, reword it, or discard it.</span></p>' if n else "")
+    body = (f'<a class="back" href="/">All disputes</a><h1 class="page">Your rules</h1>{flash}{whatnow}{review}'
             '<p class="who">The same rules and limits apply in every shop you open here.</p>'
             '<section class="rules"><h2>How you like to answer</h2>'
             '<p class="who">Plain sentences. Second Look follows them in every review, and you can change them any time.</p>'
@@ -394,7 +397,14 @@ header.top.demo{{--ctx:var(--kraft);--ctx-bg:#F6EDE0}} header.top.practice{{--ct
 .pending{{background:#FBF3E4;border-left:4px solid var(--incon);padding:18px 22px;margin:0 0 30px;max-width:900px}}
 .sugg{{display:grid;grid-template-columns:1fr;gap:8px;width:100%}} .sugg textarea{{min-height:64px;font-family:Newsreader,Georgia,serif;font-style:italic;font-size:18px}}
 .sugg-actions{{display:flex;gap:12px}} .sugg-actions button:first-child{{font:700 15px "Schibsted Grotesk",sans-serif;padding:8px 16px;border:0;background:var(--ink);color:var(--paper);cursor:pointer}}
-header.top nav{{display:flex;gap:28px;align-items:baseline}} header.top nav a{{font-size:15px}}
+header.top nav{{display:flex;gap:6px;align-items:center}}
+header.top nav a{{font-size:15px;text-decoration:none;padding:7px 14px;border-radius:18px;color:var(--soft)}}
+header.top nav a:hover{{background:#fff;color:var(--ink)}}
+header.top nav a[aria-current]{{background:var(--ink);color:#fff;font-weight:700}}
+header.top nav .mode{{margin-left:14px}}
+.whatnow{{display:flex;gap:14px;align-items:baseline;background:#fff;border:1px solid var(--rule);border-left:5px solid var(--incon);
+  padding:14px 18px;margin:8px 0 26px;max-width:1100px;font-size:17px}}
+.whatnow b{{color:var(--incon);white-space:nowrap}} .whatnow.calm{{border-left-color:var(--pass)}} .whatnow.calm b{{color:var(--pass)}}
 .teach{{margin-top:14px;color:var(--soft)}} .teach summary{{cursor:pointer;font-size:15px}}
 .teach label{{display:block;margin:10px 0 6px;font-size:15px}}
 .teach input,.addrule input{{width:100%;font:400 16px/1.4 "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff;color:var(--ink)}}
@@ -559,7 +569,11 @@ def page(title: str, mode: str, body: str, demo: bool = False) -> str:
     waiting = len(suggestions())
     rules = f'Your rules<span class="count">{waiting} to review</span>' if waiting else "Your rules"
     context = "demo" if demo else "practice" if mode.startswith("Practice") else "live"
-    nav = (f'<nav><a href="/{q}">Disputes</a><a href="/overview">Overview</a><a href="/rules">{rules}</a>'
+    here = "rules" if title.startswith("Your rules") else "overview" if title.startswith("Overview") or \
+        "customer" in body[:400] else "disputes"
+    cur = lambda k: ' aria-current="page"' if here == k else ""  # noqa: E731
+    nav = (f'<nav><a href="/{q}"{cur("disputes")}>Disputes</a><a href="/overview"{cur("overview")}>Overview</a>'
+           f'<a href="/rules"{cur("rules")}>{rules}</a>'
            f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
     return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(context), mark=MARK)
 
@@ -599,13 +613,26 @@ def inbox_page(src: str) -> str:
                      f'<li><a href="/d/{e(d["dispute_id"])}"><blockquote>{e(msg)}</blockquote>'
                      f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
                      f'<span class="meta">{pill_for(full)} {e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}</span></a></li>'))
-    rows = [r[2] for r in sorted(rows, key=lambda r: (r[0], r[1]))] if not practice else [r[2] for r in rows]
+    ordered = sorted(rows, key=lambda r: (r[0], r[1])) if not practice else rows
+    yours = [r for r in ordered if not r[0]]
+    if practice:
+        whatnow = ('<p class="whatnow calm"><b>What now</b><span>Practice cases have known answers. Open any one and press '
+                   '"Take a second look" to see what Second Look would do. Nothing reaches PayPal.</span></p>')
+    elif yours:
+        first = yours[0]
+        whatnow = (f'<p class="whatnow"><b>What now</b><span>{len(yours)} case{"s" if len(yours) != 1 else ""} wait on you. '
+                   f'Start at the top: the nearest deadline comes first'
+                   + (f' ({first[1]} days left)' if first[1] != 99 else '') + '.</span></p>')
+    else:
+        whatnow = ('<p class="whatnow calm"><b>What now</b><span>Nothing waits on you. The open cases wait on the buyer '
+                   'or on PayPal; each comes back here if they answer.</span></p>' if rows else "")
+    rows = [r[2] for r in ordered]
     other = ('<a href="/?shop=live">Your PayPal disputes</a> · <a href="/?shop=demo">Demo shop</a>' if practice else
              '<a href="/?shop=live">Your PayPal disputes</a> · <a href="/?practice=1">Practice cases</a>' if demo else
              '<a href="/?shop=demo">Demo shop</a> · <a href="/?practice=1">Practice cases</a>')
     title = "Practice cases" if practice else f"{DemoPayPal().shop['name']}: open disputes" if demo else "Your PayPal disputes"
     about = f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else ""
-    body = (f'<h1 class="page">{e(title)}</h1>{about}<p class="who">{other}</p>'
+    body = (f'<h1 class="page">{e(title)}</h1>{about}<p class="who">{other}</p>{whatnow}'
             + ('<div class="filters" role="search"><input id="q" type="search" placeholder="Search what the buyer said, reason, amount" '
                'aria-label="Search disputes"></div><script>addEventListener("DOMContentLoaded",()=>{const q=document.getElementById("q"),rows=[...document.querySelectorAll(".inbox li")];'
                'q.addEventListener("input",()=>rows.forEach(r=>r.hidden=!!q.value&&!r.textContent.toLowerCase().includes(q.value.toLowerCase())))});</script>'
@@ -662,6 +689,18 @@ def bar_list(rows: list, total: int) -> str:
                    f'<span class="bl-track"><span class="bl-bar" style="width:{w:.1f}%"></span></span>'
                    f'<span class="bl-n">{n}</span></li>')
     return f'<ul class="barlist">{"".join(out)}</ul>'
+
+
+def overview_whatnow(ov: dict) -> str:
+    mine = [w for w in ov["waiting"] if w["on"] == "you"]
+    if not mine:
+        return ('<p class="whatnow calm"><b>What now</b><span>Nothing waits on you. Below: how cases ended, and what the '
+                'open ones could still cost.</span></p>')
+    w = mine[0]
+    left = f', {w["days_left"]} days left' if w["days_left"] is not None else ""
+    return (f'<p class="whatnow"><b>What now</b><span>{len(mine)} open case{"s" if len(mine) != 1 else ""} wait on you. '
+            f'The most urgent: <a href="/d/{e(w["dispute_id"])}">{e(w["reason"])}'
+            f'{e(" from " + w["buyer"] if w.get("buyer") else "")}</a>{e(left)}.</span></p>')
 
 
 def overview_page(src: str) -> str:
@@ -731,6 +770,7 @@ def overview_page(src: str) -> str:
               f'From PayPal\'s own records: each case\'s stage and outcome.</p>'
             + ('' if ov["handled"] else '<p class="demo-note">No closed cases in this shop yet: the history fills in as cases '
                  'close. To see an overview with a history, <a href="/overview?shop=demo">open the demo shop</a>.</p>')
+            + overview_whatnow(ov)
             + f'<div class="kpis">{kpis}</div>'
             f'<div class="ov-grid"><section><h2>How they ended</h2>'
             f'<h3 class="bl-h">The money stayed with you</h3>{bar_list(stayed, ov["handled"])}'
