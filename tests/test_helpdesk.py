@@ -66,6 +66,80 @@ def test_second_look_down_is_reported_not_raised_as_a_crash():
         pass
 
 
+from helpdesk import app  # noqa: E402
+
+TICKETS = {"agents": [{"id": "marta", "name": "Marta"}, {"id": "giulia", "name": "Giulia"}],
+           "tickets": [{"id": 2041, "from_name": "Dario Vitale", "from_email": "dario.v@example.com", "subject": "Where is my apron?",
+                        "status": "open", "messages": [{"from": "customer", "at": "2026-10-18T20:44:00Z",
+                                                        "text": "Refund me <script>alert(1)</script> or I go to PayPal."}]}]}
+CASE = {"dispute_id": "DEMO-031", "status": "WAITING_FOR_SELLER_RESPONSE", "stage": "INQUIRY",
+        "amount": {"value": "58.00", "currency_code": "EUR"}, "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+        "evidence": {}, "review": {"recommended": "DEFEND", "confidence": 0.85, "limits_notes": [], "checks": [],
+                                   "draft_reply": "Hello Dario", "sent": None, "out_of_date": [], "mark": "m1"},
+        "for_person": {"person": "Marta", "action": "DEFEND", "outcome": "send", "to": None, "why": None}}
+
+
+class FakeSL:
+    def __init__(self, case=CASE, customer=None, down=False):
+        self.calls, self._case, self.down = [], case, down
+        self._customer = customer or {"name": "Dario Vitale", "orders": 5, "disputes": [{"dispute_id": "DEMO-031", "outcome": "Open"}],
+                                      "shop_dispute_rate": 0.02}
+
+    def customer(self, email):
+        if self.down:
+            from helpdesk.secondlook_client import Unavailable
+            raise Unavailable("down")
+        return self._customer
+
+    def case(self, did, as_person=None):
+        self.calls.append(("case", did, as_person))
+        return self._case
+
+    def approve(self, did, action, message, by, review):
+        self.calls.append(("approve", did, action, message, by, review))
+        return 202, "Passed to Giulia: refund in full of 89.00 EUR is over your 30.00 EUR limit. Nothing was sent."
+
+
+def bench(sl):
+    tmp = Path(tempfile.mkdtemp())
+    (tmp / "tickets.json").write_text(json.dumps(TICKETS))
+    return app.Helpdesk(tmp / "tickets.json", tmp / "events.jsonl", sl)
+
+
+def test_the_panel_shows_second_look_from_the_api_and_escapes_the_buyer():
+    hd = bench(FakeSL())
+    html = hd.ticket_page(2041, "marta")
+    assert "Defend with evidence" in html and "Approve as Marta" in html and "Hello Dario" in html
+    assert "<script>alert(1)</script>" not in html and "&lt;script&gt;" in html
+    assert ("case", "DEMO-031", "marta") in hd.sl.calls
+
+
+def test_over_her_limit_the_button_passes_it_on():
+    case = {**CASE, "for_person": {"person": "Marta", "action": "REFUND", "outcome": "pass", "to": "Giulia", "why": None}}
+    html = bench(FakeSL(case=case)).ticket_page(2041, "marta")
+    assert "Pass to Giulia" in html and "Approve as Marta" not in html
+
+
+def test_refused_sent_or_out_of_date_offer_no_button():
+    for patch in ({"for_person": {**CASE["for_person"], "outcome": "refused", "why": "Held back: hidden instructions"}},
+                  {"review": {**CASE["review"], "sent": "Evidence submitted. Sent by Marta, 09:14."}},
+                  {"review": {**CASE["review"], "out_of_date": ["the buyer wrote again"]}}):
+        html = bench(FakeSL(case={**CASE, **patch})).ticket_page(2041, "marta")
+        assert "Approve as" not in html and "Pass to" not in html, patch
+
+
+def test_approving_sends_the_agent_and_the_review_seen_and_shows_second_looks_answer():
+    hd = bench(FakeSL())
+    code, text = hd.approve(2041, "marta", {"dispute_id": "DEMO-031", "action": "DEFEND", "message": "Hello Dario", "review": "m1"})
+    assert hd.sl.calls[-1] == ("approve", "DEMO-031", "DEFEND", "Hello Dario", "marta", "m1")
+    assert code == 202 and text.startswith("Passed to Giulia")
+
+
+def test_second_look_down_the_ticket_still_opens():
+    html = bench(FakeSL(down=True)).ticket_page(2041, "marta")
+    assert "Where is my apron?" in html and "Second Look isn't answering" in html
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
