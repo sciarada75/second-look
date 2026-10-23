@@ -1,6 +1,6 @@
-# Film draft 3 — script (23/10, written by Claude; Claudia: "you do all")
+# Film draft 4 — script (23/10, written by Claude; Claudia: "you do all"; draft 4 changes from her verdict on draft 3)
 
-Target about 2:50, about 390 spoken words. **The rule for every scene:** it answers one question the
+Target under 3:00 (draft 4: about 2:45), about 410 spoken words at rate 160. **The rule for every scene:** it answers one question the
 previous scene raised, the voice names that question or its answer, and the screen shows only what the
 voice names (it lights up, the rest dims). A visible cursor makes every click. A small label in the top
 corner says where we are. People are introduced before they act. No caption bar: subtitles go to
@@ -10,32 +10,42 @@ Spec: `docs/specs/2026-10-23-teams-helpdesk-film3-design.md` §4. Draft 2's verd
 
 ---
 
-## 1. What happens? (0:00–0:12)
-[A single message card, centred: *"Never received the apron. Refund me or I go to PayPal."*, a small
-"PayPal dispute · 58.00 EUR" tag under it.]
-- A buyer opens a PayPal dispute. Never received the apron. Refund me, or I go to PayPal.
-- What the shop does next decides what it costs.
+## 1. What happens? (0:00–0:10)
+[Behind: Claudia's picture of a courier with a parcel, darkened and blurred. A single message card, centred,
+with a "PayPal dispute · 58.00 EUR" tag. The buyer's words type out in the silence after the first line,
+**not spoken**: *"Never received the apron. Refund me or I go to PayPal."*]
+- A buyer has opened a PayPal dispute.
+- What the shop does next, decides what it costs.
 
-## 2. Why does it matter? (0:12–0:40) — take stock
-[Four figures, one at a time, large, each with its source in small type underneath. Nothing else on screen.]
+## 2. What does a dispute cost? (0:10–0:24) — one screen that builds a benchmark
+[Behind: money, darkened. Three tiles land side by side and stay, each lit as named, the earlier ones
+dimming slightly, each with its source underneath.]
 - Answered while it's still a dispute, it costs no PayPal fee.
-  **[0 EUR]** *PayPal User Agreement, 14 Sep 2026*
+  **[0 EUR · settled in the dispute]** *PayPal User Agreement, 14 Sep 2026*
 - Let it become a claim and lose, and the fee is fourteen euros.
-  **[14 EUR]** *PayPal fees, 7 Sep 2026*
+  **[14 EUR · claim lost]** *PayPal fees, 7 Sep 2026*
 - For a busy shop, twenty-eight. Even when the shop wins.
-  **[28 EUR, even when you win]** *PayPal fees + User Agreement*
-- And even big merchants give up on almost half of their card chargebacks without a fight.
-  **[46%]** *Mastercard / Datos, 2025: card chargebacks, mid-size and large merchants*
+  **[28 EUR · busy shop, even when you win]** *PayPal fees + User Agreement*
 
-## 3. Who are we following? (0:40–0:52)
-[A simple card: "Linen & Paper — a made-up shop · about 2,000 orders a month". Four initials appear as
+## 2b. What does it do to a business? (0:24–0:46)
+[Behind: a worried shop owner, darkened. Same structure: three tiles land and stay. Currency as the
+sources give it: US$.]
+- And disputes cost more than fees: a single customer-care contact, by phone, chat or email, costs about eight dollars.
+  **[US$8.01 per live customer-care contact, vs US$0.10 self-service]** *Gartner, 2019*
+- Every dollar lost to fraud costs a merchant about four dollars sixty.
+  **[US$4.61 lost for every US$1 of fraud]** *LexisNexis True Cost of Fraud, 2025, US retail & e-commerce*
+- And big merchants give up on almost half of their card chargebacks, and win only one in five of those they fight.
+  **[46% of card chargebacks accepted without a fight · won 1 in 5 when fought]** *Mastercard / Datos 2025, midsize & large merchants*
+
+## 3. Who are we following?
+[Behind: Claudia's picture of a linen and paper shop, lightly veiled. A simple card: "Linen & Paper — a made-up shop · about 2,000 orders a month". Four initials appear as
 they are named: Giulia (Customer care manager), Marta, Luca, Sara (Customer care agents, "refunds up to 30 EUR").]
 - Meet Linen and Paper, a made-up shop with about two thousand orders a month.
 - Marta answers customers, and can give back up to thirty euros on her own. Giulia manages the team.
 
-## 4. Where does the case reach the team? (0:52–1:10)
+## 4. Where does the case reach the team?
 [**Ticketbook › Inbox** → cursor opens Dario's email → **Ticketbook › Ticket #2001**, the Second Look panel lights up.]
-- Nine in the morning. Marta opens her helpdesk, a made-up one, for this film.
+- Marta opens her helpdesk, a made-up one, for this film.
 - Dario has written. Next to his email, Second Look shows his PayPal dispute, already reviewed. Its answer: defend with evidence.
 
 ## 5. How does she know? (1:10–1:35)
@@ -70,7 +80,7 @@ Overview**: what the open cases could cost; the meter "0.6% claims · PayPal's l
 
 ## 10. Can I trust it? (2:36–2:50)
 [Four boxes build left to right: The AI recommends → Your limits, in code → A person approves → PayPal.
-Then the end card: **Second Look** · *Sell without fear.* · claudiaonclaude.com · github.com/sciarada75/second-look]
+Then the end card, over a darkened, blurred clip of a seller with parcels: **Second Look** · *Sell without fear.* · claudiaonclaude.com · github.com/sciarada75/second-look]
 - The AI recommends. Limits written in code have the last word, and can only make it more careful. Nothing moves until a person approves.
 - Second Look. Sell without fear.
 
@@ -79,11 +89,13 @@ Then the end card: **Second Look** · *Sell without fear.* · claudiaonclaude.co
 ## Claim check (every spoken claim, and what backs it)
 | Spoken | Backed by |
 |---|---|
-| "Never received the apron. Refund me or I go to PayPal." | DEMO-031's buyer message (demo/shop.json) |
+| "Never received the apron. Refund me or I go to PayPal." (on screen, not spoken) | DEMO-031's buyer message (demo/shop.json) |
 | no PayPal fee while it's a dispute | US User Agreement 14/09/2026: no Standard fee for an inquiry not escalated (reports/dispute-context-research.md) |
 | claim lost: 14 EUR | PayPal Ireland merchant fees, 07/09/2026 |
 | busy shop 28 EUR, even when it wins | same fee page; User Agreement: High Volume fee charged even when the seller wins |
-| big merchants give up on almost half of card chargebacks | Mastercard/Datos 2025 via Chargeback Gurus: 46% accepted; survey of 840 midsize and large merchants. Said as *card chargebacks* |
+| a live customer-care contact (phone, chat, email) costs about eight dollars | Gartner press release, 25 Sep 2019: "$8.01 per contact for live channels (phone, live chat, email)" vs $0.10 self-service. https://www.gartner.com/en/newsroom/press-releases/2019-09-25-gartner-says-only-9--of-customers-report-solving-thei |
+| every dollar lost to fraud costs a merchant about four dollars sixty | LexisNexis Risk Solutions, True Cost of Fraud, 2 Apr 2025: US retail & e-commerce, $4.61 per $1 of fraud. https://risk.lexisnexis.com/about-us/press-room/press-release/20250402-tcof-ecommerce-and-retail |
+| big merchants give up on almost half of card chargebacks, win one in five of those they fight | Mastercard/Datos 2025 via Chargeback Gurus: 46% accepted; merchants won 20% of those fought; survey of 840 midsize and large merchants. Said as *card chargebacks* |
 | made-up shop, about 2,000 orders a month | demo/shop.json: 6,003 orders in 90 days; "made-up data" label on every page |
 | Marta can give back up to 30 EUR; Giulia manages | demo team: agent `refund_up_to` 30.0; manager no role cap |
 | a made-up helpdesk | Ticketbook header and footer: "a made-up helpdesk, not a real product" |

@@ -13,7 +13,7 @@ import {execFileSync} from 'node:child_process';
 import {readFileSync, writeFileSync, existsSync, mkdirSync, rmSync} from 'node:fs';
 
 const VOICE = process.env.VOICE ?? 'Jamie (Premium)';
-const RATE = process.env.RATE ?? '150';
+const RATE = process.env.RATE ?? '160'; // 160 since draft 4 (Claudia chose sample C, 23/10)
 const AUDIO = new URL('./public/audio/', import.meta.url).pathname;
 const lines = JSON.parse(readFileSync(new URL('./src/lines.json', import.meta.url), 'utf8'));
 
