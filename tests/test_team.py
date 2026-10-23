@@ -40,6 +40,42 @@ def test_assignments_are_kept_per_case_and_seeded_once():
     assert again.get("D1")["to"] == "marta" and again.get("D2")["handoff"]["from"] == "marta"
 
 
+def test_a_limit_that_is_not_a_number_sends_no_money():
+    odd = {"roles": {"A": {"refund_up_to": "30"}, "B": {"refund_up_to": "lots"}, "C": {"refund_up_to": True}},
+           "people": [{"id": "a", "name": "A", "role": "A"}, {"id": "b", "name": "B", "role": "B"},
+                      {"id": "c", "name": "C", "role": "C"}]}
+    for pid in ("a", "b", "c"):
+        assert team.limit(odd, pid) == 0.0 and not team.covers(odd, pid, 1), pid
+
+
+def test_a_team_without_roles_does_not_crash_and_sends_nothing():
+    bare = {"people": [{"id": "marta", "name": "Marta", "role": "Customer care agent"}]}
+    assert not team.covers(bare, "marta", 1) and team.handoff_to(bare, 1, exclude=None) is None
+
+
+def test_the_team_of_one_is_a_fresh_copy():
+    team.of(None)["people"][0]["role"] = "Trainee"
+    assert team.of(None)["people"][0]["role"] == "Owner"
+
+
+def test_a_corrupt_assignments_file_is_kept_aside_never_overwritten():
+    path = Path(tempfile.mkdtemp()) / "a.json"
+    path.write_text("{not json")
+    store = team.Assignments(path)
+    assert store.all() == {} and store.get("D1") == {"to": None, "handoff": None}
+    assert (path.parent / "a.json.corrupt").read_text() == "{not json"
+    store.assign("D1", "marta")
+    assert team.Assignments(path).get("D1")["to"] == "marta"
+    assert (path.parent / "a.json.corrupt").read_text() == "{not json"
+
+
+def test_all_returns_every_case_in_the_same_shape_as_get():
+    path = Path(tempfile.mkdtemp()) / "a.json"
+    path.write_text('{"D1": {"to": "marta", "extra": 1}, "D2": "junk"}')
+    assert team.Assignments(path).all() == {"D1": {"to": "marta", "handoff": None},
+                                            "D2": {"to": None, "handoff": None}}
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
