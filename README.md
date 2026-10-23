@@ -134,7 +134,7 @@ as the screen.
 |---|---|
 | `GET /api/disputes` | the open cases, with the recommended answer once reviewed |
 | `GET /api/disputes/<id>` | one case: what was said, the evidence and its sources, the review, the drafted reply, the ten checks, whether the review is out of date |
-| `GET /api/disputes/<id>?as=<person id>` | the same, plus `for_person`: what approving would do for that person, the page's own decision: `send`, `pass` (with `to`, the colleague who decides), `refused` (with `why`), or `unknown_person` |
+| `GET /api/disputes/<id>?as=<person id>` | the same, plus `for_person`: what the case page offers that person, its own decision (`page_offer`): `outcome` (`send`, `pass` with `to` the colleague who decides, `refused`, `sent`, `out_of_date`, `nothing_to_send`, `waiting` with `to` who has the case, `not_reviewed`, or `unknown_person`), the `action` and `amount` the button would send, the page's own sentence (`says`) and the reply it would send (`draft`). Each check in `review.checks` carries the page's `group` and plain `label` |
 | `POST /api/disputes/<id>/review` | ask for a review (the AI runs; a few cents) |
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
@@ -160,6 +160,15 @@ colleague, or not allowed, and why), and the approval goes through the same limi
 
 Second Look's notifications (`answer.sent`, `case.handed_off`, `review.ready`) appear in the ticket's history.
 The tickets are made-up emails from the demo shop's buyers (`python3 helpdesk/make_tickets.py`).
+
+To make the notification address take only Second Look's posts, set a shared key on both sides:
+
+    TICKETBOOK_HOOK_KEY=<a long random string> python3 -m helpdesk serve
+    SECONDLOOK_NOTIFY_URL="http://127.0.0.1:8766/hooks/secondlook?key=<the same string>" python3 -m secondlook serve
+
+Honest limits: Ticketbook is a local prototype for a demo. It has no sign-in (the agent is chosen at the top
+of the page), it listens only on 127.0.0.1, and its forms refuse posts from other sites. It is not a helpdesk
+to run a team on.
 
 ## Teams: who may send what
 
