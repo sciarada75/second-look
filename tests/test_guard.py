@@ -229,8 +229,38 @@ def test_the_amount_sent_is_the_amount_checked():
 
 
 def test_no_drafted_question_when_paypal_would_refuse_the_message():
-    assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="MESSAGE", stops=["paypal_allowed"])
+    assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="MESSAGE", stops=["paypal_allowed", "message_not_allowed"])
+    assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="DEFEND", stops=["message_not_allowed"])
     assert may_approve("ASK_SELLER", "MESSAGE", drafted_for="MESSAGE", stops=["always_ask"])
+
+
+def inquiry(status="WAITING_FOR_SELLER_RESPONSE"):
+    """The live INQUIRY shape (PP-R-ZOY-10193120): PayPal takes a message or a refund, not evidence."""
+    d = dispute(42)
+    d.update({"dispute_life_cycle_stage": "INQUIRY", "status": status, "links": [{"rel": "send_message"}],
+              "allowed_response_options": {"accept_claim": {"accept_claim_types": ["REFUND"]}}})
+    return d
+
+
+def test_when_paypal_refuses_the_ai_s_answer_but_takes_a_message_the_question_can_go():
+    dec = apply_policy(Judgment("DEFEND", 0.95, "x"), POLICY, inquiry(), {})
+    assert dec.action == "ASK_SELLER" and dec.stops == ["paypal_allowed"]
+    assert may_approve(dec.action, "MESSAGE", "DEFEND", dec.stops)
+    assert not may_approve(dec.action, "DEFEND", "DEFEND", dec.stops)          # the answer itself: still not
+
+
+def test_while_paypal_waits_for_the_buyer_no_question_goes():
+    dec = apply_policy(Judgment("DEFEND", 0.95, "x"), POLICY, inquiry("WAITING_FOR_BUYER_RESPONSE"), {})
+    assert dec.action == "ASK_SELLER" and "message_not_allowed" in dec.stops
+    assert not may_approve(dec.action, "MESSAGE", "DEFEND", dec.stops)
+    # The answer is unchanged by the new stop: a refund PayPal allows still goes as before.
+    ok = apply_policy(Judgment("REFUND", 0.95, "x"), POLICY, inquiry("WAITING_FOR_BUYER_RESPONSE"), {})
+    assert ok.action == "REFUND" and ok.stops == ["message_not_allowed"]
+
+
+def test_a_message_stop_never_blocks_an_answer_held_back_only_for_its_size():
+    assert may_approve("ASK_SELLER", "REFUND", drafted_for="REFUND", stops=["cap", "message_not_allowed"])
+    assert not may_approve("ASK_SELLER", "REFUND", drafted_for="REFUND", stops=["message_not_allowed"])
 
 
 def test_size_plus_any_trust_reason_through_the_real_guard_is_not_approvable():

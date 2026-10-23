@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import judge as judge_mod
 from . import evidence
-from .guard import apply_policy, may_approve, Decision, CHECKS, SIZE_STOPS, _partial
+from .guard import apply_policy, may_approve, Decision, CHECKS, QUESTION_STOPS, SIZE_STOPS, _partial
 from .paypal import client_from_env, MockPayPal
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,7 +78,7 @@ def print_decision(d: Decision, dispute: dict) -> None:
 
 def refusal(d: Decision, chosen: str) -> str:
     """Why an approval was refused, in words the seller can act on."""
-    trust = [s for s in d.stops if s not in SIZE_STOPS]
+    trust = [s for s in d.stops if s not in SIZE_STOPS | (QUESTION_STOPS if chosen != "MESSAGE" else set())]
     if trust:
         return (f"Not executed: this answer was held back for trust ({', '.join(trust)}), not only for its size, "
                 f"so it can't be approved here. Check the case yourself first.")

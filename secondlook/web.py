@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from . import evidence as evidence_mod, ledger, team as team_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
-from .guard import may_approve, money_out, CHECKS, MONEY, SIZE_STOPS, Decision, Judgment
+from .guard import may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1000,7 +1000,7 @@ def _send_form(did: str, label: str, draft: str, action: str, button: str, says:
 def _size_only(dec: Decision) -> bool:
     """The AI's own answer was held back for its size alone, and a person may take it."""
     j = dec.judgment
-    return (dec.action == "ASK_SELLER" and bool(dec.stops) and set(dec.stops) <= SIZE_STOPS
+    return (dec.action == "ASK_SELLER" and held_for_size_only(dec.stops)
             and may_approve(dec.action, j.action, j.action, dec.stops))
 
 
@@ -1207,6 +1207,7 @@ STOP_SAYS = {
     "confidence": "low confidence",
     "repeat_buyer": "a buyer who disputes far more than usual",
     "paypal_allowed": "PayPal doesn't allow it at this stage",
+    "message_not_allowed": "PayPal doesn't take a message at this stage",
     "unknown_action": "an answer Second Look doesn't recognise",
     "partial_amount": "an amount it couldn't read",
 }
@@ -1216,14 +1217,14 @@ def _refused(dec: Decision | None, chosen: str) -> str:
     """Why may_approve refused. The guard's reasons only where they are the reason: for the AI's own answer,
     or for the drafted question on "your call" (PayPal's rules, an unrecognised answer, a promised refund)."""
     if dec and dec.action == "ASK_SELLER" and chosen == "MESSAGE":
-        why = [STOP_SAYS[s] for s in ("paypal_allowed", "unknown_action") if s in dec.stops]
+        why = [STOP_SAYS[s] for s in ("message_not_allowed", "unknown_action") if s in dec.stops]
         if why:
             return (f"This message was held back: {', '.join(why)}. "
                     "It can't be sent from here, by anyone. Decide in PayPal.")
         if dec.judgment.action in MONEY:
             return (f"The drafted reply promises a {ACTION.get(dec.judgment.action, dec.judgment.action).lower()}, "
                     "which your limits stopped. Decide first, in PayPal.")
-    held = [STOP_SAYS.get(s, s) for s in (dec.stops if dec else []) if s not in SIZE_STOPS]
+    held = [STOP_SAYS.get(s, s) for s in (dec.stops if dec else []) if s not in SIZE_STOPS | QUESTION_STOPS]
     if dec and chosen == dec.judgment.action and held:
         return (f"This answer was held back: {', '.join(held)}. "
                 "It can't be sent from here, by anyone. Decide in PayPal.")

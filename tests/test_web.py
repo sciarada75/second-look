@@ -194,10 +194,18 @@ def test_how_much_a_person_must_cover():
     assert web.required("PARTIAL_REFUND", dec("PARTIAL_REFUND", ["always_ask"], "20 EUR"), dispute) == 240.0
 
 
-def test_no_drafted_question_when_paypal_does_not_allow_it():
-    with approval_bench(action="ASK_SELLER", ai="MESSAGE", stops=["paypal_allowed"]) as b:
+def test_no_drafted_question_when_paypal_takes_no_message():
+    with approval_bench(action="ASK_SELLER", ai="MESSAGE", stops=["message_not_allowed", "paypal_allowed"]) as b:
         code, text = web.approve("X", "MESSAGE", "Hello", by="marta")
-        assert code == 409 and b.sent == [] and "held back: PayPal doesn't allow it at this stage" in text
+        assert code == 409 and b.sent == [] and "held back: PayPal doesn't take a message at this stage" in text
+
+
+def test_when_paypal_refuses_the_ai_s_answer_but_takes_a_message_the_question_goes():
+    # The live INQUIRY shape (PP-R-ZOY-10193120): DEFEND not allowed, a message is.
+    for the_team, by in ((None, None), (TEAM, "marta")):
+        with approval_bench(action="ASK_SELLER", ai="DEFEND", stops=["paypal_allowed"], the_team=the_team) as b:
+            assert "Send this question" in web.case_page("X", me=by)
+            assert web.approve("X", "MESSAGE", "Hello", by=by)[0] == 200 and b.sent == ["MESSAGE"]
 
 
 def test_a_case_is_taken_once_and_a_waiting_handoff_stays():
@@ -385,9 +393,9 @@ def test_one_decision_for_the_page_and_for_approve():
 
 
 def test_a_question_that_can_t_be_sent_gets_no_question_form():
-    probes = [("DEFEND", ["paypal_allowed"], "PayPal doesn't allow it"),
+    probes = [("DEFEND", ["message_not_allowed", "paypal_allowed"], "PayPal doesn't take a message"),
               ("ESCALATE", ["unknown_action"], "doesn't recognise"),
-              ("MESSAGE", ["paypal_allowed"], "PayPal doesn't allow it")]
+              ("MESSAGE", ["message_not_allowed", "paypal_allowed"], "PayPal doesn't take a message")]
     for ai, stops, why in probes:
         for the_team, by in ((None, None), (TEAM, "giulia")):
             with approval_bench(action="ASK_SELLER", ai=ai, stops=stops, the_team=the_team) as b:

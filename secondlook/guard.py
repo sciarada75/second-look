@@ -34,6 +34,15 @@ MONEY = ("REFUND", "PARTIAL_REFUND", "REPLACE")
 # hand the decision to a person, who may take the AI's answer themselves. Every other stop is about trust
 # (hidden instructions, broken evidence, low confidence, a habitual escalator, PayPal's rules).
 SIZE_STOPS = {"cap", "always_ask"}
+# Stops about the drafted question only, never about the answer itself: PayPal takes no seller message at
+# this stage (one message, then the buyer's turn). The answer is unchanged by it.
+QUESTION_STOPS = {"message_not_allowed"}
+
+
+def held_for_size_only(stops: Sequence[str]) -> bool:
+    """The answer was held back by the size limits and nothing else (a question-only stop doesn't count)."""
+    held = set(stops) - QUESTION_STOPS
+    return bool(held) and held <= SIZE_STOPS
 
 
 @dataclass
@@ -187,6 +196,10 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         for t in allowed.get("make_offer", {}).get("offer_types", []):
             can.add({"REFUND": "PARTIAL_REFUND", "REPLACEMENT_WITHOUT_REFUND": "REPLACE",
                      "REFUND_WITH_REPLACEMENT": "REPLACE"}.get(t, ""))
+        # Recorded on its own: PayPal may refuse the AI's answer (DEFEND at INQUIRY) and still take a
+        # message, so "paypal_allowed" must not stop the question; this does (PP-R-ZOY-10193120, 23/10).
+        if "MESSAGE" not in can:
+            stops.append("message_not_allowed")
         subject = _subject()
         if subject != "ASK_SELLER" and subject not in can:
             notes.append(f"PayPal does not allow {subject} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
@@ -224,15 +237,15 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     Two exceptions on "your call" (ASK_SELLER):
     - they may send the drafted question, because a message moves no money. Not when the draft was
       written for a money action the limits stopped (`drafted_for`): it promises the money (DEMO-034, 21/10).
-      Not when PayPal's rules stopped it (`paypal_allowed`): PayPal would refuse the message (422).
+      Not when PayPal takes no message at this stage (`message_not_allowed`): it would refuse it (422).
+      (`paypal_allowed` alone doesn't stop it: PayPal may refuse the AI's answer and still take a message.)
       Not when the AI returned an action that doesn't exist (`unknown_action`): its draft is unvetted.
     - they may take the answer the AI drafted when the ONLY reasons it was held back are its size
       (SIZE_STOPS): those limits exist to hand the decision to a person, and this person is it.
       Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
     How much money this person may send is checked after this, against their role (team.covers)."""
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
-        return drafted_for not in MONEY and "paypal_allowed" not in stops and "unknown_action" not in stops
-    if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" \
-            and stops and set(stops) <= SIZE_STOPS:
+        return drafted_for not in MONEY and "message_not_allowed" not in stops and "unknown_action" not in stops
+    if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" and held_for_size_only(stops):
         return True
     return chosen == recommended
