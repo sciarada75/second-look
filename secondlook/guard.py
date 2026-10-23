@@ -29,6 +29,11 @@ CHECKS = {
 # INCONSISTENT on these means the evidence itself can't be trusted: never defend or pay on it unseen.
 # (FAIL only means "favours the buyer". One label for both meanings was a bug, found by the eval 2026-10-16.)
 INTEGRITY_CHECKS = ("timeline", "evidence_matches_order")
+MONEY = ("REFUND", "PARTIAL_REFUND", "REPLACE")
+# Why the guard stopped an answer, one id per rule. Only these two are about size alone: the limits then
+# hand the decision to a person, who may take the AI's answer themselves. Every other stop is about trust
+# (hidden instructions, broken evidence, low confidence, a habitual escalator, PayPal's rules).
+AMOUNT_STOPS = {"cap", "always_ask"}
 
 
 @dataclass
@@ -48,13 +53,16 @@ class Decision:
     reasons: List[str]           # guard notes, shown to the seller
     judgment: Judgment
     overridden: bool = False
+    stops: List[str] = field(default_factory=list)  # which rules stopped it (ids), in rule order
 
 
 def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Decision:
     notes: List[str] = []
+    stops: List[str] = []
     action = j.action if j.action in ACTIONS else "ASK_SELLER"
     if action != j.action:
         notes.append(f"Model returned unknown action {j.action!r}; routed to you.")
+        stops.append("unknown_action")
 
     amount = float(dispute["dispute_amount"]["value"])
     money_out = action in ("REFUND", "PARTIAL_REFUND", "REPLACE")
@@ -68,22 +76,26 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         except (ValueError, AttributeError):
             notes.append(f"Partial amount {j.partial_amount!r} is not a number; routed to you.")
             action = "ASK_SELLER"
+            stops.append("partial_amount")
 
     # Rule 1: never move money below the confidence bar.
     if money_out and j.confidence < policy["min_confidence"]:
         notes.append(f"Confidence {j.confidence:.2f} is below your bar of {policy['min_confidence']:.2f} for giving money back.")
         action = "ASK_SELLER"
+        stops.append("confidence")
 
     # Rule 2: never refund above the seller's cap without asking.
     cap = policy["max_auto_refund"]
     if money_out and out_amount > cap:
         notes.append(f"Refund of {out_amount:.2f} {dispute['dispute_amount']['currency_code']} is above your auto-refund cap of {cap:.2f}; you decide.")
         action = "ASK_SELLER"
+        stops.append("cap")
 
     # Rule 3: any dispute above this is always yours, whatever the model says.
     if amount > policy["always_ask_above"]:
         notes.append(f"Above {policy['always_ask_above']:.2f}: policy says every such case is reviewed by you.")
         action = "ASK_SELLER"
+        stops.append("always_ask")
 
     # Rule 4: delivered to the PayPal address + "not received" = defend, by your rule.
     tr = records.get("tracking") or {}
@@ -103,6 +115,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         if marker in buyer_text and money_out:
             notes.append(f"Buyer text contains {marker!r}: looks like an attempt to instruct the assistant. Routed to you.")
             action = "ASK_SELLER"
+            stops.append("injection")
             break
 
     # Rule 6: only actions PayPal allows at this stage. Learned from a real sandbox dispute
@@ -126,6 +139,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             notes.append(f"PayPal does not allow {action} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
                          f"(allowed: {', '.join(sorted(c for c in can if c))}). Routed to you.")
             action = "ASK_SELLER"
+            stops.append("paypal_allowed")
 
     # Rule 7: if the judge found the evidence itself inconsistent (a timeline that doesn't add up,
     # tracking that may belong to another order), nobody defends or pays on it unseen. This runs
@@ -134,6 +148,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     if failed and (action == "DEFEND" or action in ("REFUND", "PARTIAL_REFUND", "REPLACE")):
         notes.append(f"The judge found the evidence inconsistent ({', '.join(failed)}); check it before anything is sent.")
         action = "ASK_SELLER"
+        stops.append("inconsistent")
 
     # Rule 8: a buyer who disputes far more often than the shop's usual rate (the base rate, not a raw
     # count) gets no money unseen. Only with enough orders to compare, and the numbers are the seller's.
@@ -146,8 +161,9 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             notes.append(f"This buyer disputes {times:.1f} times your shop's usual rate "
                          f"({h['earlier_disputes']} earlier disputes with you). Routed to you.")
             action = "ASK_SELLER"
+            stops.append("repeat_buyer")
 
-    return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action))
+    return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 
 def may_approve(recommended: str, chosen: str, drafted_for: str | None = None) -> bool:
