@@ -6,6 +6,7 @@ Every page that shows it says so. Actions are logged to .tmp/actions-demo.jsonl,
 from __future__ import annotations
 
 import json
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -25,10 +26,30 @@ def is_demo(dispute_id: str | None) -> bool:
     return bool(dispute_id) and dispute_id.startswith("DEMO-")
 
 
+# shop.json is about 1 MB and every page, API call and team lookup builds a DemoPayPal: parse it once per
+# version of the file (path, modification time, size), not on every call. Instances share the parsed data,
+# so it is read-only: nothing in Second Look writes to it (actions go to the log).
+_PARSED: dict = {}
+_PARSED_LOCK = threading.Lock()
+
+
+def _read(data: Path) -> dict:
+    st = data.stat()
+    version = (st.st_mtime_ns, st.st_size)
+    with _PARSED_LOCK:
+        hit = _PARSED.get(str(data))
+    if hit and hit[0] == version:
+        return hit[1]
+    raw = json.loads(data.read_text())
+    with _PARSED_LOCK:
+        _PARSED[str(data)] = (version, raw)
+    return raw
+
+
 class DemoPayPal(MockPayPal):
     def __init__(self, data: Path = DATA, log: Path = ROOT / ".tmp" / "actions-demo.jsonl"):
         super().__init__(data.parent, log)
-        self.raw = json.loads(data.read_text())
+        self.raw = _read(Path(data))
         self.today = date.fromisoformat(self.raw["today"])
         self.shop = self.raw["shop"]
 

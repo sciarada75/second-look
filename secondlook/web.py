@@ -14,6 +14,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import threading
 from dataclasses import asdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -119,13 +120,25 @@ def assignments_for(dispute_id: str | None) -> team_mod.Assignments:
     return team_mod.Assignments(ROOT / "records" / "assignments.json")
 
 
+# One approval at a time per case. The server answers on several threads: two clicks (or a person and the
+# API) at once must not both read "not sent yet" and both reach PayPal, or both hand the case on.
+_CASE_LOCKS: dict = {}
+_CASE_LOCKS_GUARD = threading.Lock()
+
+
+def _case_lock(did: str) -> threading.Lock:
+    with _CASE_LOCKS_GUARD:
+        return _CASE_LOCKS.setdefault(did, threading.Lock())
+
+
 def take(did: str, by: str | None) -> tuple[int, str]:
     t = team_for(did)
     who = team_mod.person(t, by)
     if not who:
         return 400, "Say who you are: a person in this shop's team."
-    # The case becomes theirs; a colleague's handoff note on it stays (it carries the draft to send).
-    assignments_for(did).update(did, lambda a: {**a, "to": who["id"]})
+    with _case_lock(did):
+        # The case becomes theirs; a colleague's handoff note on it stays (it carries the draft to send).
+        assignments_for(did).update(did, lambda a: {**a, "to": who["id"]})
     return 200, f"{who['name']} took this case."
 
 
@@ -1021,12 +1034,23 @@ STOP_SAYS = {
 }
 
 
-def _refused(stops) -> str:
-    trust = [STOP_SAYS.get(s, s) for s in stops if s not in SIZE_STOPS]
-    if trust:
-        return (f"This answer was held back for trust: {', '.join(trust)}. "
+def _refused(saved, chosen: str) -> str:
+    """Why an approval was refused. The guard's reasons only when the person asked for the AI's own answer:
+    for anything else they are not the reason."""
+    dec = saved[0] if saved else None
+    held = [STOP_SAYS.get(s, s) for s in (dec.stops if dec else []) if s not in SIZE_STOPS]
+    if dec and chosen == dec.judgment.action and held:
+        return (f"This answer was held back: {', '.join(held)}. "
                 "It can't be sent from here, by anyone. Decide in PayPal.")
     return "This answer changed since you saw it, or it can't be sent as it is. Look again."
+
+
+def required(chosen: str, dec: Decision, dispute: dict) -> float:
+    """How much this approval asks the person to cover: the money the chosen answer sends, or, on a case the
+    limits held back for being big ("always_ask"), the whole dispute, whatever the answer. A big case is the
+    manager's even to defend it or ask a question: the shop asked for a person with that authority."""
+    whole = float(dispute["dispute_amount"]["value"]) if "always_ask" in dec.stops else 0.0
+    return max(money_out(chosen, dec.judgment, dispute), whole)
 
 
 def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None) -> tuple[int, str]:
@@ -1037,36 +1061,43 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
     who = team_mod.person(t, by)
     if not who:
         return 400, "Say who is approving: a person in this shop's team."
+    with _case_lock(did):  # from reading the review to saving what was sent, or the handoff
+        return _approve(did, chosen, message, rule, t, who, execute)
+
+
+def _approve(did, chosen, message, rule, t, who, execute) -> tuple[int, str]:
     saved = _saved(did)
     if saved and saved[1]:
         return 200, saved[1]  # already sent: a second approval sends nothing
     if not saved or not may_approve(saved[0].action, chosen, saved[0].judgment.action, saved[0].stops):
-        return 409, _refused(saved[0].stops if saved else [])
+        return 409, _refused(saved, chosen)
     dec = saved[0]
     case = _case(did)
     if _changes(did, case):
         return 409, "Something changed since this review. Take a fresh look."
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
     amount = money_out(chosen, dec.judgment, case["dispute"])
-    # A case the limits held back for being big ("always_ask") needs someone who covers the whole dispute,
-    # even to defend it: the shop asked for a person with that authority, whatever the answer moves.
-    whole = float(case["dispute"]["dispute_amount"]["value"]) if "always_ask" in dec.stops else 0.0
-    required = max(amount, whole)
+    need = required(chosen, dec, case["dispute"])
     now = datetime.now()
-    if required and not team_mod.covers(t, who["id"], required):
+    if need and not team_mod.covers(t, who["id"], need):
         # Over this person's limit: nothing goes to PayPal. The case passes to a colleague who may send it.
-        to = team_mod.handoff_to(t, required, exclude=who["id"])
+        to = team_mod.handoff_to(t, need, exclude=who["id"])
         if not to:
-            return 409, f"Nobody in the team may approve {required:.2f} {cur} from here. Decide in PayPal."
-        handoff = {"from": who["id"], "from_name": who["name"], "action": chosen, "amount": required,
+            return 409, f"Nobody in the team may approve {need:.2f} {cur} from here. Decide in PayPal."
+        handoff = {"from": who["id"], "from_name": who["name"], "action": chosen, "amount": need,
                    "message": message, "at": now.isoformat(timespec="minutes")}
         assignments_for(did).update(did, lambda a: {"to": to["id"], "handoff": handoff})
-        notify("case.handed_off", {"dispute_id": did, "action": chosen, "amount": required,
+        notify("case.handed_off", {"dispute_id": did, "action": chosen, "amount": need,
                                    "from": who["name"], "to": to["name"]})
         cap = team_mod.limit(t, who["id"]) or 0.0
-        what = (f"{ACTION.get(chosen, chosen).lower()} of {amount:.2f} {cur}" if amount >= required
-                else f"{ACTION.get(chosen, chosen).lower()} on a {required:.2f} {cur} dispute")
+        what = (f"{ACTION.get(chosen, chosen).lower()} of {amount:.2f} {cur}" if amount >= need
+                else f"{ACTION.get(chosen, chosen).lower()} on a {need:.2f} {cur} dispute")
         return 202, f"Passed to {to['name']}: {what} is over your {cap:.2f} {cur} limit. Nothing was sent."
+    if message is None and not t.get("solo"):
+        # No message given (the API): the colleague who passed this case on edited the reply; send theirs.
+        hand = assignments_for(did).get(did)["handoff"]
+        if isinstance(hand, dict) and hand.get("action") == chosen and hand.get("message") is not None:
+            message = hand["message"]
     recommended = dec.action
     dec.action = chosen  # "your call": a question, or the answer held back only for its size
     if message is not None:
@@ -1131,14 +1162,17 @@ def api_open(src: str) -> list:
                 if d["dispute_id"] not in seen:
                     seen.add(d["dispute_id"])
                     items.append(d if src == "practice" else pp.get_dispute(d["dispute_id"]))
+    # One shop, one team, one read of who has which case: not once per row.
+    solo = team_for_src(src).get("solo")
+    assigned = {} if solo else assignments_for("DEMO-" if src == "demo" else None).all()
     out = []
     for d in items:
         saved = _saved(d["dispute_id"])
         row = {"dispute_id": d["dispute_id"], "reason": d.get("reason"), "status": d.get("status"),
                "amount": d.get("dispute_amount"), "buyer": ledger.buyer_of(d),
                "recommended": saved[0].action if saved else None, "sent": saved[1] if saved else None}
-        if not team_for(d["dispute_id"]).get("solo"):
-            row["assigned_to"] = assignments_for(d["dispute_id"]).get(d["dispute_id"])["to"]
+        if not solo:
+            row["assigned_to"] = assigned.get(d["dispute_id"], {}).get("to")
         out.append(row)
     return out
 
