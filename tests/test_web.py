@@ -322,7 +322,12 @@ def demo_team(seed):
 
 
 def test_in_a_team_the_inbox_has_tabs_and_owners_and_a_team_of_one_has_neither():
-    solo = web.inbox_page("demo")
+    # The demo shop has its own team now (23/10): the same cases seen by a team of one, for this line only.
+    saved, web.team_for = web.team_for, lambda did: team_mod.of(None)
+    try:
+        solo = web.inbox_page("demo")
+    finally:
+        web.team_for = saved
     assert 'class="tabs"' not in solo and 'class="owner"' not in solo and "You are" not in solo
     open_ids = [d["dispute_id"] for d in DemoPayPal().disputes()
                 if d["status"] in ("WAITING_FOR_SELLER_RESPONSE", "WAITING_FOR_BUYER_RESPONSE")]

@@ -1,6 +1,6 @@
-"""Writes the demo shop: a made-up two-person shop with four months of orders and 42 disputes, in
-the shape of PayPal's Disputes API and Transaction Search. Every page that shows it says
-"Demo shop — made-up data". Rebuild with:
+"""Writes the demo shop: a made-up mid-size shop (about 2,000 orders a month, four people in customer care)
+with four months of orders and their disputes, in the shape of PayPal's Disputes API and Transaction
+Search. Every page that shows it says "Demo shop — made-up data". Rebuild with:
     python3 demo/make_demo.py
 
 Why a demo shop: the PayPal sandbox has one buyer and cannot age an order, so it cannot show a shop's
@@ -19,7 +19,16 @@ rng = random.Random(20261020)
 
 SHOP = {
     "name": "Linen & Paper",
-    "about": "Demo shop, made-up data: two people, handmade linen and art prints, ships from Bologna.",
+    "about": "Demo shop, made-up data: handmade linen and art prints from Bologna, about 2,000 orders a month, "
+             "four people in customer care.",
+    "team": {
+        "currency": "EUR",
+        "roles": {"Customer care manager": {"refund_up_to": None},
+                  "Customer care agent": {"refund_up_to": 30.0}},
+        "people": [{"id": "giulia", "name": "Giulia", "role": "Customer care manager"},
+                   {"id": "marta", "name": "Marta", "role": "Customer care agent"},
+                   {"id": "luca", "name": "Luca", "role": "Customer care agent"},
+                   {"id": "sara", "name": "Sara", "role": "Customer care agent"}]},
     "handling_time": "ships within 2 business days",
     "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
     "listings": {
@@ -80,12 +89,14 @@ customers += [dario, helga]
 orders, tx = [], 0
 
 
-def order(c, day, item, qty=1, hour=None):
+def order(c, day, item, qty=1, hour=None, r=None):
     global tx
+    r = r or rng
     tx += 1
     amount = PRICE[item] * qty
     o = {"transaction_id": f"DEMOTX{tx:05d}", "payer_id": c["payer_id"], "email": c["email"], "name": c["name"],
-         "address": c["address"], "date": day.isoformat(), "time": iso(day, hour if hour is not None else rng.randint(8, 22), rng.randint(0, 59)),
+         "address": c["address"], "date": day.isoformat(),
+         "time": iso(day, hour if hour is not None else r.randint(8, 22), r.randint(0, 59)),
          "amount": amount, "fee": fee(amount), "items": [{"item_name": item, "item_quantity": str(qty)}]}
     orders.append(o)
     return o
@@ -234,7 +245,11 @@ dispute(o, NAD, opened_at(o, 8, 13, 5), "One of the four napkins has a pulled th
         status="WAITING_FOR_SELLER_RESPONSE", extra=OPEN_INQUIRY,
         rec={"tracking": tracking(o, "DELIVERED", 1, 3, delivered_to_paypal_address=True), "ship_to_paypal": True})
 o = pick("2026-09-20", "2026-09-24", "Linen apron")
-dispute(o, CNP, opened_at(o, 25, 10, 30), "I returned the apron on 5 October, you received it on the 8th. Still no refund.",
+# The film shows this case right after DEMO-031 (also a 58 EUR apron): a viewer would take them for one case.
+# It becomes a shirt AFTER the pick, so the random stream (and every case after it) stays as reviewed (23/10).
+o["items"] = [{"item_name": "Linen shirt", "item_quantity": "1"}]
+o["amount"], o["fee"] = PRICE["Linen shirt"], fee(PRICE["Linen shirt"])
+dispute(o, CNP, opened_at(o, 25, 10, 30), "I returned the shirt on 5 October, you received it on the 8th. Still no refund.",
         status="WAITING_FOR_SELLER_RESPONSE", extra=OPEN_INQUIRY,
         rec={"tracking": tracking(o, "DELIVERED", 1, 3, delivered_to_paypal_address=True), "ship_to_paypal": True,
              "return_tracking": {"carrier": "OTHER", "carrier_name_other": "Local courier", "tracking_number": "LCRET40812IT",
@@ -273,8 +288,71 @@ dispute(o, NR, opened_at(o, 9, 16, 45), "No apron.", status="WAITING_FOR_BUYER_R
         extra={"evidences": [{"source": "SUBMITTED_BY_SELLER", "evidence_type": "PROOF_OF_FULFILLMENT"}]},
         rec={"tracking": tracking(o, "DELIVERED", 1, 4, delivered_to_paypal_address=True), "ship_to_paypal": True})
 
+# ---------- growth (23/10): a mid-size shop around the same open cases ----------
+# Everything above uses `rng` and is unchanged, so the 12 open cases (and the reviews already paid for)
+# stay exactly as they were. Growth uses its own stream: new customers only (each existing buyer's history,
+# which the reviews quote, stays the same), more orders, and more CLOSED cases from DEMO-043 on.
+rng2 = random.Random(20261023)
+new_customers = []
+for k in range(4000):
+    f, l = rng2.choice(FIRST), rng2.choice(LAST)
+    city = rng2.choice(CITIES)
+    new_customers.append({"payer_id": "DEMN" + "".join(rng2.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(9)),
+                          "name": f"{f} {l}", "email": f"{f.lower()}.{l.lower()[:1]}{1300 + k}@example.com",
+                          "address": f"{rng2.choice(STREETS)} {rng2.randint(1, 120)}, {city[1]} {city[0]}, {city[2]}"})
+grown = []
+d = START
+while d <= TODAY:
+    for _ in range(rng2.randint(40, 56)):
+        c = rng2.choice(new_customers[:900]) if rng2.random() < 0.33 else rng2.choice(new_customers)
+        grown.append(order(c, d, rng2.choice(pool), r=rng2))
+    d += timedelta(days=1)
+
+window_from = (TODAY - timedelta(days=90)).isoformat()
+q_from, q_to = "2026-07-01", "2026-09-30"           # PayPal's previous full quarter, as ledger counts it
+in_window = lambda x: x["create_time"][:10] >= window_from  # noqa: E731
+orders_90 = sum(1 for o in orders if o["date"] >= window_from)
+sales_q = sum(1 for o in orders if q_from <= o["date"] <= q_to)
+claims_q = sum(1 for x in disputes if x["dispute_life_cycle_stage"] != "INQUIRY" and q_from <= x["create_time"][:10] <= q_to)
+want_disputes = round(0.020 * orders_90) - sum(1 for x in disputes if in_window(x))
+want_claims = round(0.006 * sales_q) - claims_q
+templates = [p for p in closed_plan]                 # the same mix of reasons, stages and outcomes as the first 25
+claims_left = max(0, want_claims)
+disputed = {x["disputed_transactions"][0]["seller_transaction_id"] for x in disputes}
+for k in range(max(0, want_disputes)):
+    # one dispute per order, as pick() does above
+    o = rng2.choice([x for x in grown if x["date"] <= "2026-10-05" and x["transaction_id"] not in disputed])
+    disputed.add(o["transaction_id"])
+    month, reason, stage, code, why, share, msg = rng2.choice(templates)
+    opened = datetime.strptime(o["date"], "%Y-%m-%d") + timedelta(days=rng2.randint(6, 18), hours=rng2.randint(8, 21))
+    in_q = q_from <= opened.strftime("%Y-%m-%d") <= q_to
+    if in_q and claims_left:
+        stage, claims_left = "CHARGEBACK", claims_left - 1
+        code, why = rng2.choice([(WON, "VALID_PROOF_OF_DELIVERY"), (BUYER, "ITEM_NOT_AS_DESCRIBED"),
+                                 (BUYER, "NO_PROOF_OF_DELIVERY"), (PAYOUT, "PROTECTED_BY_PAYPAL")])
+        share = 1 if code == BUYER else 0
+    elif stage == "CHARGEBACK":
+        stage = "INQUIRY"
+    if opened.date() > TODAY - timedelta(days=3):
+        opened = datetime.combine(TODAY - timedelta(days=3), opened.time())
+    dispute(o, reason, opened, msg, stage=stage, outcome=(code, why) if code else None,
+            refunded=round(o["amount"] * share, 2) if share else None)
+
+# Who handled each closed case (the team signs its work). Not part of PayPal's data: the shop's own record.
+handled_by = {}
+for x in disputes:
+    if x["status"] == "RESOLVED" and (x.get("dispute_outcome") or {}).get("outcome_code") != "CANCELED_BY_BUYER":
+        amount = float(x["dispute_amount"]["value"])
+        handled_by[x["dispute_id"]] = "Giulia" if amount > 30 and rng2.random() < 0.5 else rng2.choice(["Marta", "Luca", "Sara"])
+
+# Who has each open case this morning (the film follows Marta). Unassigned cases are simply absent.
+assignments = {did: {"to": who, "handoff": None} for did, who in
+               [("DEMO-031", "marta"), ("DEMO-032", "marta"), ("DEMO-034", "marta"),
+                ("DEMO-035", "luca"), ("DEMO-039", "luca")]}
+
 OUT.write_text(json.dumps({"_comment": "Demo shop, made-up data. Generated by demo/make_demo.py; do not edit by hand.",
                            "today": TODAY.isoformat(), "shop": SHOP, "orders": orders, "disputes": disputes,
-                           "records": records}, indent=1, ensure_ascii=False) + "\n")
-print(f"{OUT.name}: {len(orders)} orders, {len(disputes)} disputes "
-      f"({sum(d['status'] == 'RESOLVED' for d in disputes)} closed, {sum(d['status'] != 'RESOLVED' for d in disputes)} open)")
+                           "records": records, "assignments": assignments, "handled_by": handled_by},
+                          indent=1, ensure_ascii=False) + "\n")
+print(f"{OUT.name}: {len(orders)} orders ({orders_90} in 90 days), {len(disputes)} disputes "
+      f"({sum(x['status'] == 'RESOLVED' for x in disputes)} closed, {sum(x['status'] != 'RESOLVED' for x in disputes)} open)")
