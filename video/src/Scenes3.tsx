@@ -19,12 +19,13 @@ const at = (key: string, f: number) => {
 };
 const fadeIn = (frame: number, on: number, d = 10) => interpolate(frame, [on, on + d], [0, 1], {...clamp, easing: EASE});
 
-/** A scene: shown in [from, to), fades in from paper over 8 frames. */
-const Scene: React.FC<{from: number; to: number; children: React.ReactNode; bg?: string}> = ({from, to, children, bg = theme.paper}) => {
+/** A scene: shown in [from, to), fades in over 8 frames from `under` (paper; ink for the dark scenes,
+ *  so two dark scenes in a row never flash pale between them). */
+const Scene: React.FC<{from: number; to: number; children: React.ReactNode; bg?: string; under?: string}> = ({from, to, children, bg = theme.paper, under = theme.paper}) => {
   const frame = useCurrentFrame();
   if (frame < from || frame >= to) return null;
   return (
-    <AbsoluteFill style={{background: theme.paper}}>
+    <AbsoluteFill style={{background: under}}>
       <AbsoluteFill style={{opacity: fadeIn(frame, from, 8), background: bg}}>{children}</AbsoluteFill>
     </AbsoluteFill>
   );
@@ -104,7 +105,7 @@ const Moment: React.FC = () => {
   const shown = Math.round(interpolate(frame, [a.to + 2, a.next - 4], [0, MESSAGE.length], clamp));
   const card = fadeIn(frame, from + 4, 12);
   return (
-    <Scene from={from} to={to}>
+    <Scene from={from} to={to} under={theme.ink}>
       <Backdrop src="footage/web/shipping 3.jpg" from={from} to={to} blur={16} />
       <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center'}}>
         <div style={{opacity: card, transform: `translateY(${(1 - card) * 16}px)`, width: 1180, background: '#fff',
@@ -178,7 +179,7 @@ const Costs: React.FC = () => {
     {on: beat('s2c').from, label: 'A busy shop, any claim', big: '28 EUR', sub: 'even when you win', tone: theme.fail, src: 'PayPal fees + User Agreement'},
   ];
   return (
-    <Scene from={from} to={to}>
+    <Scene from={from} to={to} under={theme.ink}>
       <Backdrop src="footage/money flow.mp4" video from={from} to={to} rate={0.85} />
       <Tiles tiles={tiles} title="What a dispute costs the shop" subtitle="PayPal's own fees" titleOn={from} />
     </Scene>
@@ -197,7 +198,7 @@ const Business: React.FC = () => {
       extraOn: at('s2g', 0.55), tone: theme.incon, src: 'Mastercard / Datos 2025 · midsize & large merchants'},
   ];
   return (
-    <Scene from={from} to={to}>
+    <Scene from={from} to={to} under={theme.ink}>
       <Backdrop src="footage/late night answer 3.mp4" video from={from} to={to} rate={0.9} />
       <Tiles tiles={tiles} title="What disputes cost a business" subtitle="public figures, each with its source" titleOn={from} />
     </Scene>
