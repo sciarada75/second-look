@@ -103,7 +103,7 @@ def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
         # An amount that can't be read raises here and nothing is sent.
         amount = dispute["dispute_amount"]["value"]
         if d.judgment.partial_amount:
-            amount = f"{min(float(amount), _partial(d.judgment.partial_amount)):.2f}"
+            amount = f"{min(float(amount), _partial(d.judgment.partial_amount, dispute['dispute_amount']['currency_code'])):.2f}"
         return pp.partial_refund(did, amount, dispute["dispute_amount"]["currency_code"], note)
     if d.action == "REPLACE":
         return pp.replace(did, note)

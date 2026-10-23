@@ -56,25 +56,34 @@ class Decision:
     stops: List[str] = field(default_factory=list)  # which rules stopped it (ids), in rule order
 
 
-# One plain amount, with at most a currency code or symbol at either end: "20.00 EUR", "€20,50", "20".
-# Anything else ("1,234.56", "1.234,56", "1 500", "-20") is refused, not guessed: the old loose search
+# One plain amount above zero, with at most one currency marker, before or after: "20.00 EUR", "€20,50", "20".
+# Anything else ("1,234.56", "1.234,56", "1 500", "-20", "0") is refused, not guessed: the old loose search
 # read "1,234.56" as 1.23 and "-20" as 20, so the cap could check one number and PayPal get another.
-_AMOUNT = re.compile(r"(?:[A-Za-z]{3}|[€$£])?\s*(\d+(?:[.,]\d{1,2})?)\s*(?:[A-Za-z]{3}|[€$£])?")
+# The marker must be the dispute's own currency: "20 USD" on a euro dispute is not 20 euros.
+_AMOUNT = re.compile(r"(?:([A-Za-z]{3}|[€$£])\s*)?(\d+(?:[.,]\d{1,2})?)(?:\s*([A-Za-z]{3}|[€$£]))?", re.ASCII)
+_SYMBOLS = {"€": "EUR", "£": "GBP", "$": "USD"}
 
 
-def _partial(text) -> float:
-    """'20.00 EUR' -> 20.0, '€20,50' -> 20.5. Raises ValueError on anything that is not one plain amount."""
+def _partial(text, currency: str) -> float:
+    """'20.00 EUR' -> 20.0, '€20,50' -> 20.5 on a euro dispute. Raises ValueError on anything that is not
+    one plain amount above zero in the dispute's own currency."""
     m = _AMOUNT.fullmatch(str(text or "").strip())
-    if not m:
+    if not m or (m.group(1) and m.group(3)):
         raise ValueError(text)
-    return float(m.group(1).replace(",", "."))
+    marker = m.group(1) or m.group(3)
+    if marker and _SYMBOLS.get(marker, marker).upper() != str(currency).upper():
+        raise ValueError(text)
+    value = float(m.group(2).replace(",", "."))
+    if value <= 0:
+        raise ValueError(text)
+    return value
 
 
 def _sends(action: str, j: Judgment, dispute: dict) -> float:
     """What money_out says, but raising ValueError on an unreadable partial amount (the guard needs to know)."""
     amount = float(dispute["dispute_amount"]["value"])
     if action == "PARTIAL_REFUND" and j.partial_amount:
-        return min(amount, _partial(j.partial_amount))
+        return min(amount, _partial(j.partial_amount, dispute["dispute_amount"]["currency_code"]))
     return amount if action in MONEY else 0.0
 
 
@@ -216,12 +225,13 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     - they may send the drafted question, because a message moves no money. Not when the draft was
       written for a money action the limits stopped (`drafted_for`): it promises the money (DEMO-034, 21/10).
       Not when PayPal's rules stopped it (`paypal_allowed`): PayPal would refuse the message (422).
+      Not when the AI returned an action that doesn't exist (`unknown_action`): its draft is unvetted.
     - they may take the answer the AI drafted when the ONLY reasons it was held back are its size
       (SIZE_STOPS): those limits exist to hand the decision to a person, and this person is it.
       Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
     How much money this person may send is checked after this, against their role (team.covers)."""
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
-        return drafted_for not in MONEY and "paypal_allowed" not in stops
+        return drafted_for not in MONEY and "paypal_allowed" not in stops and "unknown_action" not in stops
     if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" \
             and stops and set(stops) <= SIZE_STOPS:
         return True

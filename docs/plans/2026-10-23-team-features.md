@@ -70,7 +70,7 @@ MONEY = ("REFUND", "PARTIAL_REFUND", "REPLACE")
 # Why the guard stopped an answer, one id per rule. Only these two are about size alone: the limits then
 # hand the decision to a person, who may take the AI's answer themselves. Every other stop is about trust
 # (hidden instructions, broken evidence, low confidence, a habitual escalator, PayPal's rules).
-AMOUNT_STOPS = {"cap", "always_ask"}
+SIZE_STOPS = {"cap", "always_ask"}
 ```
 
 Change the `Decision` dataclass to:
@@ -194,13 +194,13 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     - they may send the drafted question, because a message moves no money. Not when the draft was
       written for a money action the limits stopped (`drafted_for`): it promises the money (DEMO-034, 21/10).
     - they may take the answer the AI drafted when the ONLY reasons it was held back are its size
-      (AMOUNT_STOPS): those limits exist to hand the decision to a person, and this person is it.
+      (SIZE_STOPS): those limits exist to hand the decision to a person, and this person is it.
       Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
     How much money this person may send is checked after this, against their role (team.covers)."""
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
         return drafted_for not in MONEY
     if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" \
-            and stops and set(stops) <= AMOUNT_STOPS:
+            and stops and set(stops) <= SIZE_STOPS:
         return True
     return chosen == recommended
 ```
@@ -388,6 +388,14 @@ git commit -m "Team module: roles, per-role refund limits, handoff target, case 
 ---
 
 ### Task 4: Approve knows who is approving — handoff, signature, API name
+
+> **Changed by the Tasks 1–3 reviews (23/10), read before coding:**
+> - `money_out()` never raises. When a partial amount can't be read it returns the whole dispute amount,
+>   the strictest limit check. Don't wrap it in `try`. The guard's strict, raising version is `guard._sends()`.
+> - `_partial(text, currency)` now takes the dispute's currency code. It refuses a different currency
+>   ("20 USD" on a euro dispute), more than one marker, zero or below, and thousands separators.
+> - `AMOUNT_STOPS` is now `SIZE_STOPS`. `may_approve` also refuses the drafted question when `stops`
+>   contains `paypal_allowed` or `unknown_action`.
 
 **Files:**
 - Modify: `secondlook/web.py` (imports; `_saved`; `_save`; new `team_for`, `assignments_for`, `take`; `approve`; `api_case`; `api_open`)

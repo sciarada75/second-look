@@ -189,10 +189,10 @@ def test_money_out_is_what_actually_leaves_the_account():
 
 def test_a_partial_amount_is_read_strictly_or_not_at_all():
     from secondlook.guard import _partial
-    assert _partial("20.00 EUR") == 20.0 and _partial("€20,50") == 20.5 and _partial("20") == 20.0
+    assert _partial("20.00 EUR", "EUR") == 20.0 and _partial("€20,50", "EUR") == 20.5 and _partial("20", "EUR") == 20.0
     for bad in ("1,234.56 EUR", "1.234,56", "1 500", "-20", ""):
         try:
-            _partial(bad)
+            _partial(bad, "EUR")
         except ValueError:
             pass
         else:
@@ -256,6 +256,25 @@ def test_the_cli_says_when_an_answer_was_held_back_for_trust():
     assert "trust" in refusal(d, "REFUND") and "inconsistent" in refusal(d, "REFUND")
     d = apply_policy(Judgment("REFUND", 0.95, "x"), POLICY, dispute(20), {})
     assert "the recommendation is now REFUND" in refusal(d, "DEFEND")
+
+
+def test_the_currency_of_a_partial_amount_is_checked_not_guessed():
+    from secondlook.guard import _partial
+    assert _partial("€20", "EUR") == 20.0 and _partial("20 eur", "EUR") == 20.0 and _partial("$20", "USD") == 20.0
+    for bad, cur in (("EUR 20 GBP", "EUR"), ("EUR 20 EUR", "EUR"), ("0.00", "EUR"), ("£20", "EUR"),
+                     ("20 USD", "EUR"), ("$20", "EUR"), ("٢٠", "EUR")):
+        try:
+            _partial(bad, cur)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"{bad!r} was read as {cur}")
+    d = apply_policy(Judgment("PARTIAL_REFUND", 0.95, "x", partial_amount="20 USD"), POLICY, dispute(60), {})
+    assert d.action == "ASK_SELLER" and "partial_amount" in d.stops
+
+
+def test_no_drafted_question_when_the_ai_returned_an_unknown_action():
+    assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="ASK_SELLER", stops=["unknown_action"])
 
 
 if __name__ == "__main__":
