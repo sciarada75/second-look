@@ -205,6 +205,58 @@ const Business: React.FC = () => {
   );
 };
 
+// ---------- 2c. So what helps? Second Look, before we meet the shop ----------
+// The product's own mark (two rings: kraft and ink) and name; then what it does, each item as the voice
+// names it; then the person, lit in kraft, on the last sentence.
+const MARK = (size: number) => (
+  <svg width={size * 30 / 22} height={size} viewBox="0 0 30 22" aria-hidden="true">
+    <circle cx="11" cy="11" r="9" fill={theme.kraft} />
+    <circle cx="19" cy="11" r="9" fill="none" stroke={theme.ink} strokeWidth={3} />
+  </svg>
+);
+const Enter: React.FC = () => {
+  const frame = useCurrentFrame();
+  const from = beat('s2h').from, to = beat('s2h').next;
+  // Where the voice says each word, as a share of the line (whisper word timestamps on s2h.wav, 23/10):
+  // "It's" 0.152, "reads" 0.228, "runs" 0.506, "drafts" 0.719, "Nothing" 0.814.
+  const w2 = at('s2h', 0.152), w3 = at('s2h', 0.814);
+  const items = [
+    {on: at('s2h', 0.228), text: 'Reads the dispute and PayPal’s evidence'},
+    {on: at('s2h', 0.506), text: 'Runs a specialist’s ten checks'},
+    {on: at('s2h', 0.719), text: 'Drafts the answer'},
+  ];
+  const head = fadeIn(frame, from + 2, 14);
+  const person = fadeIn(frame, w3, 12);
+  return (
+    <Scene from={from} to={to}>
+      <div style={{position: 'absolute', left: 0, right: 0, top: 190, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: 30, opacity: head, transform: `translateY(${(1 - head) * 14}px)`}}>
+        {MARK(96)}
+        <div style={{font: `700 112px/1 ${theme.sans}`, color: theme.ink, letterSpacing: -3}}>Second Look</div>
+      </div>
+      <div style={{position: 'absolute', left: 0, right: 0, top: 340, textAlign: 'center', font: `400 46px ${theme.serif}`,
+        color: theme.soft, opacity: fadeIn(frame, w2, 12)}}>an AI for PayPal disputes</div>
+      <div style={{position: 'absolute', left: (WIDTH - 1000) / 2, width: 1000, top: 470}}>
+        {items.map((it, i) => {
+          const o = fadeIn(frame, it.on, 12);
+          return (
+            <div key={i} style={{display: 'flex', alignItems: 'center', gap: 26, padding: '16px 0', borderTop: `1px solid ${theme.rule}`,
+              opacity: o * (1 - 0.35 * person), transform: `translateY(${(1 - o) * 14}px)`}}>
+              <span style={{width: 46, font: `700 36px ${theme.sans}`, color: theme.kraft}}>{i + 1}</span>
+              <span style={{font: `500 46px/1.2 ${theme.sans}`, color: theme.ink}}>{it.text}</span>
+            </div>
+          );
+        })}
+        <div style={{marginTop: 26, display: 'flex', alignItems: 'center', gap: 26, padding: '22px 30px', background: theme.kraftBg,
+          borderLeft: `8px solid ${theme.kraft}`, opacity: person, transform: `translateY(${(1 - person) * 14}px)`}}>
+          <span style={{font: `700 54px/1.15 ${theme.sans}`, color: '#6E4F27'}}>A person approves</span>
+          <span style={{font: `400 34px ${theme.sans}`, color: '#6E4F27'}}>Nothing moves before.</span>
+        </div>
+      </div>
+    </Scene>
+  );
+};
+
 // ---------- 3. Who are we following? ----------
 const PEOPLE = [
   {name: 'Marta', initials: 'M', role: 'Customer care agent', note: 'refunds up to 30 EUR', color: theme.kraft},
@@ -396,11 +448,11 @@ const Trust: React.FC = () => {
         <AbsoluteFill style={{opacity: flow, transform: 'scale(1.2)', transformOrigin: '50% 45%'}}>
           <FlowBox x={x(0)} y={Y} w={W} h={H} on={t1} title="The AI recommends">An answer and a drafted reply.</FlowBox>
           <Arrow x1={x(0) + W + 8} y1={Y + H / 2} x2={x(1) - 8} y2={Y + H / 2} on={t2 - 4} />
-          <FlowBox x={x(1)} y={Y} w={W} h={H} on={t2} title="Your limits, in code" tone={theme.kraft}>The last word. They can only make it more careful.</FlowBox>
+          <FlowBox x={x(1)} y={Y} w={W} h={H} on={t2} title="Your limits, in code" tone={theme.kraft}>They have the last word.</FlowBox>
           <Arrow x1={x(1) + W + 8} y1={Y + H / 2} x2={x(2) - 8} y2={Y + H / 2} on={t3 - 4} />
           <FlowBox x={x(2)} y={Y} w={W} h={H} on={t3} title="A person approves" tone={theme.pass}>Nothing moves before.</FlowBox>
-          <Arrow x1={x(2) + W + 8} y1={Y + H / 2} x2={x(3) - 8} y2={Y + H / 2} on={t3 + 22} />
-          <FlowBox x={x(3)} y={Y} w={W} h={H} on={t3 + 26} title="PayPal">Evidence, reply or refund.</FlowBox>
+          <Arrow x1={x(2) + W + 8} y1={Y + H / 2} x2={x(3) - 8} y2={Y + H / 2} on={t3 + 10} />
+          <FlowBox x={x(3)} y={Y} w={W} h={H} on={t3 + 14} title="PayPal">Evidence, reply or refund.</FlowBox>
         </AbsoluteFill>
       ) : null}
       {card > 0 ? (
@@ -419,7 +471,7 @@ const Trust: React.FC = () => {
 
 export const Scenes3: React.FC = () => (
   <>
-    <Moment /><Costs /><Business /><Team /><Helpdesk /><TheCase /><Approve /><OverLimit /><Giulia /><Live /><Trust />
+    <Moment /><Costs /><Business /><Enter /><Team /><Helpdesk /><TheCase /><Approve /><OverLimit /><Giulia /><Live /><Trust />
   </>
 );
 void HEIGHT;

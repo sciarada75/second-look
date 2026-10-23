@@ -1,4 +1,4 @@
-# Film draft 4 — script (23/10, written by Claude; Claudia: "you do all"; draft 4 changes from her verdict on draft 3)
+# Film draft 5 — script (23/10, written by Claude; Claudia: "you do all"; drafts 4 and 5 change it after her verdicts)
 
 Target under 3:00 (draft 4: about 2:45), about 410 spoken words at rate 160. **The rule for every scene:** it answers one question the
 previous scene raised, the voice names that question or its answer, and the screen shows only what the
@@ -36,6 +36,12 @@ sources give it: US$.]
   **[US$4.61 lost for every US$1 of fraud]** *LexisNexis True Cost of Fraud, 2025, US retail & e-commerce*
 - And big merchants give up on almost half of their card chargebacks, and win only one in five of those they fight.
   **[46% of card chargebacks accepted without a fight · won 1 in 5 when fought]** *Mastercard / Datos 2025, midsize & large merchants*
+
+## 2c. So what helps? (Second Look before the shop case: Claudia on draft 4, "it should happen before introducing the shop case")
+[Paper. The Second Look mark and name, large; "an AI for PayPal disputes"; three items appear as named — Reads the
+dispute and PayPal's evidence · Runs a specialist's ten checks · Drafts the answer — then **A person approves**
+lit in kraft on the last sentence.]
+- That's where Second Look comes in. It's an AI that reads every PayPal dispute and the evidence behind it, runs the checks a specialist would, and drafts the answer. Nothing moves until a person approves.
 
 ## 3. Who are we following?
 [Behind: Claudia's picture of a linen and paper shop, lightly veiled. A simple card: "Linen & Paper — a made-up shop · about 2,000 orders a month". Four initials appear as
@@ -81,7 +87,7 @@ Overview**: what the open cases could cost; the meter "0.6% claims · PayPal's l
 ## 10. Can I trust it? (2:36–2:50)
 [Four boxes build left to right: The AI recommends → Your limits, in code → A person approves → PayPal.
 Then the end card, over a darkened, blurred clip of a seller with parcels: **Second Look** · *Sell without fear.* · claudiaonclaude.com · github.com/sciarada75/second-look]
-- The AI recommends. Limits written in code have the last word, and can only make it more careful. Nothing moves until a person approves.
+- The AI recommends. Limits written in code have the last word. A person approves.
 - Second Look. Sell without fear.
 
 ---
@@ -109,7 +115,9 @@ Then the end card, over a darkened, blurred clip of a seller with parcels: **Sec
 | Giulia sees Marta's note and reply, approves | case page for the person a handoff waits for: note + pre-filled reply + "Approve: refund in full (89.00 EUR)" |
 | what the open cases could cost; how far from the busy-shop line | Overview: exposure section; meter 37/6,112 = 0.61% vs 1.5% |
 | runs on PayPal's sandbox; one-person shop; real dispute; reply to the buyer, tracking to PayPal as proof | PP-R-UCT-10193281: reply sent 18/10, evidence (tracking LC1810260042) submitted 19/10; policy.json has no team |
-| limits in code have the last word, only more careful; nothing moves until a person approves | guard.py (only safer); `may_approve` + `page_offer`; every send goes through `web.approve` |
+| an AI that reads every PayPal dispute and the evidence behind it, runs a specialist's checks, drafts the answer | `evidence.py` gathers the dispute and PayPal's own records (order, tracking, buyer history) with their sources; `judge.py` runs the ten `CHECKS` and drafts the reply; `guard.py` applies the seller's limits after it |
+| nothing moves until a person approves (s2h); a person approves (s10a) | every send goes through `web.approve`, which needs a named person in the team (`may_approve` + `page_offer`); demo actions are logged, never sent |
+| limits in code have the last word | `guard.py` runs after the AI and can only make the answer more careful |
 
 ## Not said, on purpose
 - No case count or score (decision 17/10: the eval score is quoted only in the README, re-measured).

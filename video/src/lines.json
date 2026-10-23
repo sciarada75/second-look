@@ -7,6 +7,7 @@
   "s2e": "And disputes cost more than fees: a single customer-care contact, by phone, chat or email, costs about eight dollars.",
   "s2f": "Every dollar lost to fraud costs a merchant about four dollars sixty.",
   "s2g": "And big merchants give up on almost half of their card chargebacks, and win only one in five of those they fight.",
+  "s2h": "That's where Second Look comes in. It's an AI that reads every PayPal dispute and the evidence behind it, runs the checks a specialist would, and drafts the answer. Nothing moves until a person approves.",
   "s3a": "Meet Linen and Paper, a made-up shop with about two thousand orders a month.",
   "s3b": "Marta answers customers, and can give back up to thirty euros on her own. Giulia manages the team.",
   "s4a": "Marta opens her helpdesk, a made-up one, for this film.",
@@ -20,6 +21,6 @@
   "s8a": "Giulia sees Marta's note and her reply, and approves the refund.",
   "s8b": "Then the overview: what the open cases could cost, and how far the shop is from PayPal's busy-shop line.",
   "s9a": "And it runs on PayPal. This is PayPal's sandbox: a one-person shop, a real dispute. The reply went to the buyer, and the tracking went to PayPal as proof.",
-  "s10a": "The AI recommends. Limits written in code have the last word, and can only make it more careful. Nothing moves until a person approves.",
+  "s10a": "The AI recommends. Limits written in code have the last word. A person approves.",
   "s10b": "Second Look. Sell without fear."
 }

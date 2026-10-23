@@ -6,5 +6,8 @@
   "has written. Next": "has written. [[slnc 220]] Next",
   "recommends. Limits": "recommends. [[slnc 250]] Limits",
   "goes to Dario": "goes to [[slnc 60]] Dario",
-  "note and her reply, and approves": "note, [[slnc 120]] and her reply, [[slnc 200]] and approves"
+  "note and her reply, and approves": "note, [[slnc 120]] and her reply, [[slnc 200]] and approves",
+  "_comment_rate": "[[rate N]] is say's embedded speaking rate: the sentence-final 'person approves' was drawn out (Claudia: 'peeeerson approves'); measured with whisper word timestamps, 23/10.",
+  "until a person approves": "until a [[rate 185]] person approves[[rate 160]]",
+  "word. A person approves": "word. [[slnc 250]] A [[rate 185]] person approves[[rate 160]]"
 }
