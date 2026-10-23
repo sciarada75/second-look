@@ -114,6 +114,15 @@ def team_for_src(src: str) -> dict:
     return team_for("DEMO-" if src == "demo" else None) if src != "practice" else team_mod.of(None)
 
 
+def src_of_case(did: str, shop: str) -> str:
+    """The shop a case belongs to, whatever shop the cookie remembers: its people are that shop's."""
+    if is_demo(did):
+        return "demo"
+    if did and (ROOT / "cases" / f"{did}.json").exists():
+        return "practice"
+    return "live" if did else shop
+
+
 def assignments_for(dispute_id: str | None) -> team_mod.Assignments:
     if is_demo(dispute_id):
         return team_mod.Assignments(ROOT / ".tmp" / "assignments-demo.json", seed=DemoPayPal().raw.get("assignments"))
@@ -216,7 +225,7 @@ TEACH = ('<details class="teach"><summary>Suggest a rule for later (nothing chan
          'placeholder="For example: never promise a delivery date, only a shipping date."></details>')
 
 
-def rules_page(flash: str = "", demo: bool = False) -> str:
+def rules_page(flash: str = "", demo: bool = False, me: str | None = None) -> str:
     pol = _policy()
     cur = pol.get("currency", "")
     limits = [f'Refunds above {pol["max_auto_refund"]:.0f} {cur} always come back to you.',
@@ -257,7 +266,7 @@ def rules_page(flash: str = "", demo: bool = False) -> str:
             '<h2>Your limits</h2><p class="who">Numbers, enforced by code after the AI has answered. '
             'They can make an answer more careful, never more generous.</p>'
             f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in limits)}</ul></section>')
-    return page("Your rules | Second Look", "", body, demo)
+    return page("Your rules | Second Look", "", body, demo, me=me)
 
 # What a review was based on. If any of it changes, the review is out of date and Approve is withdrawn:
 # the seller must never approve an answer to a situation that no longer exists.
@@ -432,6 +441,7 @@ header.top.demo{{--ctx:var(--kraft);--ctx-bg:#F6EDE0}} header.top.practice{{--ct
 .shop-menu{{position:absolute;top:46px;left:26px;z-index:5;background:#fff;border:1px solid var(--rule);box-shadow:0 8px 24px rgba(30,41,53,.12);min-width:300px}}
 .shop-menu a{{display:flex;align-items:center;gap:12px;padding:12px 16px;text-decoration:none;border-top:1px solid var(--rule)}} .shop-menu a:first-child{{border-top:0}}
 .shop-menu a:hover{{background:var(--paper)}} .shop-menu small{{display:block;color:var(--soft);font-size:13px;font-weight:400}}
+.person summary{{flex-wrap:wrap;row-gap:0}} .person summary small{{flex-basis:100%;color:var(--soft);font-size:13px;font-weight:400}}
 .mono{{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;color:#fff;font:700 13px "Schibsted Grotesk",sans-serif;letter-spacing:.5px}}
 .mode{{font-size:14px;font-weight:500;padding:3px 10px;border-left:3px solid var(--ctx);background:#fff;color:var(--ink)}}
 .count{{display:inline-block;margin-left:6px;padding:0 8px;border-radius:10px;background:var(--incon);color:#fff;font-size:12px;font-weight:700;text-decoration:none}}
@@ -614,11 +624,25 @@ def shop_badge(context: str) -> str:
             f'<div class="shop-menu">{menu}</div></details>')
 
 
+def person_badge(t: dict, me: str | None) -> str:
+    """Who you are in a team, and the switch to a colleague. Nothing for a team of one."""
+    if t.get("solo"):
+        return ""
+    p = team_mod.person(t, me) or t["people"][0]
+    cap = team_mod.limit(t, p["id"])
+    may = "sends any amount the limits hand to a person" if cap is None else f"sends refunds up to {cap:.0f} EUR"
+    menu = "".join(f'<a href="?as={e(o["id"])}"><span>{e(o["name"])}<small>{e(o["role"])}</small></span></a>'
+                   for o in t["people"] if o["id"] != p["id"])
+    return (f'<details class="shop person"><summary>You are <b>{e(p["name"])}</b>'
+            f'<small>{e(p["role"])} · {e(may)}</small><span class="switch">Switch</span></summary>'
+            f'<div class="shop-menu">{menu}</div></details>')
+
+
 MARK = ('<svg class="mark-logo" width="30" height="22" viewBox="0 0 30 22" aria-hidden="true">'
         '<circle cx="11" cy="11" r="9" fill="#B5874F"/><circle cx="19" cy="11" r="9" fill="none" stroke="#1E2935" stroke-width="3"/></svg>')
 
 
-def page(title: str, mode: str, body: str, demo: bool = False) -> str:
+def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = None) -> str:
     q = "?shop=demo" if demo else ""
     waiting = len(suggestions())
     rules = f'Your rules<span class="count">{waiting} to review</span>' if waiting else "Your rules"
@@ -629,7 +653,8 @@ def page(title: str, mode: str, body: str, demo: bool = False) -> str:
     nav = (f'<nav><a href="/{q}"{cur("disputes")}>Disputes</a><a href="/overview"{cur("overview")}>Overview</a>'
            f'<a href="/rules"{cur("rules")}>{rules}</a>'
            f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
-    return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(context), mark=MARK)
+    who = person_badge(team_for("DEMO-" if demo else None) if context != "practice" else team_mod.of(None), me)
+    return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(context) + who, mark=MARK)
 
 
 def _shop(src: str):
@@ -644,7 +669,7 @@ def _shop(src: str):
     return pp, evidence_mod.shop_disputes(pp, now), evidence_mod._orders(pp, now), now.date()
 
 
-def inbox_page(src: str) -> str:
+def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
     practice, demo = src == "practice", src == "demo"
     pp = DemoPayPal() if demo else MockPayPal(ROOT / "cases", ROOT / ".tmp" / "actions.jsonl") if practice else client_from_env(ROOT)
     today = pp.today if demo else datetime.utcnow().date()
@@ -693,7 +718,7 @@ def inbox_page(src: str) -> str:
                if len(rows) > 3 else "")
             + (f'<ul class="inbox">{"".join(rows)}</ul>' if rows else
                '<p class="empty">No open disputes. When a buyer opens one, it appears here.</p>'))
-    return page("Second Look", "Practice cases" if practice else "PayPal sandbox", body, demo)
+    return page("Second Look", "Practice cases" if practice else "PayPal sandbox", body, demo, me=me)
 
 
 def costs_block(c: dict | None, hist: dict | None) -> str:
@@ -757,7 +782,7 @@ def overview_whatnow(ov: dict) -> str:
             f'{e(" from " + w["buyer"] if w.get("buyer") else "")}</a>{e(left)}.</span></p>')
 
 
-def overview_page(src: str) -> str:
+def overview_page(src: str, me: str | None = None) -> str:
     demo = src == "demo"
     pp, disputes, orders, today = _shop(src)
     cur = "EUR"
@@ -833,16 +858,17 @@ def overview_page(src: str) -> str:
             f'<h2 style="margin-top:40px">Open now: {ov["open"]}</h2>{exposure_box}{filters}'
             f'<table class="waiting"><thead><tr><th>Case</th><th>Amount</th><th>Waiting on</th><th>Days left</th>'
             f'<th>If nobody answers</th></tr></thead><tbody>{waits}</tbody></table>')
-    return page("Overview | Second Look", "PayPal sandbox", body, demo)
+    return page("Overview | Second Look", "PayPal sandbox", body, demo, me=me)
 
 
-def customer_page(key: str, src: str) -> str:
+def customer_page(key: str, src: str, me: str | None = None) -> str:
     demo = src == "demo"
     pp, disputes, orders, today = _shop(src)
     cu = ledger.customer(key, disputes, orders)
     q = "?shop=demo" if demo else ""
     if not cu:
-        return page("Customer | Second Look", "PayPal sandbox", '<h1 class="page">No customer with that id or email.</h1>', demo)
+        return page("Customer | Second Look", "PayPal sandbox", '<h1 class="page">No customer with that id or email.</h1>', demo,
+                    me=me)
     rate = (f'{len(cu["disputes"])} disputes in {cu["orders"]} orders ({cu["dispute_rate"]:.0%}). '
             f'Your shop: {cu["shop_dispute_rate"]:.1%}.' if cu["dispute_rate"] is not None else "")
     if cu["times_shop_rate"]:
@@ -862,7 +888,7 @@ def customer_page(key: str, src: str) -> str:
             f'<tbody>{rows or "<tr><td colspan=5>No disputes.</td></tr>"}</tbody></table>'
             f'<section class="api"><h2>In your customer database</h2><p class="who">Your CRM or helpdesk can ask for this card '
             f'when this customer orders or calls, by email or PayPal payer id:</p><code>GET {e(api)}</code></section>')
-    return page(f"{cu['name'] or 'Customer'} | Second Look", "PayPal sandbox", body, demo)
+    return page(f"{cu['name'] or 'Customer'} | Second Look", "PayPal sandbox", body, demo, me=me)
 
 
 def customer_json(key: str, src: str) -> dict | None:
@@ -893,7 +919,7 @@ def conversation(d: dict) -> str:
     return f'<h2>What\'s been said</h2><ol class="talk">{"".join(rows)}</ol>'
 
 
-def case_page(dispute_id: str, flash: str = "") -> str:
+def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     case = _case(dispute_id)
     d, r = case["dispute"], case["seller_records"]
     msg = next((m["content"] for m in d.get("messages", []) if m.get("posted_by") == "BUYER"), "")
@@ -989,7 +1015,7 @@ def case_page(dispute_id: str, flash: str = "") -> str:
                            f'<span>Sends exactly this to PayPal.</span></div>' + TEACH + '</form>' + LOCK)
         right = f'{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
-    return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo)
+    return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
 
 
 # ---------- one path for the page and for other systems ----------
@@ -1181,7 +1207,25 @@ def api_open(src: str) -> list:
 
 class Handler(BaseHTTPRequestHandler):
     _cookie = None
+    _person = None
     _film = False
+
+    def _jar(self) -> dict:
+        return dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+
+    def _who(self, qs: dict, src: str) -> str | None:
+        """Who is acting: ?as=<id> switches and is remembered (cookie sl_person_<shop>); else the
+        remembered one; else the first person in the team. Nobody in a team of one."""
+        t = team_for_src(src)
+        if t.get("solo"):
+            return None
+        asked = (qs.get("as") or [""])[0]
+        key = f"sl_person_{src}"
+        if team_mod.person(t, asked):
+            self._person = f"{key}={asked}; Path=/; SameSite=Lax"
+            return asked
+        kept = self._jar().get(key)
+        return kept if team_mod.person(t, kept) else t["people"][0]["id"]
 
     def _send(self, body: str, code: int = 200):
         if self._film:
@@ -1190,6 +1234,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         if self._cookie:
             self.send_header("Set-Cookie", self._cookie)
+        if self._person:
+            self.send_header("Set-Cookie", self._person)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(b)))
         self.end_headers()
@@ -1224,16 +1270,19 @@ class Handler(BaseHTTPRequestHandler):
             asked = (qs.get("shop") or [""])[0]
             if asked in ("demo", "live"):
                 self._cookie = f"sl_shop={asked}; Path=/; SameSite=Lax"
-            jar = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+            jar = self._jar()
             shop = asked if asked in ("demo", "live") else jar.get("sl_shop", "demo")
             src = "practice" if "practice" in qs else shop
+            if u.path.startswith("/d/"):
+                src = src_of_case(u.path[3:].strip("/"), src)  # a case's people are its own shop's
+            me = self._who(qs, src)
             self._film = "film" in qs  # the demo film loads pages live: no fade-ins half-way through a frame
             if u.path == "/":
-                return self._send(inbox_page(src))
+                return self._send(inbox_page(src, me, (qs.get("view") or [""])[0]))
             if u.path == "/overview":
-                return self._send(overview_page(src))
+                return self._send(overview_page(src, me=me))
             if u.path.startswith("/customer/"):
-                return self._send(customer_page(u.path[len("/customer/"):].strip("/"), src))
+                return self._send(customer_page(u.path[len("/customer/"):].strip("/"), src, me=me))
             if u.path.rstrip("/") == "/api/disputes":
                 return self._json(api_open(src))
             if u.path.startswith("/api/disputes/"):
@@ -1248,9 +1297,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return self.wfile.write(b)
             if u.path == "/rules":
-                return self._send(rules_page(demo=shop == "demo"))
+                return self._send(rules_page(demo=shop == "demo", me=me))
             if u.path.startswith("/d/"):
-                return self._send(case_page(u.path[3:].strip("/")))
+                return self._send(case_page(u.path[3:].strip("/"), me=me))
             self._send("Not found", 404)
         except Exception as err:  # show the reason on the page, never a blank screen
             self._fail(err)
@@ -1260,6 +1309,10 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         form = parse_qs(raw.decode()) if not self.path.startswith("/api/") else {}
         try:
+            # Who is acting comes from the case's own shop, not from whichever shop the cookie remembers.
+            shop = self._jar().get("sl_shop", "demo")
+            src = src_of_case(parts[1], shop) if len(parts) > 1 and parts[0] == "d" else shop
+            me = self._who({}, src)
             if parts == ["rules", "add"]:
                 add_rule(form.get("rule", [""])[0])
                 return self._redirect("/rules")
@@ -1276,8 +1329,12 @@ class Handler(BaseHTTPRequestHandler):
                 run_review(parts[1])
                 return self._redirect(f"/d/{parts[1]}")
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "approve":
-                code, text = approve(parts[1], form.get("action", [""])[0], form.get("message", [None])[0], form.get("rule", [""])[0])
-                return self._redirect(f"/d/{parts[1]}") if code == 200 else self._send(text, code)
+                code, text = approve(parts[1], form.get("action", [""])[0], form.get("message", [None])[0],
+                                     form.get("rule", [""])[0], by=me)
+                return self._redirect(f"/d/{parts[1]}") if code in (200, 202) else self._send(text, code)
+            if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
+                take(parts[1], me)
+                return self._redirect(f"/d/{parts[1]}")
             # the API: the same review and the same approval, as JSON
             if len(parts) == 4 and parts[:2] == ["api", "disputes"] and parts[3] in ("review", "approve"):
                 did = parts[2]
@@ -1285,7 +1342,9 @@ class Handler(BaseHTTPRequestHandler):
                     run_review(did)
                     return self._json(api_case(did))
                 data = json.loads(raw or b"{}")
-                code, text = approve(did, data.get("action", ""), data.get("message"), data.get("rule", ""))
+                # a connected system must say who approves ("by": a person id) in a team shop
+                code, text = approve(did, data.get("action", ""), data.get("message"), data.get("rule", ""),
+                                     by=data.get("by"))
                 return self._json({"dispute_id": did, "result": text}, code)
             self._send("Not found", 404)
         except Exception as err:

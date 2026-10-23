@@ -62,10 +62,13 @@ def test_a_rule_suggested_from_a_case_changes_nothing_until_accepted():
 def test_a_notification_that_fails_never_stops_the_answer():
     import os
     os.environ["SECONDLOOK_NOTIFY_URL"] = "http://127.0.0.1:9/nowhere"   # nothing listens there
-    web.ROOT = Path(tempfile.mkdtemp())
-    web.notify("answer.sent", {"dispute_id": "X"})                         # must not raise
-    assert "answer.sent X" in (web.ROOT / ".tmp" / "notify.log").read_text()
-    del os.environ["SECONDLOOK_NOTIFY_URL"]
+    root, web.ROOT = web.ROOT, Path(tempfile.mkdtemp())
+    try:
+        web.notify("answer.sent", {"dispute_id": "X"})                     # must not raise
+        assert "answer.sent X" in (web.ROOT / ".tmp" / "notify.log").read_text()
+    finally:
+        web.ROOT = root
+        del os.environ["SECONDLOOK_NOTIFY_URL"]
 
 
 # ---------- who approves (teams) ----------
@@ -259,6 +262,19 @@ def test_the_demo_shop_is_read_once_per_version_of_its_file():
     assert DemoPayPal(data, tmp / "log.jsonl").raw is first.raw              # not parsed again
     data.write_text(json.dumps({"today": "2026-10-01", "shop": {"name": "Shop B"}}))
     assert DemoPayPal(data, tmp / "log.jsonl").shop["name"] == "Shop B"       # a new file is read again
+
+
+def test_the_person_picker_shows_only_in_a_team():
+    assert web.person_badge(team_mod.of(None), None) == ""
+    html = web.person_badge(team_mod.of(TEAM), "marta")
+    assert "You are" in html and "Marta" in html and "?as=giulia" in html and "?as=marta" not in html
+
+
+def test_a_case_page_and_its_posts_take_the_people_of_the_case_s_own_shop():
+    assert web.src_of_case("DEMO-001", "live") == "demo"
+    assert web.src_of_case("PP-D-1", "demo") == "live"
+    practice = next((web.ROOT / "cases").glob("*.json")).stem
+    assert web.src_of_case(practice, "demo") == "practice"
 
 
 if __name__ == "__main__":
