@@ -5,6 +5,7 @@ import React from 'react';
 import {AbsoluteFill, Easing, Img, interpolate, OffthreadVideo, Sequence, staticFile, useCurrentFrame} from 'remotion';
 import {Arrow, Box as FlowBox} from './Scenes';
 import {beat, sentenceStarts} from './timeline';
+import {loadFont as loadInter} from '@remotion/google-fonts/Inter';
 import {HEIGHT, WIDTH, theme} from './theme';
 import {
   box, Box, camAt, camOn, camTop, Cam, CamKey, Cursor, CursorPoint, Screen, Spot, Spotlight, union, WhereLabel,
@@ -471,23 +472,27 @@ const Trust: React.FC = () => {
 };
 
 // ---------- signature ----------
-// "claudiaonclaude.com", small, bottom-right, on every screen but the end card (which carries it). The
-// where-label is bottom-left, and no lit element reaches this corner. Light on the dark scenes, soft ink
-// elsewhere (with a pale halo so it stays readable under a spotlight's veil).
+// "ClaudiaOnClaude", as on the footers of Claudia's client sites: thin (Inter 300, loaded for this
+// only), widely spaced, faint, centred at the bottom of every screen but the end card (which carries
+// claudiaonclaude.com). Paper on the dark scenes, ink elsewhere; over the app captures a very soft
+// paper gradient at the bottom keeps it clear of busy page text, with nothing boxed.
+const inter = loadInter('normal', {weights: ['300'], subsets: ['latin']});
 const Signature: React.FC = () => {
   const frame = useCurrentFrame();
   const endCard = beat('s10b').from - 6;
   if (frame >= endCard) return null;
   const dark = frame < beat('s2h').from; // scenes 1, 2 and 2b
-  // over the captured pages there is page text in that corner: a small paper chip keeps it clean
   const app = frame >= beat('s4a').from && frame < beat('s10a').from;
   const o = Math.min(fadeIn(frame, 0, 12), 1 - fadeIn(frame, endCard - 10, 10));
   return (
-    <div style={{position: 'absolute', right: app ? 24 : 34, bottom: app ? 22 : 30, font: `500 20px ${theme.sans}`, letterSpacing: 0.2,
-      opacity: o, padding: app ? '4px 10px' : 0, borderRadius: 4, background: app ? 'rgba(245,246,242,0.88)' : 'transparent',
-      color: dark ? 'rgba(245,246,242,0.6)' : 'rgba(30,41,53,0.6)', textShadow: dark ? '0 1px 6px rgba(0,0,0,0.5)' : 'none'}}>
-      claudiaonclaude.com
-    </div>
+    <>
+      {app ? <div style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: 60, opacity: o,
+        background: 'linear-gradient(to bottom, rgba(245,246,242,0), rgba(245,246,242,0.15))'}} /> : null}
+      <div style={{position: 'absolute', left: 0, right: 0, bottom: 28, textAlign: 'center', opacity: 0.45 * o,
+        font: `300 18px ${inter.fontFamily}, ${theme.sans}`, letterSpacing: '0.15em', color: dark ? theme.paper : theme.ink}}>
+        ClaudiaOnClaude
+      </div>
+    </>
   );
 };
 
