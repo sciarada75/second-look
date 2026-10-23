@@ -143,6 +143,7 @@ async function walkThrough(page) {
   await go(page, `${SL}/d/DEMO-031?as=marta&shop=demo&film=1`);
   await shoot(page, 'sl-031', {
     timeline: css('ol.ruler'),
+    'ships-to': ev('Ships to'),
     delivery: ev('Tracking'),
     history: ev('This buyer'),
     costs: css('details.costs'),

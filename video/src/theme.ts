@@ -23,9 +23,9 @@ export const theme = {
 export const FPS = 30;
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
-// The picture sits above a caption band: judges may watch muted, and captions over a screen
-// recording would cover the very words the film is showing.
-export const PICTURE_H = 920;
-export const BAND_H = HEIGHT - PICTURE_H;
+// Draft 3: the picture is the whole frame. No caption band: subtitles go to YouTube as a closed-caption
+// file (srt.mjs), so the words on screen are only ever the product's own or the figure being named.
+export const PICTURE_H = HEIGHT;
+export const BAND_H = 0;
 
 export const sec = (s: number) => Math.round(s * FPS);
