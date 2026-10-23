@@ -557,6 +557,22 @@ def test_the_customer_card_and_the_evidence_count_the_shop_rate_the_same_way():
     assert card["shop_dispute_rate"] == evidence_rate
     assert f"Your shop: {evidence_rate:.1%}." in web.customer_page("DEMODARIOV7Q", "demo")
 
+def test_the_api_says_what_approving_would_do_for_a_person():
+    # Earlier tests point web.REVIEWS at temporary folders: read the real saved reviews here, then put it back.
+    kept, web.REVIEWS = web.REVIEWS, web.ROOT / ".tmp" / "reviews"
+    try:
+        if not web._saved("DEMO-034"):
+            return  # needs the saved review of DEMO-034 (made 23/10); skip on a fresh clone
+        marta = web.api_case("DEMO-034", as_person="marta")["for_person"]
+        giulia = web.api_case("DEMO-034", as_person="giulia")["for_person"]
+        assert marta["outcome"] == "pass" and marta["to"] == "Giulia" and marta["action"] == "REFUND"
+        assert giulia["outcome"] == "send" and giulia["action"] == "REFUND"
+        assert "for_person" not in web.api_case("DEMO-034")
+        assert web.api_case("DEMO-034", as_person="nobody")["for_person"]["outcome"] == "unknown_person"
+    finally:
+        web.REVIEWS = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

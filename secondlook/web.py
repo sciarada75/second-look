@@ -1413,7 +1413,15 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
     return 200, sent
 
 
-def api_case(did: str) -> dict:
+def offered_action(dec: Decision) -> str:
+    """The answer the page puts a button on: the recommendation; on "your call", the AI's own answer when the
+    limits held it back only for its size, else the drafted question."""
+    if dec.action != "ASK_SELLER":
+        return dec.action
+    return dec.judgment.action if held_for_size_only(dec.stops) and dec.judgment.action != "ASK_SELLER" else "MESSAGE"
+
+
+def api_case(did: str, as_person: str | None = None) -> dict:
     """Other systems -> Second Look: one case as data, what the page shows."""
     case = _case(did)
     d, r = case["dispute"], case["seller_records"]
@@ -1433,6 +1441,19 @@ def api_case(did: str) -> dict:
     if not team_for(did).get("solo"):
         a = assignments_for(did).get(did)
         out["assigned_to"], out["handoff"] = a["to"], a["handoff"]
+    if as_person is not None and saved:
+        # What approving would do for this person: the same outcome() behind the case page's buttons.
+        t = team_for(did)
+        who = team_mod.person(t, as_person)
+        if not who:
+            out["for_person"] = {"outcome": "unknown_person"}
+        else:
+            dec = saved[0]
+            chosen = offered_action(dec)
+            kind, detail = outcome(dec, chosen, d, t, who)
+            out["for_person"] = {"person": who["name"], "action": chosen, "outcome": kind,
+                                 "to": detail["name"] if kind == "pass" else None,
+                                 "why": detail if kind == "refused" else None}
     return out
 
 
@@ -1551,7 +1572,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path.rstrip("/") == "/api/disputes":
                 return self._json(api_open(src))
             if u.path.startswith("/api/disputes/"):
-                return self._json(api_case(unquote(u.path[len("/api/disputes/"):].strip("/"))))
+                return self._json(api_case(unquote(u.path[len("/api/disputes/"):].strip("/")),
+                                           as_person=(qs.get("as") or [None])[0]))
             if u.path.startswith("/api/customers/"):
                 # the integration: a CRM or helpdesk asks for a customer's record by email or PayPal payer id
                 cu = customer_json(unquote(u.path[len("/api/customers/"):].strip("/")), src)
