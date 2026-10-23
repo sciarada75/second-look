@@ -117,10 +117,17 @@ def quarter_window(today: date):
 WINDOW_DAYS = 90
 
 
+def in_window(disputes: list, orders: list, today: date) -> tuple[list, list]:
+    """The disputes opened and the orders placed in the last 90 days: the one window the shop's usual
+    rate is counted on, for the evidence the AI reads, the overview and the customer card alike."""
+    first = (today - timedelta(days=WINDOW_DAYS)).isoformat()
+    return ([d for d in disputes if d.get("create_time", "")[:10] >= first],
+            [o for o in orders if o["date"] >= first])
+
+
 def overview(disputes: list, orders: list, today: date, currency: str = "EUR") -> dict:
     """The last 90 days at a glance; the high-volume test on PayPal's own window (previous full quarter)."""
-    first = (today - timedelta(days=WINDOW_DAYS)).isoformat()
-    recent = [d for d in disputes if d.get("create_time", "")[:10] >= first]
+    recent, recent_orders = in_window(disputes, orders, today)
     closed = [d for d in recent if d.get("status") == "RESOLVED"]
     open_ = [d for d in disputes if d.get("status") != "RESOLVED"]
     counts = {k: 0 for k in OUTCOME_LABEL}
@@ -153,7 +160,7 @@ def overview(disputes: list, orders: list, today: date, currency: str = "EUR") -
         "fees_paid": round(fees_paid, 2), "fee_standard": standard,
         "settled_before_claim": sum(1 for d in closed if not escalated(d)),
         "escalated": sum(1 for d in closed if escalated(d)),
-        "orders": sum(1 for o in orders if o["date"] >= first), "disputes": len(recent), "window_days": WINDOW_DAYS,
+        "orders": len(recent_orders), "disputes": len(recent), "window_days": WINDOW_DAYS,
         "high_volume": hv, "quarter": (start, end), "waiting": waiting,
     }
 
@@ -193,8 +200,9 @@ def describe_escalations(buyer_earlier: int, buyer_escalated: int, shop_closed: 
             f"with you to a PayPal claim. {shop}")
 
 
-def customer(key: str, disputes: list, orders: list) -> dict | None:
-    """One customer's record with the shop, by PayPal payer id or email. None if unknown."""
+def customer(key: str, disputes: list, orders: list, today: date) -> dict | None:
+    """One customer's record with the shop, by PayPal payer id or email. None if unknown.
+    The customer's own figures are their whole history; the shop's rate is the last 90 days, as the evidence counts it."""
     key = (key or "").strip().lower()
     mine = [o for o in orders if (o.get("payer_id") or "").lower() == key or (o.get("email") or "").lower() == key]
     payer = mine[0]["payer_id"] if mine else next((buyer_of(d) for d in disputes if (buyer_of(d) or "").lower() == key), None)
@@ -204,7 +212,8 @@ def customer(key: str, disputes: list, orders: list) -> dict | None:
     theirs = sorted((d for d in disputes if buyer_of(d) == payer), key=lambda d: d.get("create_time", ""))
     closed_shop = [d for d in disputes if d.get("status") == "RESOLVED"]
     rate = len(theirs) / len(mine) if mine else None
-    shop_rate = len(disputes) / len(orders) if orders else None
+    shop_disputes, shop_orders = in_window(disputes, orders, today)
+    shop_rate = len(shop_disputes) / len(shop_orders) if shop_orders else None
     name = next((o.get("name") for o in mine if o.get("name")), None) or \
         next((((d.get("disputed_transactions") or [{}])[0].get("buyer") or {}).get("name") for d in theirs), None)
     return {

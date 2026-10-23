@@ -45,7 +45,7 @@ def _transaction(pp, tx_id: str, when: str) -> dict:
     return details[0] if details else {}
 
 
-WINDOW_DAYS = 90
+WINDOW_DAYS = ledger.WINDOW_DAYS
 
 
 def since(now: datetime) -> datetime:
@@ -93,9 +93,7 @@ def history(dispute: dict, disputes: list, orders: list, today) -> dict:
     buyer = ledger.buyer_of(dispute)
     if not buyer:
         return {}
-    first = (today - timedelta(days=WINDOW_DAYS)).isoformat()
-    disputes = [d for d in disputes if d.get("create_time", "")[:10] >= first]
-    orders = [o for o in orders if o["date"] >= first]
+    disputes, orders = ledger.in_window(disputes, orders, today)
     earlier = [d for d in disputes if ledger.buyer_of(d) == buyer and d["dispute_id"] != dispute.get("dispute_id")]
     closed = [d for d in disputes if d.get("status") == "RESOLVED"]
     return {"window_days": WINDOW_DAYS, "buyer_orders": sum(1 for o in orders if o.get("payer_id") == buyer),

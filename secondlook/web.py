@@ -977,7 +977,7 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
     demo = src == "demo"
     pp, disputes, orders, today = _shop(src)
     handled = (pp.raw.get("handled_by") or {}) if src == "demo" else {}
-    cu = ledger.customer(key, disputes, orders)
+    cu = ledger.customer(key, disputes, orders, today)
     q = "?shop=demo" if demo else ""
     if not cu:
         return page("Customer | Second Look", "PayPal sandbox", '<h1 class="page">No customer with that id or email.</h1>', demo,
@@ -1006,8 +1006,8 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
 
 
 def customer_json(key: str, src: str) -> dict | None:
-    _, disputes, orders, _today = _shop(src)
-    return ledger.customer(key, disputes, orders)
+    _, disputes, orders, today = _shop(src)
+    return ledger.customer(key, disputes, orders, today)
 
 
 EVIDENCE_KIND = {"PROOF_OF_FULFILLMENT": "proof of shipment or delivery", "PROOF_OF_REFUND": "proof of refund",

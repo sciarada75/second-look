@@ -85,9 +85,10 @@ def test_buyer_escalations_are_counted_against_the_shops_own_rate():
 def test_customer_card_by_email_or_payer_id():
     shop = [d("A", stage="CHARGEBACK", code="RESOLVED_BUYER_FAVOUR", refunded="40.00"), d("B", code="CANCELED_BY_BUYER")]
     orders = [{"payer_id": "B1", "email": "b1@example.com", "name": "Bea", "date": "2026-09-01", "amount": 40.0}] * 2
-    by_mail, by_id = ledger.customer("B1@example.com", shop, orders), ledger.customer("B1", shop, orders)
+    today = date(2026, 10, 12)
+    by_mail, by_id = ledger.customer("B1@example.com", shop, orders, today), ledger.customer("B1", shop, orders, today)
     assert by_mail == by_id and by_mail["escalated"] == 1 and by_mail["refunded"] == 40.0
-    assert ledger.customer("nobody@example.com", shop, orders) is None
+    assert ledger.customer("nobody@example.com", shop, orders, today) is None
 
 
 def test_demo_shop_runs_through_the_same_code():

@@ -548,6 +548,15 @@ def test_a_closed_case_on_the_customer_card_says_who_handled_it():
     assert f"· {who}" in web.customer_page(buyer, "demo")
 
 
+
+def test_the_customer_card_and_the_evidence_count_the_shop_rate_the_same_way():
+    pp = DemoPayPal()
+    h = pp.get_case("DEMO-031")["seller_records"]["buyer_history_counts"]
+    evidence_rate = h["shop_disputes"] / h["shop_orders"]
+    card = web.customer_json("DEMODARIOV7Q", "demo")
+    assert card["shop_dispute_rate"] == evidence_rate
+    assert f"Your shop: {evidence_rate:.1%}." in web.customer_page("DEMODARIOV7Q", "demo")
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
