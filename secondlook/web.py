@@ -217,6 +217,8 @@ def settle_suggestion(index: int, accept_as: str | None) -> None:
 # a send button works once: the first click locks it (PayPal refuses a second message anyway)
 LOCK = ('<script>document.querySelectorAll(".send").forEach(f=>f.addEventListener("submit",e=>{'
         'const b=e.target.querySelector("button");b.disabled=true;b.textContent="Sending to PayPal…";}));</script>')
+# A "Pass to" button sends nothing to PayPal: its busy label must not say so.
+PASS_LOCK = LOCK.replace("Sending to PayPal…", "Passing it on…")
 
 TEACH = ('<details class="teach"><summary>Suggest a rule for later (nothing changes now)</summary>'
          '<label for="rule">Write it down while it is fresh. It waits on Your rules, next to this case, '
@@ -541,6 +543,7 @@ label.reply{{display:block;font-weight:700;margin:22px 0 8px}}
 textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans-serif;padding:14px;border:1px solid var(--rule);background:#fff;color:var(--ink)}}
 .approve{{display:flex;gap:18px;align-items:center;margin-top:16px}} .approve span{{color:var(--soft)}}
 .sent{{padding:18px 22px;background:#E8F0EA;border-left:4px solid var(--pass);margin-bottom:24px}}
+.owner-line{{margin:0 0 16px;color:var(--soft)}} button.link{{background:none;border:0;padding:0;color:var(--ink);text-decoration:underline;font:inherit;cursor:pointer}}
 .sent b{{font-size:20px}}
 .talk{{list-style:none;padding:0;margin:0 0 28px;max-width:640px}} .talk li{{padding:10px 0 10px 16px;border-left:4px solid var(--rule);margin-bottom:8px}}
 .talk b{{display:block;font-size:14px;font-weight:500;color:var(--soft)}} .talk q{{quotes:none;font-family:Newsreader,Georgia,serif;font-style:italic;font-size:19px}}
@@ -950,6 +953,46 @@ def conversation(d: dict) -> str:
     return f'<h2>What\'s been said</h2><ol class="talk">{"".join(rows)}</ol>'
 
 
+def _passes_to(t: dict, me: str | None, chosen: str, dec: Decision, d: dict):
+    """What approving `chosen` would do for this person, by the rule approve() applies (required()):
+    None = they send it themselves; a person = it passes to that colleague; {} = nobody in the team may."""
+    need = required(chosen, dec, d)
+    if not need or team_mod.covers(t, me, need):
+        return None
+    return team_mod.handoff_to(t, need, exclude=me) or {}
+
+
+def _pass_says(chosen: str, dec: Decision, d: dict, name: str) -> str:
+    if money_out(chosen, dec.judgment, d) >= required(chosen, dec, d):
+        return f"Over your limit. {name} decides; nothing is sent now."
+    return f"Cases over your shop's always-ask line are decided by {name}."
+
+
+def held_action(did: str, dec: Decision, d: dict, t: dict, me: str | None) -> str:
+    """An answer the limits held back only for its size: the person who may send it gets the button,
+    anyone else passes it on. Empty when it was held back for trust (the page then says: decide in PayPal)."""
+    j = dec.judgment
+    if not dec.stops or not set(dec.stops) <= SIZE_STOPS or not may_approve(dec.action, j.action, j.action, dec.stops):
+        return ""
+    amount = money_out(j.action, j, d)
+    cur = d["dispute_amount"].get("currency_code", "EUR")
+    label = ACTION.get(j.action, j.action).lower()
+    to = _passes_to(t, me, j.action, dec, d)
+    if to == {}:
+        return ""
+    if to:
+        button, says = f"Pass to {to['name']}", _pass_says(j.action, dec, d, to["name"])
+    else:
+        button = f"Approve: {label}" + (f" ({amount:.2f} {cur})" if amount else "")
+        says = "Your limits held this back for its size only. You decide: this sends it."
+    return (f'<form class="send" method="post" action="/d/{e(did)}/approve">'
+            f'<label class="reply" for="reply">Your reply to the buyer</label>'
+            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
+            f'<input type="hidden" name="action" value="{e(j.action)}">'
+            f'<div class="approve"><button>{e(button)}</button><span>{e(says)}</span></div></form>'
+            + (PASS_LOCK if to else LOCK))
+
+
 def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     case = _case(dispute_id)
     d, r = case["dispute"], case["seller_records"]
@@ -960,6 +1003,30 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     today = DemoPayPal().today if demo else datetime.utcnow().date()
     q = "?shop=demo" if demo else ""
     buyer = ledger.buyer_of(d)
+    saved = _saved(dispute_id)
+    # In a team: whose case it is, and a colleague's handoff waiting on it (until the answer is sent).
+    t = team_for(dispute_id)
+    a = None if t.get("solo") else assignments_for(dispute_id).get(dispute_id)
+    hand = a.get("handoff") if a else None
+    hand = hand if isinstance(hand, dict) and not (saved and saved[1]) else None
+    owner = ""
+    if a is not None:
+        holder = team_mod.person(t, a["to"])
+        holder_name = holder["name"] if holder else a["to"]
+        if hand:
+            what = ACTION.get(hand.get("action"), str(hand.get("action"))).lower()
+            try:
+                much = f' ({float(hand.get("amount")):.2f} {amt.get("currency_code", "EUR")})'
+            except (TypeError, ValueError):
+                much = ""
+            frm = hand.get("from_name") or "A colleague"
+            owner = (f'<div class="guard"><b>{e(frm)} suggests: {e(what)}{e(much)}.</b> Over {e(frm)}\'s limit, '
+                     f'so it waits for {e(holder_name)}. Nothing has been sent.</div>')
+        elif a["to"]:
+            owner = f'<p class="owner-line">{e(holder_name)}\'s case.</p>'
+        else:
+            owner = (f'<form class="owner-line" method="post" action="/d/{e(dispute_id)}/take">Nobody has this case yet. '
+                     f'<button class="link">Take it</button></form>')
     card = (f'<p class="cardlink"><a href="/customer/{e(buyer)}{q}">This customer\'s record with you</a></p>'
             if buyer and not practice else "")
     nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
@@ -982,12 +1049,11 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
         banner = ('<div class="sent"><b>Waiting for the buyer.</b><br>PayPal will tell you if they reply or escalate.</div>')
     elif d.get("status") == "UNDER_REVIEW":
         banner = '<div class="sent"><b>PayPal is reviewing this case.</b></div>'
-    saved = _saved(dispute_id)
     if nothing_to_do and not saved:
-        right = banner + costs
+        right = owner + banner + costs
     elif not saved:
         # the dispute id goes in by replace(), not format(): the script below has braces of its own
-        right = banner + costs + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
+        right = owner + banner + costs + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
                  '<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
                  'would run, and recommends one answer. Nothing is sent until you approve.</p>'
                  '<button>Take a second look</button></form>'
@@ -996,6 +1062,13 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     else:
         dec, sent = saved
         j = dec.judgment
+        if hand and me == a["to"] and hand.get("message") is not None:
+            j.draft_message = hand["message"]  # the colleague's edited reply is what this person sends
+        held = held_action(dispute_id, dec, d, t, me) if dec.action == "ASK_SELLER" and dec.overridden else ""
+        offered = j.action if held else "MESSAGE" if dec.action == "ASK_SELLER" else dec.action
+        # A handoff waits on someone else: no second approve form for it here (the page must not invite
+        # two people to approve the same answer at once).
+        waits_on_other = bool(hand) and me != a["to"] and hand.get("action") == offered
         guard = ""
         if dec.reasons:
             guard = (f'<div class="guard"><b>Your limits changed the answer'
@@ -1021,6 +1094,10 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
         elif nothing_to_do:
             action_part = ('<p class="conf">Kept for reference: nothing to send while PayPal waits for the buyer. '
                            'If they write again, Second Look marks this answer out of date.</p>')
+        elif waits_on_other:
+            action_part = f'<p class="conf">Waiting for {e(holder_name)}: they decide this one. Nothing to send from here.</p>'
+        elif held:
+            action_part = held
         elif dec.action == "ASK_SELLER" and dec.overridden and j.action in ("REFUND", "PARTIAL_REFUND", "REPLACE"):
             # The reply was written for the money action your limits stopped: it promises that money.
             # Sending it as "a question" would make the promise without your approval.
@@ -1028,23 +1105,35 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
                            'which your limits stopped.</b> Decide first. If you refund, do it in PayPal, then come back: '
                            'Second Look will see the change and draft a reply that matches.</div>'
                            f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(j.draft_message)}</p></details>')
+        elif dec.action == "ASK_SELLER" and j.draft_message and _passes_to(t, me, "MESSAGE", dec, d) == {}:
+            action_part = '<p class="conf">Nobody in the team may decide this one from here. Decide in PayPal.</p>'
         elif dec.action == "ASK_SELLER" and j.draft_message:
+            to = _passes_to(t, me, "MESSAGE", dec, d)
+            button, says = ((f"Pass to {to['name']}", _pass_says("MESSAGE", dec, d, to["name"])) if to else
+                            ("Send this question", "Sends only this message. No money moves."))
             action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
                            f'<label class="reply" for="reply">Before you decide, ask the buyer</label>'
                            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
                            f'<input type="hidden" name="action" value="MESSAGE">'
-                           f'<div class="approve"><button>Send this question</button>'
-                           f'<span>Sends only this message. No money moves.</span></div>' + TEACH + '</form>' + LOCK)
+                           f'<div class="approve"><button>{e(button)}</button>'
+                           f'<span>{e(says)}</span></div>' + ("" if to else TEACH) + '</form>'
+                           + (PASS_LOCK if to else LOCK))
         elif dec.action == "ASK_SELLER":
             action_part = '<p class="conf">Nothing to send: read the checks and decide.</p>'
+        elif _passes_to(t, me, dec.action, dec, d) == {}:
+            action_part = '<p class="conf">Over every limit in the team. Decide in PayPal.</p>'
         else:
+            to = _passes_to(t, me, dec.action, dec, d)
+            button, says = ((f"Pass to {to['name']}", _pass_says(dec.action, dec, d, to["name"])) if to else
+                            (f"Approve: {ACTION.get(dec.action, dec.action).lower()}", "Sends exactly this to PayPal."))
             action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
                            f'<label class="reply" for="reply">Your reply to the buyer</label>'
                            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
                            f'<input type="hidden" name="action" value="{e(dec.action)}">'
-                           f'<div class="approve"><button>Approve: {e(ACTION.get(dec.action, dec.action).lower())}</button>'
-                           f'<span>Sends exactly this to PayPal.</span></div>' + TEACH + '</form>' + LOCK)
-        right = f'{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
+                           f'<div class="approve"><button>{e(button)}</button>'
+                           f'<span>{e(says)}</span></div>' + ("" if to else TEACH) + '</form>'
+                           + (PASS_LOCK if to else LOCK))
+        right = f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
     return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
 

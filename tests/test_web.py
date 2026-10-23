@@ -1,4 +1,5 @@
 """The seller never approves an answer to a situation that no longer exists. Run: python3 tests/test_web.py"""
+import html
 import json
 import sys
 import tempfile
@@ -97,8 +98,9 @@ def approval_bench(action="REFUND", ai="REFUND", stops=(), amount="45.00", the_t
                ("REVIEWS", "SUGGESTED", "_case", "_client", "team_for", "assignments_for", "notify")}
     patched[(cli, "execute")] = cli.execute
     tmp = Path(tempfile.mkdtemp())
-    c = {"dispute": {"dispute_id": "X", "messages": [{"posted_by": "BUYER"}], "dispute_life_cycle_stage": "INQUIRY",
-                     "status": "WAITING_FOR_SELLER_RESPONSE",
+    c = {"dispute": {"dispute_id": "X", "messages": [{"posted_by": "BUYER", "content": "Never arrived"}],
+                     "dispute_life_cycle_stage": "INQUIRY", "status": "WAITING_FOR_SELLER_RESPONSE",
+                     "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
                      "dispute_amount": {"value": amount, "currency_code": "EUR"}},
          "seller_records": {"tracking": None, "ship_to": "Napoli"}}
     b = SimpleNamespace(sent=[], drafts=[], events=[], case=c, store=team_mod.Assignments(tmp / "assignments.json"))
@@ -312,6 +314,52 @@ def test_in_a_team_the_inbox_has_tabs_and_owners_and_a_team_of_one_has_neither()
         assert everyone.count('class="owner"') == len(open_ids) and "You are <b>Marta</b>" in everyone
         mine = web.inbox_page("demo", "marta", "mine")
         assert mine.count("<li>") == 1 and f"/d/{open_ids[0]}" in mine and "Mine <b>1</b>" in mine
+
+
+def test_held_back_for_size_the_page_offers_the_person_the_right_button():
+    t = team_mod.of(TEAM)
+    dec = Decision("ASK_SELLER", ["over cap"], Judgment("REFUND", 0.9, "why", draft_message="Hello"), True, ["cap"])
+    d = {"dispute_amount": {"value": "89.00", "currency_code": "EUR"}}
+    assert "Pass to Giulia" in web.held_action("X", dec, d, t, "marta")
+    assert "Approve: refund in full" in web.held_action("X", dec, d, t, "giulia")
+    assert "Approve: refund in full (89.00 EUR)" in web.held_action("X", dec, d, team_mod.of(None), None)  # solo
+    trust = Decision("ASK_SELLER", ["hidden"], dec.judgment, True, ["cap", "injection"])
+    assert web.held_action("X", trust, d, t, "giulia") == ""   # the old "decide in PayPal" text stays
+    # A reply the AI drafted, held back for trust, is not "held back for its size only".
+    question = Decision("ASK_SELLER", ["hidden"], Judgment("MESSAGE", 0.9, "why", draft_message="Hi"), True, ["injection"])
+    assert web.held_action("X", question, d, team_mod.of(None), None) == ""
+
+
+def test_a_big_case_s_button_says_who_decides_it():
+    t = team_mod.of(TEAM)
+    dec = Decision("ASK_SELLER", ["big"], Judgment("DEFEND", 0.9, "why", draft_message="Hello"), True, ["always_ask"])
+    d = {"dispute_amount": {"value": "240.00", "currency_code": "EUR"}}
+    marta = html.unescape(web.held_action("X", dec, d, t, "marta"))
+    assert "Pass to Giulia" in marta and "Passing it on" in marta and "Sending to PayPal" not in marta
+    assert "Pass to Giulia" in marta and "Cases over your shop's always-ask line are decided by Giulia." in marta
+    assert "this sends it" not in marta
+    assert "Approve: defend with evidence" in web.held_action("X", dec, d, t, "giulia")
+
+
+def test_the_case_page_shows_whose_case_and_a_waiting_handoff_to_the_right_person():
+    def look(who=None):
+        return html.unescape(web.case_page("X", me=who))
+    with approval_bench():
+        page = look("marta")
+        assert "Nobody has this case yet" in page and "/d/X/take" in page
+        assert "Pass to Giulia" in page and "Sends exactly this to PayPal" not in page   # 45 EUR: over Marta's 30
+        web.approve("X", "REFUND", "Hello, Marta's edit", by="marta")                  # passed to Giulia
+        giulia = look("giulia")
+        assert "Marta suggests: refund in full" in giulia and "Marta's edit</textarea>" in giulia
+        assert 'action="/d/X/approve"' in giulia and "Approve: refund in full" in giulia
+        marta = look("marta")
+        assert "Marta suggests" in marta and 'action="/d/X/approve"' not in marta and "Waiting for Giulia" in marta
+        web.approve("X", "REFUND", None, by="giulia")
+        sent = look("giulia")
+        assert "Sent by Giulia" in sent and "Marta suggests" not in sent and "Giulia's case." in sent
+    with approval_bench(the_team=None):
+        solo = look()
+        assert "Take it" not in solo and "case.</p>" not in solo and "Sends exactly this to PayPal" in solo
 
 
 if __name__ == "__main__":
