@@ -134,6 +134,7 @@ as the screen.
 |---|---|
 | `GET /api/disputes` | the open cases, with the recommended answer once reviewed |
 | `GET /api/disputes/<id>` | one case: what was said, the evidence and its sources, the review, the drafted reply, the ten checks, whether the review is out of date |
+| `GET /api/disputes/<id>?as=<person id>` | the same, plus `for_person`: what approving would do for that person, the page's own decision: `send`, `pass` (with `to`, the colleague who decides), `refused` (with `why`), or `unknown_person` |
 | `POST /api/disputes/<id>/review` | ask for a review (the AI runs; a few cents) |
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
@@ -144,6 +145,21 @@ when an answer is sent (`answer.sent`, with who sent it), and in a team when a c
 (`case.handed_off`). A failed notification is logged and never blocks the answer.
 
 Add `?shop=demo` or `?practice=1` to try any of it on the demo shop or the practice cases, without keys.
+
+## See it inside a helpdesk: Ticketbook (made up)
+
+`helpdesk/` is a small, made-up helpdesk — not a real product — that shows how Second Look sits inside the
+tool a support team already uses. A buyer's email opens as a ticket; a side panel asks Second Look's API
+about that email address and shows the buyer's PayPal dispute, the recommendation, the checks that matter,
+the costs and the drafted reply. The agent approves from the ticket. Ticketbook decides nothing itself:
+`GET /api/disputes/<id>?as=<person>` tells it what approving would do for that person (send, pass to a
+colleague, or not allowed, and why), and the approval goes through the same limits as Second Look's own page.
+
+    SECONDLOOK_NOTIFY_URL=http://127.0.0.1:8766/hooks/secondlook python3 -m secondlook serve
+    python3 -m helpdesk serve          # http://127.0.0.1:8766  (switch agent with ?as=luca)
+
+Second Look's notifications (`answer.sent`, `case.handed_off`, `review.ready`) appear in the ticket's history.
+The tickets are made-up emails from the demo shop's buyers (`python3 helpdesk/make_tickets.py`).
 
 ## Teams: who may send what
 
