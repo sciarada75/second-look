@@ -976,6 +976,7 @@ def overview_page(src: str, me: str | None = None) -> str:
 def customer_page(key: str, src: str, me: str | None = None) -> str:
     demo = src == "demo"
     pp, disputes, orders, today = _shop(src)
+    handled = (pp.raw.get("handled_by") or {}) if src == "demo" else {}
     cu = ledger.customer(key, disputes, orders)
     q = "?shop=demo" if demo else ""
     if not cu:
@@ -986,7 +987,8 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
     if cu["times_shop_rate"]:
         rate += f' {cu["times_shop_rate"]:.0f}× your usual rate.' if cu["times_shop_rate"] >= 2 else " About your usual rate."
     rows = "".join(f'<tr><td>{e(x["opened"])}</td><td><a href="/d/{e(x["dispute_id"])}">{e(x["reason"])}</a></td>'
-                   f'<td>{x["amount"]:.2f}</td><td>{"PayPal claim" if x["escalated"] else "Inquiry"}</td><td>{e(x["outcome"])}</td></tr>'
+                   f'<td>{x["amount"]:.2f}</td><td>{"PayPal claim" if x["escalated"] else "Inquiry"}</td>'
+                   f'<td>{e(x["outcome"])}{(" · " + e(handled[x["dispute_id"]])) if x["dispute_id"] in handled else ""}</td></tr>'
                    for x in cu["disputes"])
     api = f'/api/customers/{cu["email"] or cu["payer_id"]}{q}'
     body = (f'<a class="back" href="/overview{q}">Overview</a><h1 class="page">{e(cu["name"] or cu["payer_id"])}</h1>'

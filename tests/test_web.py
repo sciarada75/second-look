@@ -541,6 +541,13 @@ def test_the_cli_leaves_approvals_in_a_team_shop_to_the_page_and_the_api():
     assert code == 2 and "approve from the page or the API" in out.getvalue()
 
 
+def test_a_closed_case_on_the_customer_card_says_who_handled_it():
+    pp = DemoPayPal()
+    did, who = next(iter(pp.raw["handled_by"].items()))
+    buyer = next(d for d in pp.disputes() if d["dispute_id"] == did)["disputed_transactions"][0]["buyer"]["payer_id"]
+    assert f"· {who}" in web.customer_page(buyer, "demo")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
