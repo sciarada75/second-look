@@ -123,34 +123,48 @@ const Moment: React.FC = () => {
 };
 
 // ---------- 2 and 2b: tiles that land, stay and build a benchmark ----------
-type Tile = {on: number; label?: string; big: string; sub: string; extra?: string; extraOn?: number; tone: string; src: string};
-const Tiles: React.FC<{tiles: Tile[]}> = ({tiles}) => {
+// One fixed layout for both screens: a title block and a row of three tiles, centred together in the
+// frame. Every tile has its final slot from the start (same size, same place); landing is a fade and a
+// 20 px rise, nothing else moves. `big` may start with a currency prefix, set smaller ("US$").
+type Tile = {on: number; label?: string; prefix?: string; big: string; sub: string; extra?: string; extraOn?: number; tone: string; src: string};
+const TILE_W = 456, TILE_GAP = 36, TILE_H = 352;      // the row spans 1440 px, 75% of the width
+const TITLE_H = 132, ROW_GAP = 48, SRC_H = 76;
+const BLOCK_TOP = Math.round((HEIGHT - (TITLE_H + ROW_GAP + TILE_H + SRC_H)) / 2);
+const Tiles: React.FC<{tiles: Tile[]; title: string; subtitle: string; titleOn: number}> = ({tiles, title, subtitle, titleOn}) => {
   const frame = useCurrentFrame();
   const lit = tiles.filter((t) => frame >= t.on).length - 1;
-  const W = 520, GAP = 44;
+  const rowW = 3 * TILE_W + 2 * TILE_GAP;
+  const t0 = fadeIn(frame, titleOn, 12);
   return (
-    <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center'}}>
-      <div style={{display: 'flex', gap: GAP, alignItems: 'flex-start'}}>
-        {tiles.map((t, i) => {
-          const o = fadeIn(frame, t.on, 12);
-          // the tile being named is lit; the ones before it dim slightly, and stay
-          const dim = i < lit ? interpolate(frame, [tiles[lit].on, tiles[lit].on + 10], [1, 0.62], clamp) : 1;
-          const ring = i === lit ? fadeIn(frame, t.on, 10) : i === lit - 1 ? 1 - fadeIn(frame, tiles[lit].on, 10) : 0;
-          return (
-            <div key={i} style={{width: W, opacity: o * dim, transform: `translateY(${(1 - o) * 24}px)`}}>
-              <div style={{background: '#fff', borderTop: `10px solid ${t.tone}`, padding: '30px 34px 34px', minHeight: 330, boxSizing: 'border-box',
-                boxShadow: `0 20px 60px rgba(0,0,0,0.35), 0 0 0 ${4 * ring}px ${theme.kraft}`}}>
-                {t.label ? <div style={{font: `500 30px/1.25 ${theme.sans}`, color: theme.soft}}>{t.label}</div> : null}
-                <div style={{font: `700 112px/1.05 ${theme.sans}`, color: t.tone, letterSpacing: -3, marginTop: 14, whiteSpace: 'nowrap'}}>{t.big}</div>
-                <div style={{font: `500 32px/1.25 ${theme.sans}`, color: theme.ink, marginTop: 12}}>{t.sub}</div>
-                {t.extra ? <div style={{font: `400 28px/1.3 ${theme.sans}`, color: theme.soft, marginTop: 10,
-                  opacity: t.extraOn ? fadeIn(frame, t.extraOn, 10) : 1}}>{t.extra}</div> : null}
-              </div>
-              <div style={{font: `400 23px/1.35 ${theme.sans}`, color: '#E3E7EA', marginTop: 16, textShadow: '0 1px 8px rgba(0,0,0,0.6)'}}>{t.src}</div>
-            </div>
-          );
-        })}
+    <AbsoluteFill>
+      <div style={{position: 'absolute', left: 0, right: 0, top: BLOCK_TOP, height: TITLE_H, textAlign: 'center',
+        opacity: t0, transform: `translateY(${(1 - t0) * 12}px)`, textShadow: '0 2px 18px rgba(0,0,0,0.45)'}}>
+        <div style={{font: `700 60px/1.15 ${theme.sans}`, color: theme.paper, letterSpacing: -1}}>{title}</div>
+        <div style={{font: `400 32px/1.3 ${theme.sans}`, color: '#D3D9DE', marginTop: 12}}>{subtitle}</div>
       </div>
+      {tiles.map((t, i) => {
+        const o = fadeIn(frame, t.on, 12);
+        if (o <= 0) return null;
+        // the tile being named is lit; the ones before it dim slightly, and stay
+        const dim = i < lit ? interpolate(frame, [tiles[lit].on, tiles[lit].on + 10], [1, 0.62], clamp) : 1;
+        const ring = i === lit ? fadeIn(frame, t.on, 10) : i === lit - 1 ? 1 - fadeIn(frame, tiles[lit].on, 10) : 0;
+        return (
+          <div key={i} style={{position: 'absolute', left: (WIDTH - rowW) / 2 + i * (TILE_W + TILE_GAP), top: BLOCK_TOP + TITLE_H + ROW_GAP,
+            width: TILE_W, opacity: o * dim, transform: `translateY(${(1 - o) * 20}px)`}}>
+            <div style={{height: TILE_H, background: '#fff', borderTop: `10px solid ${t.tone}`, padding: '28px 32px', boxSizing: 'border-box',
+              boxShadow: `0 20px 60px rgba(0,0,0,0.35), 0 0 0 ${4 * ring}px ${theme.kraft}`}}>
+              {t.label ? <div style={{font: `500 30px/1.25 ${theme.sans}`, color: theme.soft, marginBottom: 6}}>{t.label}</div> : null}
+              <div style={{font: `700 120px/1.05 ${theme.sans}`, color: t.tone, letterSpacing: -4, whiteSpace: 'nowrap'}}>
+                {t.prefix ? <span style={{fontSize: 60, letterSpacing: -1, marginRight: 4}}>{t.prefix}</span> : null}{t.big}
+              </div>
+              <div style={{font: `500 32px/1.25 ${theme.sans}`, color: theme.ink, marginTop: 12}}>{t.sub}</div>
+              {t.extra ? <div style={{font: `400 28px/1.3 ${theme.sans}`, color: theme.soft, marginTop: 10,
+                opacity: t.extraOn ? fadeIn(frame, t.extraOn, 10) : 1}}>{t.extra}</div> : null}
+            </div>
+            <div style={{font: `400 24px/1.35 ${theme.sans}`, color: '#E3E7EA', marginTop: 14, textShadow: '0 1px 8px rgba(0,0,0,0.6)'}}>{t.src}</div>
+          </div>
+        );
+      })}
     </AbsoluteFill>
   );
 };
@@ -159,14 +173,14 @@ const Tiles: React.FC<{tiles: Tile[]}> = ({tiles}) => {
 const Costs: React.FC = () => {
   const from = beat('s2a').from, to = beat('s2c').next;
   const tiles: Tile[] = [
-    {on: beat('s2a').from, label: 'Settled in the dispute', big: '0 EUR', sub: 'PayPal fee', tone: theme.pass, src: 'PayPal User Agreement, 14 Sep 2026'},
+    {on: beat('s2a').from + 16, label: 'Settled in the dispute', big: '0 EUR', sub: 'PayPal fee', tone: theme.pass, src: 'PayPal User Agreement, 14 Sep 2026'},
     {on: beat('s2b').from, label: 'A claim, lost', big: '14 EUR', sub: 'PayPal fee', tone: theme.fail, src: 'PayPal fees, 7 Sep 2026'},
     {on: beat('s2c').from, label: 'A busy shop, any claim', big: '28 EUR', sub: 'even when you win', tone: theme.fail, src: 'PayPal fees + User Agreement'},
   ];
   return (
     <Scene from={from} to={to}>
       <Backdrop src="footage/money flow.mp4" video from={from} to={to} rate={0.85} />
-      <Tiles tiles={tiles} />
+      <Tiles tiles={tiles} title="What a dispute costs the shop" subtitle="PayPal's own fees" titleOn={from} />
     </Scene>
   );
 };
@@ -174,10 +188,10 @@ const Costs: React.FC = () => {
 // 2b. What does it do to a business? Currency as the sources give it.
 const Business: React.FC = () => {
   const from = beat('s2e').from, to = beat('s2g').next;
-  const [, e2] = sentenceStarts('s2e'); // after "And disputes cost more than fees:"
+  const [, e2] = sentenceStarts('s2e'); // "a single customer-care contact", after "And disputes cost more than fees:"
   const tiles: Tile[] = [
-    {on: e2, big: 'US$8.01', sub: 'per live customer-care contact', extra: 'vs US$0.10 self-service', tone: theme.ink, src: 'Gartner, 2019'},
-    {on: beat('s2f').from, big: 'US$4.61', sub: 'lost for every US$1 of fraud', tone: theme.fail,
+    {on: e2, prefix: 'US$', big: '8.01', sub: 'per live customer-care contact', extra: 'vs US$0.10 self-service', tone: theme.ink, src: 'Gartner, 2019'},
+    {on: beat('s2f').from, prefix: 'US$', big: '4.61', sub: 'lost for every US$1 of fraud', tone: theme.fail,
       src: 'LexisNexis True Cost of Fraud, 2025 · US retail & e-commerce'},
     {on: beat('s2g').from, big: '46%', sub: 'of card chargebacks accepted without a fight', extra: 'won 1 in 5 when fought',
       extraOn: at('s2g', 0.55), tone: theme.incon, src: 'Mastercard / Datos 2025 · midsize & large merchants'},
@@ -185,7 +199,7 @@ const Business: React.FC = () => {
   return (
     <Scene from={from} to={to}>
       <Backdrop src="footage/late night answer 3.mp4" video from={from} to={to} rate={0.9} />
-      <Tiles tiles={tiles} />
+      <Tiles tiles={tiles} title="What disputes cost a business" subtitle="public figures, each with its source" titleOn={from} />
     </Scene>
   );
 };
