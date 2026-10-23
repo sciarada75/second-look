@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 ACTIONS = ("DEFEND", "REFUND", "PARTIAL_REFUND", "REPLACE", "MESSAGE", "ASK_SELLER")
 
@@ -33,7 +33,7 @@ MONEY = ("REFUND", "PARTIAL_REFUND", "REPLACE")
 # Why the guard stopped an answer, one id per rule. Only these two are about size alone: the limits then
 # hand the decision to a person, who may take the AI's answer themselves. Every other stop is about trust
 # (hidden instructions, broken evidence, low confidence, a habitual escalator, PayPal's rules).
-AMOUNT_STOPS = {"cap", "always_ask"}
+SIZE_STOPS = {"cap", "always_ask"}
 
 
 @dataclass
@@ -56,21 +56,37 @@ class Decision:
     stops: List[str] = field(default_factory=list)  # which rules stopped it (ids), in rule order
 
 
+# One plain amount, with at most a currency code or symbol at either end: "20.00 EUR", "€20,50", "20".
+# Anything else ("1,234.56", "1.234,56", "1 500", "-20") is refused, not guessed: the old loose search
+# read "1,234.56" as 1.23 and "-20" as 20, so the cap could check one number and PayPal get another.
+_AMOUNT = re.compile(r"(?:[A-Za-z]{3}|[€$£])?\s*(\d+(?:[.,]\d{1,2})?)\s*(?:[A-Za-z]{3}|[€$£])?")
+
+
 def _partial(text) -> float:
-    """'20.00 EUR' -> 20.0. Raises ValueError when there is no number."""
-    num = re.search(r"\d+(?:[.,]\d{1,2})?", str(text or ""))
-    if not num:
+    """'20.00 EUR' -> 20.0, '€20,50' -> 20.5. Raises ValueError on anything that is not one plain amount."""
+    m = _AMOUNT.fullmatch(str(text or "").strip())
+    if not m:
         raise ValueError(text)
-    return float(num.group(0).replace(",", "."))
+    return float(m.group(1).replace(",", "."))
 
 
-def money_out(action: str, j: Judgment, dispute: dict) -> float:
-    """The money an action sends: the offer for a partial refund, the whole amount for a refund or a
-    replacement, nothing for a reply or a defence. Used to check a person's limit."""
+def _sends(action: str, j: Judgment, dispute: dict) -> float:
+    """What money_out says, but raising ValueError on an unreadable partial amount (the guard needs to know)."""
     amount = float(dispute["dispute_amount"]["value"])
     if action == "PARTIAL_REFUND" and j.partial_amount:
         return min(amount, _partial(j.partial_amount))
     return amount if action in MONEY else 0.0
+
+
+def money_out(action: str, j: Judgment, dispute: dict) -> float:
+    """The money an action sends: the offer for a partial refund, the whole amount for a refund or a
+    replacement, nothing for a reply or a defence. Used to check a person's limit. Fails closed: when a
+    partial amount can't be read, it counts the whole dispute, the largest possible, so the limit check
+    is at its strictest (the guard has already routed such a case to a person)."""
+    try:
+        return _sends(action, j, dispute)
+    except ValueError:
+        return float(dispute["dispute_amount"]["value"])
 
 
 def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Decision:
@@ -84,17 +100,22 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     # already handed the case to the seller: a person may now take an answer held back ONLY for its
     # size (may_approve), so every trust reason must be on record after a size stop too. Without this,
     # a refund over the cap with broken evidence was stopped for "cap" alone (found 2026-10-23).
-    # Recording only: the resulting action is exactly what it was before.
+    # The action is unchanged; the seller now sees every reason, not only the first.
     drafted = action
+
+    def _subject() -> str:
+        """The answer a trust rule must judge: the current one, or the drafted one once it is the seller's."""
+        return drafted if action == "ASK_SELLER" else action
 
     amount = float(dispute["dispute_amount"]["value"])
     sends_money = action in MONEY
     # The cap applies to the money actually going out: a partial refund of 20 on a 60 order is 20.
     # (Bug found by the eval, 2026-10-16: the guard compared the whole order with the cap.)
+    # The same function a person's limit uses, so the cap and the role can never see different amounts.
     out_amount = amount
     if action == "PARTIAL_REFUND" and j.partial_amount:
         try:
-            out_amount = min(amount, _partial(j.partial_amount))
+            out_amount = _sends(action, j, dispute)
         except ValueError:
             notes.append(f"Partial amount {j.partial_amount!r} is not a number; routed to you.")
             action = "ASK_SELLER"
@@ -157,7 +178,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         for t in allowed.get("make_offer", {}).get("offer_types", []):
             can.add({"REFUND": "PARTIAL_REFUND", "REPLACEMENT_WITHOUT_REFUND": "REPLACE",
                      "REFUND_WITH_REPLACEMENT": "REPLACE"}.get(t, ""))
-        subject = drafted if action == "ASK_SELLER" else action
+        subject = _subject()
         if subject != "ASK_SELLER" and subject not in can:
             notes.append(f"PayPal does not allow {subject} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
                          f"(allowed: {', '.join(sorted(c for c in can if c))}). Routed to you.")
@@ -168,8 +189,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     # tracking that may belong to another order), nobody defends or pays on it unseen. This runs
     # after rule 4 on purpose: "delivered to the PayPal address" means nothing if the dates are wrong.
     failed = [c["id"] for c in j.checks if c.get("id") in INTEGRITY_CHECKS and c.get("result") == "INCONSISTENT"]
-    subject = drafted if action == "ASK_SELLER" else action
-    if failed and (subject == "DEFEND" or subject in MONEY):
+    if failed and (_subject() == "DEFEND" or _subject() in MONEY):
         notes.append(f"The judge found the evidence inconsistent ({', '.join(failed)}); check it before anything is sent.")
         action = "ASK_SELLER"
         stops.append("inconsistent")
@@ -177,8 +197,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     # Rule 8: a buyer who disputes far more often than the shop's usual rate (the base rate, not a raw
     # count) gets no money unseen. Only with enough orders to compare, and the numbers are the seller's.
     h, rb = records.get("buyer_history_counts") or {}, policy.get("repeat_buyer") or {}
-    subject = drafted if action == "ASK_SELLER" else action
-    if h and rb and subject in MONEY and h.get("buyer_orders") \
+    if h and rb and _subject() in MONEY and h.get("buyer_orders") \
             and h.get("shop_disputes") and h.get("shop_orders", 0) >= rb.get("min_shop_orders", 20) \
             and h.get("earlier_disputes", 0) >= rb.get("min_earlier_disputes", 2):
         times = (h["buyer_disputes"] / h["buyer_orders"]) / (h["shop_disputes"] / h["shop_orders"])
@@ -191,18 +210,19 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 
-def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, stops=()) -> bool:
+def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, stops: Sequence[str] = ()) -> bool:
     """The seller approves the action they were shown, never "whatever the model says now".
     Two exceptions on "your call" (ASK_SELLER):
     - they may send the drafted question, because a message moves no money. Not when the draft was
       written for a money action the limits stopped (`drafted_for`): it promises the money (DEMO-034, 21/10).
+      Not when PayPal's rules stopped it (`paypal_allowed`): PayPal would refuse the message (422).
     - they may take the answer the AI drafted when the ONLY reasons it was held back are its size
-      (AMOUNT_STOPS): those limits exist to hand the decision to a person, and this person is it.
+      (SIZE_STOPS): those limits exist to hand the decision to a person, and this person is it.
       Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
     How much money this person may send is checked after this, against their role (team.covers)."""
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
-        return drafted_for not in MONEY
+        return drafted_for not in MONEY and "paypal_allowed" not in stops
     if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" \
-            and stops and set(stops) <= AMOUNT_STOPS:
+            and stops and set(stops) <= SIZE_STOPS:
         return True
     return chosen == recommended

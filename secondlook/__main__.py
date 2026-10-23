@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import judge as judge_mod
 from . import evidence
-from .guard import apply_policy, may_approve, Decision, CHECKS
+from .guard import apply_policy, may_approve, Decision, CHECKS, SIZE_STOPS, _partial
 from .paypal import client_from_env, MockPayPal
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,6 +76,15 @@ def print_decision(d: Decision, dispute: dict) -> None:
         print(f"  Draft to buyer: {d.judgment.draft_message}")
 
 
+def refusal(d: Decision, chosen: str) -> str:
+    """Why an approval was refused, in words the seller can act on."""
+    trust = [s for s in d.stops if s not in SIZE_STOPS]
+    if trust:
+        return (f"Not executed: this answer was held back for trust ({', '.join(trust)}), not only for its size, "
+                f"so it can't be approved here. Check the case yourself first.")
+    return f"Not executed: you approved {chosen}, but the recommendation is now {d.action}. Review again."
+
+
 def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
     did, note = dispute["dispute_id"], d.judgment.draft_message or d.judgment.reasoning
     if d.action == "DEFEND":
@@ -90,8 +99,12 @@ def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
     if d.action == "REFUND":
         return pp.refund(did, note)
     if d.action == "PARTIAL_REFUND":
-        return pp.partial_refund(did, d.judgment.partial_amount or dispute["dispute_amount"]["value"],
-                                 dispute["dispute_amount"]["currency_code"], note)
+        # The number sent is the number the guard checked: read strictly, never above the dispute.
+        # An amount that can't be read raises here and nothing is sent.
+        amount = dispute["dispute_amount"]["value"]
+        if d.judgment.partial_amount:
+            amount = f"{min(float(amount), _partial(d.judgment.partial_amount)):.2f}"
+        return pp.partial_refund(did, amount, dispute["dispute_amount"]["currency_code"], note)
     if d.action == "REPLACE":
         return pp.replace(did, note)
     if d.action == "MESSAGE":
@@ -194,7 +207,7 @@ def main(argv=None) -> int:
         if not a.action:
             print("\nNot executed: say which action you approve, e.g. --action MESSAGE"); return 2
         if not may_approve(d.action, a.action, d.judgment.action, d.stops):
-            print(f"\nNot executed: you approved {a.action}, but the recommendation is now {d.action}. Review again."); return 2
+            print("\n" + refusal(d, a.action)); return 2
         d = dataclasses.replace(d, action=a.action)  # ASK_SELLER + MESSAGE sends the drafted question
         print("\nexecuting:", json.dumps(execute(pp, d, case["dispute"], case["seller_records"]), ensure_ascii=False))
     return 0
