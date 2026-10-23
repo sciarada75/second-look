@@ -157,6 +157,34 @@ def test_a_size_stop_never_hides_a_trust_stop():
     broken = [{"id": "timeline", "result": "INCONSISTENT", "finding": "x"}]
     d = apply_policy(Judgment("DEFEND", 0.9, "x", checks=broken), POLICY, dispute(250), {})
     assert d.action == "ASK_SELLER" and d.stops == ["always_ask", "inconsistent"], d.stops
+    assert not may_approve("ASK_SELLER", "DEFEND", drafted_for="DEFEND", stops=d.stops)
+
+
+def test_a_person_never_takes_a_refund_held_back_for_size_and_trust():
+    for why, d in size_and_trust_cases():
+        assert not may_approve(d.action, "REFUND", drafted_for=d.judgment.action, stops=d.stops), why
+
+
+def test_an_answer_held_back_only_for_its_size_may_be_taken_by_a_person():
+    assert may_approve("ASK_SELLER", "REFUND", drafted_for="REFUND", stops=["cap"])
+    assert may_approve("ASK_SELLER", "REFUND", drafted_for="REFUND", stops=["cap", "always_ask"])
+    assert may_approve("ASK_SELLER", "DEFEND", drafted_for="DEFEND", stops=["always_ask"])
+
+
+def test_an_answer_held_back_for_trust_is_never_taken_from_the_page():
+    for why in ("injection", "inconsistent", "confidence", "repeat_buyer", "paypal_allowed", "unknown_action"):
+        assert not may_approve("ASK_SELLER", "REFUND", drafted_for="REFUND", stops=["cap", why]), why
+    assert not may_approve("ASK_SELLER", "REFUND", drafted_for="REFUND", stops=[])   # old review: reasons unknown
+    assert not may_approve("ASK_SELLER", "PARTIAL_REFUND", drafted_for="REFUND", stops=["cap"])  # only what was drafted
+    assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="REFUND", stops=["cap"])  # the draft promises money
+
+
+def test_money_out_is_what_actually_leaves_the_account():
+    from secondlook.guard import money_out
+    assert money_out("REFUND", Judgment("REFUND", 0.9, "x"), dispute(89)) == 89.0
+    assert money_out("PARTIAL_REFUND", Judgment("PARTIAL_REFUND", 0.9, "x", partial_amount="20.00 EUR"), dispute(60)) == 20.0
+    assert money_out("DEFEND", Judgment("DEFEND", 0.9, "x"), dispute(60)) == 0.0
+    assert money_out("MESSAGE", Judgment("MESSAGE", 0.9, "x"), dispute(60)) == 0.0
 
 
 if __name__ == "__main__":

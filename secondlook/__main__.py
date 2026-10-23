@@ -193,7 +193,7 @@ def main(argv=None) -> int:
         # The seller approves a specific action they have seen, never "whatever the model says now".
         if not a.action:
             print("\nNot executed: say which action you approve, e.g. --action MESSAGE"); return 2
-        if not may_approve(d.action, a.action, d.judgment.action):
+        if not may_approve(d.action, a.action, d.judgment.action, d.stops):
             print(f"\nNot executed: you approved {a.action}, but the recommendation is now {d.action}. Review again."); return 2
         d = dataclasses.replace(d, action=a.action)  # ASK_SELLER + MESSAGE sends the drafted question
         print("\nexecuting:", json.dumps(execute(pp, d, case["dispute"], case["seller_records"]), ensure_ascii=False))

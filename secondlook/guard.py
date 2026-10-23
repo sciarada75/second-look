@@ -56,6 +56,23 @@ class Decision:
     stops: List[str] = field(default_factory=list)  # which rules stopped it (ids), in rule order
 
 
+def _partial(text) -> float:
+    """'20.00 EUR' -> 20.0. Raises ValueError when there is no number."""
+    num = re.search(r"\d+(?:[.,]\d{1,2})?", str(text or ""))
+    if not num:
+        raise ValueError(text)
+    return float(num.group(0).replace(",", "."))
+
+
+def money_out(action: str, j: Judgment, dispute: dict) -> float:
+    """The money an action sends: the offer for a partial refund, the whole amount for a refund or a
+    replacement, nothing for a reply or a defence. Used to check a person's limit."""
+    amount = float(dispute["dispute_amount"]["value"])
+    if action == "PARTIAL_REFUND" and j.partial_amount:
+        return min(amount, _partial(j.partial_amount))
+    return amount if action in MONEY else 0.0
+
+
 def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Decision:
     notes: List[str] = []
     stops: List[str] = []
@@ -77,9 +94,8 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     out_amount = amount
     if action == "PARTIAL_REFUND" and j.partial_amount:
         try:
-            num = re.search(r"\d+(?:[.,]\d{1,2})?", str(j.partial_amount))
-            out_amount = min(amount, float(num.group(0).replace(",", ".")))
-        except (ValueError, AttributeError):
+            out_amount = min(amount, _partial(j.partial_amount))
+        except ValueError:
             notes.append(f"Partial amount {j.partial_amount!r} is not a number; routed to you.")
             action = "ASK_SELLER"
             stops.append("partial_amount")
@@ -175,12 +191,18 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 
-def may_approve(recommended: str, chosen: str, drafted_for: str | None = None) -> bool:
+def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, stops=()) -> bool:
     """The seller approves the action they were shown, never "whatever the model says now".
-    One exception: on "your call" (ASK_SELLER) they may send the drafted question, because a
-    message moves no money: it is never more generous than the recommendation. Not when the draft
-    was written for a money action the limits stopped (`drafted_for`): that draft promises the
-    money, and sending it would make the promise unapproved (seen 21/10 on DEMO-034)."""
+    Two exceptions on "your call" (ASK_SELLER):
+    - they may send the drafted question, because a message moves no money. Not when the draft was
+      written for a money action the limits stopped (`drafted_for`): it promises the money (DEMO-034, 21/10).
+    - they may take the answer the AI drafted when the ONLY reasons it was held back are its size
+      (AMOUNT_STOPS): those limits exist to hand the decision to a person, and this person is it.
+      Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
+    How much money this person may send is checked after this, against their role (team.covers)."""
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
-        return drafted_for not in ("REFUND", "PARTIAL_REFUND", "REPLACE")
+        return drafted_for not in MONEY
+    if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" \
+            and stops and set(stops) <= AMOUNT_STOPS:
+        return True
     return chosen == recommended
