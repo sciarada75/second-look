@@ -159,13 +159,18 @@ export const Cursor: React.FC<{path: CursorPoint[]; cam: Cam; until: number}> = 
 };
 
 // ---------- where you are ----------
-export const WhereLabel: React.FC<{text: string; sub?: string; from: number; to: number; live?: boolean}> = ({text, sub, from, to, live}) => {
+// Bottom-left, like a lower third: the top of every captured page is its own header (brand, who is signed
+// in, the made-up labels), and the chip must never cover it. The chip carries the made-up note itself.
+/** fadeIn/fadeOut 0: the label switches with a cut instead of blinking. */
+export const WhereLabel: React.FC<{text: string; sub?: string; from: number; to: number; live?: boolean; fadeIn?: number; fadeOut?: number}> = ({
+  text, sub, from, to, live, fadeIn = 8, fadeOut = 8,
+}) => {
   const frame = useCurrentFrame();
-  const o = interpolate(frame, [from, from + 8, to - 8, to], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
-  if (o <= 0) return null;
+  if (frame < from || frame >= to) return null;
+  const o = Math.min(fadeIn ? ease((frame - from) / fadeIn) : 1, fadeOut ? ease((to - frame) / fadeOut) : 1);
   const parts = text.split(' › ');
   return (
-    <div style={{position: 'absolute', left: 32, top: 32, opacity: o, background: '#fff', padding: '12px 22px 13px',
+    <div style={{position: 'absolute', left: 32, bottom: 32, opacity: o, background: '#fff', padding: '12px 22px 13px',
       border: `1px solid ${live ? theme.pass : theme.rule}`, borderLeft: `6px solid ${live ? theme.pass : theme.kraft}`,
       boxShadow: '0 6px 22px rgba(30,41,53,0.16)', color: theme.ink}}>
       <div style={{font: `500 26px/1.2 ${theme.sans}`, whiteSpace: 'nowrap'}}>

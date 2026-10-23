@@ -164,6 +164,7 @@ async function walkThrough(page) {
   await shoot(page, 'tb-2004', {
     email: css('article.msg'),
     'your-call': css('section.sl p.rec', 'Your call'),
+    'ai-says': css('section.sl p.soft', "The AI's own answer"),
     pass: (p) => p.getByRole('button', {name: 'Pass to Giulia'}),
     'pass-says': css('section.sl form p.note'),
     panel: css('section.sl'),

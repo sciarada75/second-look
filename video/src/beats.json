@@ -5,7 +5,7 @@
   {"key": "s4a", "gap": 0.8}, {"key": "s4b", "gap": 1.0},
   {"key": "s5a", "gap": 0.6}, {"key": "s5b", "gap": 0.6}, {"key": "s5c", "gap": 1.0},
   {"key": "s6a", "gap": 1.4},
-  {"key": "s7a", "gap": 0.5}, {"key": "s7b", "gap": 1.4},
+  {"key": "s7a", "gap": 0.5}, {"key": "s7b", "gap": 2.4},
   {"key": "s8a", "gap": 2.0}, {"key": "s8b", "gap": 1.2},
   {"key": "s9a", "gap": 1.2},
   {"key": "s10a", "gap": 0.8}, {"key": "s10b", "gap": 2.5}
