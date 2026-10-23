@@ -149,6 +149,17 @@ def test_a_second_look_notification_lands_on_the_ticket():
     assert "answer sent to PayPal by Marta" in html and "elsewhere" not in html
 
 
+def test_once_passed_on_the_page_says_who_decides_and_the_colleague_gets_the_edited_reply():
+    hand = {"from": "marta", "from_name": "Marta", "action": "REFUND", "amount": 89.0, "message": "Marta's words"}
+    passed = {**CASE, "assigned_to": "giulia", "handoff": hand,
+              "for_person": {"person": "Marta", "action": "REFUND", "outcome": "pass", "to": "Giulia", "why": None}}
+    html = bench(FakeSL(case=passed)).ticket_page(2041, "marta")
+    assert "Waiting for Giulia" in html and "Pass to Giulia" not in html
+    mine = {**passed, "for_person": {"person": "Giulia", "action": "REFUND", "outcome": "send", "to": None, "why": None}}
+    html = bench(FakeSL(case=mine)).ticket_page(2041, "giulia")
+    assert "Approve as Giulia" in html and "Passed to you by Marta" in html and "Marta&#x27;s words" in html
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

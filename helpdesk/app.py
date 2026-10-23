@@ -399,6 +399,17 @@ class Helpdesk:
         if kind not in ("send", "pass"):
             return (f'<p class="state stop">Second Look didn\'t say what approving would do for {e(me["name"])}. '
                     'Decide in Second Look.</p>' + shown)
+        # A case already passed on, as Second Look reports it (handoff, assigned_to): its own page says the same.
+        hand = c.get("handoff") if isinstance(c.get("handoff"), dict) else None
+        if hand and kind == "pass" and c.get("assigned_to") != me["id"]:
+            to = fp.get("to") or "a colleague"
+            return (f'<p class="state stop">Waiting for {e(to)}: they decide this one. Nothing is sent from here.</p>'
+                    + shown)
+        handed = ""
+        if hand and c.get("assigned_to") == me["id"] and hand.get("action") == fp.get("action"):
+            handed = f'<p class="note">Passed to you by {e(str(hand.get("from_name") or "a colleague"))}, with their reply.</p>'
+            if hand.get("message") is not None:
+                draft = hand["message"]
         if kind == "send":
             button = f'<button type="submit">Approve as {e(fp.get("person") or me["name"])}: {e(words(fp.get("action")).lower())}</button>'
             say = "Second Look sends this to PayPal and the buyer."
@@ -410,7 +421,7 @@ class Helpdesk:
                 f'<input type="hidden" name="dispute_id" value="{e(did)}">'
                 f'<input type="hidden" name="action" value="{e(str(fp.get("action") or ""))}">'
                 f'<input type="hidden" name="review" value="{e(str(r.get("mark") or ""))}">'
-                f'<input type="hidden" name="by" value="{e(me["id"])}">'
+                f'<input type="hidden" name="by" value="{e(me["id"])}">{handed}'
                 f'<label for="msg-{e(did)}">Reply to the buyer</label>'
                 f'<textarea id="msg-{e(did)}" name="message">{e(draft)}</textarea>'
                 f'{button}<p class="note">{e(say)}</p></form>')
