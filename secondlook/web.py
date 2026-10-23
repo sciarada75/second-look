@@ -20,11 +20,11 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from datetime import timedelta
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from . import evidence as evidence_mod, ledger, team as team_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
-from .guard import may_approve, money_out, CHECKS, SIZE_STOPS, Decision, Judgment
+from .guard import may_approve, money_out, CHECKS, MONEY, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -141,14 +141,36 @@ def _case_lock(did: str) -> threading.Lock:
 
 
 def take(did: str, by: str | None) -> tuple[int, str]:
+    """A person takes a case nobody has. 400 in a team of one (nothing to take) or with no known name;
+    409 when someone has it already, a colleague's handoff included: taking never reroutes a case."""
     t = team_for(did)
+    if t.get("solo"):
+        return 400, "A team of one has nothing to take: every case is already yours."
     who = team_mod.person(t, by)
     if not who:
         return 400, "Say who you are: a person in this shop's team."
+    holder = []
+
+    def claim(a):
+        if a["to"]:
+            holder.append(a["to"])
+            return a
+        return {**a, "to": who["id"]}
     with _case_lock(did):
-        # The case becomes theirs; a colleague's handoff note on it stays (it carries the draft to send).
-        assignments_for(did).update(did, lambda a: {**a, "to": who["id"]})
+        assignments_for(did).update(did, claim)
+    if holder:
+        p = team_mod.person(t, holder[0])
+        return 409, f"{p['name'] if p else holder[0]} has this case already."
     return 200, f"{who['name']} took this case."
+
+
+def by_for_post(t: dict, by: str | None) -> tuple[bool, str | None]:
+    """Who a form says it was shown to. In a team it must be a real person of the case's team: a POST never
+    falls back to the first person (that would let anyone act as the manager). A team of one needs no name."""
+    if t.get("solo"):
+        return True, None
+    p = team_mod.person(t, by)
+    return (True, p["id"]) if p else (False, None)
 
 
 # ---------- the seller's rules ----------
@@ -630,17 +652,27 @@ def shop_badge(context: str) -> str:
             f'<div class="shop-menu">{menu}</div></details>')
 
 
-def person_badge(t: dict, me: str | None) -> str:
-    """Who you are in a team, and the switch to a colleague. Nothing for a team of one."""
+# The request being answered, for the person switch: its links keep the rest of the address (?view=mine).
+_REQUEST = threading.local()
+
+
+def person_badge(t: dict, me: str | None, qs: dict | None = None) -> str:
+    """Who you are in a team, and the switch to a colleague. Nothing for a team of one, or for a team
+    file that lists nobody usable."""
     if t.get("solo"):
         return ""
-    p = team_mod.person(t, me) or t["people"][0]
+    p = team_mod.person(t, me) or team_mod.first(t)
+    if not p:
+        return ""
+    qs = getattr(_REQUEST, "qs", {}) if qs is None else qs
+    keep = [(k, v) for k, vs in qs.items() if k != "as" for v in vs]
     cap = team_mod.limit(t, p["id"])
     may = "sends any amount the limits hand to a person" if cap is None else f"sends refunds up to {cap:.0f} EUR"
-    menu = "".join(f'<a href="?as={e(o["id"])}"><span>{e(o["name"])}<small>{e(o["role"])}</small></span></a>'
-                   for o in t["people"] if o["id"] != p["id"])
-    return (f'<details class="shop person"><summary>You are <b>{e(p["name"])}</b>'
-            f'<small>{e(p["role"])} · {e(may)}</small><span class="switch">Switch</span></summary>'
+    menu = "".join(f'<a href="?{e(urlencode(keep + [("as", o["id"])]))}"><span>{e(str(o.get("name") or o["id"]))}'
+                   f'<small>{e(str(o.get("role") or ""))}</small></span></a>'
+                   for o in team_mod.people(t) if o["id"] != p["id"])
+    return (f'<details class="shop person"><summary>You are <b>{e(str(p.get("name") or p["id"]))}</b>'
+            f'<small>{e(str(p.get("role") or ""))} · {e(may)}</small><span class="switch">Switch</span></summary>'
             f'<div class="shop-menu">{menu}</div></details>')
 
 
@@ -953,13 +985,23 @@ def conversation(d: dict) -> str:
     return f'<h2>What\'s been said</h2><ol class="talk">{"".join(rows)}</ol>'
 
 
-def _passes_to(t: dict, me: str | None, chosen: str, dec: Decision, d: dict):
-    """What approving `chosen` would do for this person, by the rule approve() applies (required()):
-    None = they send it themselves; a person = it passes to that colleague; {} = nobody in the team may."""
-    need = required(chosen, dec, d)
-    if not need or team_mod.covers(t, me, need):
-        return None
-    return team_mod.handoff_to(t, need, exclude=me) or {}
+def _send_form(did: str, label: str, draft: str, action: str, button: str, says: str, me: str | None,
+               passing: bool, teach: str = "") -> str:
+    """An approve form. It carries who it was shown to (`by`), so the POST acts as that person."""
+    by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+    return (f'<form class="send" method="post" action="/d/{e(did)}/approve">'
+            f'<label class="reply" for="reply">{label}</label>'
+            f'<textarea id="reply" name="message">{e(draft)}</textarea>'
+            f'<input type="hidden" name="action" value="{e(action)}">{by}'
+            f'<div class="approve"><button>{e(button)}</button><span>{e(says)}</span></div>' + teach + '</form>'
+            + (PASS_LOCK if passing else LOCK))
+
+
+def _size_only(dec: Decision) -> bool:
+    """The AI's own answer was held back for its size alone, and a person may take it."""
+    j = dec.judgment
+    return (dec.action == "ASK_SELLER" and bool(dec.stops) and set(dec.stops) <= SIZE_STOPS
+            and may_approve(dec.action, j.action, j.action, dec.stops))
 
 
 def _pass_says(chosen: str, dec: Decision, d: dict, name: str) -> str:
@@ -972,25 +1014,19 @@ def held_action(did: str, dec: Decision, d: dict, t: dict, me: str | None) -> st
     """An answer the limits held back only for its size: the person who may send it gets the button,
     anyone else passes it on. Empty when it was held back for trust (the page then says: decide in PayPal)."""
     j = dec.judgment
-    if not dec.stops or not set(dec.stops) <= SIZE_STOPS or not may_approve(dec.action, j.action, j.action, dec.stops):
+    if not _size_only(dec):
+        return ""
+    kind, to = outcome(dec, j.action, d, t, team_mod.person(t, me))
+    if kind == "refused":
         return ""
     amount = money_out(j.action, j, d)
     cur = d["dispute_amount"].get("currency_code", "EUR")
-    label = ACTION.get(j.action, j.action).lower()
-    to = _passes_to(t, me, j.action, dec, d)
-    if to == {}:
-        return ""
-    if to:
+    if kind == "pass":
         button, says = f"Pass to {to['name']}", _pass_says(j.action, dec, d, to["name"])
     else:
-        button = f"Approve: {label}" + (f" ({amount:.2f} {cur})" if amount else "")
+        button = f"Approve: {ACTION.get(j.action, j.action).lower()}" + (f" ({amount:.2f} {cur})" if amount else "")
         says = "Your limits held this back for its size only. You decide: this sends it."
-    return (f'<form class="send" method="post" action="/d/{e(did)}/approve">'
-            f'<label class="reply" for="reply">Your reply to the buyer</label>'
-            f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
-            f'<input type="hidden" name="action" value="{e(j.action)}">'
-            f'<div class="approve"><button>{e(button)}</button><span>{e(says)}</span></div></form>'
-            + (PASS_LOCK if to else LOCK))
+    return _send_form(did, "Your reply to the buyer", j.draft_message, j.action, button, says, me, kind == "pass")
 
 
 def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
@@ -1025,8 +1061,9 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
         elif a["to"]:
             owner = f'<p class="owner-line">{e(holder_name)}\'s case.</p>'
         else:
+            by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
             owner = (f'<form class="owner-line" method="post" action="/d/{e(dispute_id)}/take">Nobody has this case yet. '
-                     f'<button class="link">Take it</button></form>')
+                     f'{by}<button class="link">Take it</button></form>')
     card = (f'<p class="cardlink"><a href="/customer/{e(buyer)}{q}">This customer\'s record with you</a></p>'
             if buyer and not practice else "")
     nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
@@ -1062,13 +1099,14 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     else:
         dec, sent = saved
         j = dec.judgment
-        if hand and me == a["to"] and hand.get("message") is not None:
+        who = team_mod.person(t, me)
+        offered = j.action if dec.overridden and _size_only(dec) else "MESSAGE" if dec.action == "ASK_SELLER" else dec.action
+        if hand and me == a["to"] and hand.get("action") == offered and hand.get("message") is not None:
             j.draft_message = hand["message"]  # the colleague's edited reply is what this person sends
-        held = held_action(dispute_id, dec, d, t, me) if dec.action == "ASK_SELLER" and dec.overridden else ""
-        offered = j.action if held else "MESSAGE" if dec.action == "ASK_SELLER" else dec.action
-        # A handoff waits on someone else: no second approve form for it here (the page must not invite
-        # two people to approve the same answer at once).
-        waits_on_other = bool(hand) and me != a["to"] and hand.get("action") == offered
+        held = held_action(dispute_id, dec, d, t, me) if dec.overridden else ""
+        # While a handoff waits, only the person it waits for gets a form: the page must not invite two
+        # people to approve the same case at once.
+        waits_on_other = bool(hand) and me != a["to"]
         guard = ""
         if dec.reasons:
             guard = (f'<div class="guard"><b>Your limits changed the answer'
@@ -1105,34 +1143,28 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
                            'which your limits stopped.</b> Decide first. If you refund, do it in PayPal, then come back: '
                            'Second Look will see the change and draft a reply that matches.</div>'
                            f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(j.draft_message)}</p></details>')
-        elif dec.action == "ASK_SELLER" and j.draft_message and _passes_to(t, me, "MESSAGE", dec, d) == {}:
-            action_part = '<p class="conf">Nobody in the team may decide this one from here. Decide in PayPal.</p>'
         elif dec.action == "ASK_SELLER" and j.draft_message:
-            to = _passes_to(t, me, "MESSAGE", dec, d)
-            button, says = ((f"Pass to {to['name']}", _pass_says("MESSAGE", dec, d, to["name"])) if to else
-                            ("Send this question", "Sends only this message. No money moves."))
-            action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
-                           f'<label class="reply" for="reply">Before you decide, ask the buyer</label>'
-                           f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
-                           f'<input type="hidden" name="action" value="MESSAGE">'
-                           f'<div class="approve"><button>{e(button)}</button>'
-                           f'<span>{e(says)}</span></div>' + ("" if to else TEACH) + '</form>'
-                           + (PASS_LOCK if to else LOCK))
+            # The drafted question, by the same decision approve() takes: never a button it would refuse.
+            kind, to = outcome(dec, "MESSAGE", d, t, who)
+            if kind == "refused":
+                action_part = (f'<div class="stale"><b>{e(to)}</b></div>'
+                               f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(j.draft_message)}</p></details>')
+            else:
+                button, says = ((f"Pass to {to['name']}", _pass_says("MESSAGE", dec, d, to["name"])) if kind == "pass" else
+                                ("Send this question", "Sends only this message. No money moves."))
+                action_part = _send_form(dispute_id, "Before you decide, ask the buyer", j.draft_message, "MESSAGE",
+                                         button, says, me, kind == "pass", "" if kind == "pass" else TEACH)
         elif dec.action == "ASK_SELLER":
             action_part = '<p class="conf">Nothing to send: read the checks and decide.</p>'
-        elif _passes_to(t, me, dec.action, dec, d) == {}:
-            action_part = '<p class="conf">Over every limit in the team. Decide in PayPal.</p>'
         else:
-            to = _passes_to(t, me, dec.action, dec, d)
-            button, says = ((f"Pass to {to['name']}", _pass_says(dec.action, dec, d, to["name"])) if to else
-                            (f"Approve: {ACTION.get(dec.action, dec.action).lower()}", "Sends exactly this to PayPal."))
-            action_part = (f'<form class="send" method="post" action="/d/{e(dispute_id)}/approve">'
-                           f'<label class="reply" for="reply">Your reply to the buyer</label>'
-                           f'<textarea id="reply" name="message">{e(j.draft_message)}</textarea>'
-                           f'<input type="hidden" name="action" value="{e(dec.action)}">'
-                           f'<div class="approve"><button>{e(button)}</button>'
-                           f'<span>{e(says)}</span></div>' + ("" if to else TEACH) + '</form>'
-                           + (PASS_LOCK if to else LOCK))
+            kind, to = outcome(dec, dec.action, d, t, who)
+            if kind == "refused":
+                action_part = f'<p class="conf">{e(to)}</p>'
+            else:
+                button, says = ((f"Pass to {to['name']}", _pass_says(dec.action, dec, d, to["name"])) if kind == "pass" else
+                                (f"Approve: {ACTION.get(dec.action, dec.action).lower()}", "Sends exactly this to PayPal."))
+                action_part = _send_form(dispute_id, "Your reply to the buyer", j.draft_message, dec.action,
+                                         button, says, me, kind == "pass", "" if kind == "pass" else TEACH)
         right = f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
     return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
@@ -1180,15 +1212,39 @@ STOP_SAYS = {
 }
 
 
-def _refused(saved, chosen: str) -> str:
-    """Why an approval was refused. The guard's reasons only when the person asked for the AI's own answer:
-    for anything else they are not the reason."""
-    dec = saved[0] if saved else None
+def _refused(dec: Decision | None, chosen: str) -> str:
+    """Why may_approve refused. The guard's reasons only where they are the reason: for the AI's own answer,
+    or for the drafted question on "your call" (PayPal's rules, an unrecognised answer, a promised refund)."""
+    if dec and dec.action == "ASK_SELLER" and chosen == "MESSAGE":
+        why = [STOP_SAYS[s] for s in ("paypal_allowed", "unknown_action") if s in dec.stops]
+        if why:
+            return (f"This message was held back: {', '.join(why)}. "
+                    "It can't be sent from here, by anyone. Decide in PayPal.")
+        if dec.judgment.action in MONEY:
+            return (f"The drafted reply promises a {ACTION.get(dec.judgment.action, dec.judgment.action).lower()}, "
+                    "which your limits stopped. Decide first, in PayPal.")
     held = [STOP_SAYS.get(s, s) for s in (dec.stops if dec else []) if s not in SIZE_STOPS]
     if dec and chosen == dec.judgment.action and held:
         return (f"This answer was held back: {', '.join(held)}. "
                 "It can't be sent from here, by anyone. Decide in PayPal.")
     return "This answer changed since you saw it, or it can't be sent as it is. Look again."
+
+
+def outcome(dec: Decision, chosen: str, dispute: dict, t: dict, who: dict | None) -> tuple:
+    """What approving `chosen` does for this person. The one decision behind approve() AND every button on the
+    case page, so a button never promises what approve won't do.
+    ("refused", why) · ("pass", colleague) over their limit · ("send", None)."""
+    if not may_approve(dec.action, chosen, dec.judgment.action, dec.stops):
+        return "refused", _refused(dec, chosen)
+    need = required(chosen, dec, dispute)
+    me = who["id"] if who else None
+    if need and not team_mod.covers(t, me, need):
+        to = team_mod.handoff_to(t, need, exclude=me)
+        if not to:
+            cur = dispute["dispute_amount"].get("currency_code", "EUR")
+            return "refused", f"Nobody in the team may approve {need:.2f} {cur} from here. Decide in PayPal."
+        return "pass", to
+    return "send", None
 
 
 def required(chosen: str, dec: Decision, dispute: dict) -> float:
@@ -1215,21 +1271,21 @@ def _approve(did, chosen, message, rule, t, who, execute) -> tuple[int, str]:
     saved = _saved(did)
     if saved and saved[1]:
         return 200, saved[1]  # already sent: a second approval sends nothing
-    if not saved or not may_approve(saved[0].action, chosen, saved[0].judgment.action, saved[0].stops):
-        return 409, _refused(saved, chosen)
+    if not saved:
+        return 409, _refused(None, chosen)
     dec = saved[0]
     case = _case(did)
     if _changes(did, case):
         return 409, "Something changed since this review. Take a fresh look."
+    kind, to = outcome(dec, chosen, case["dispute"], t, who)
+    if kind == "refused":
+        return 409, to
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
     amount = money_out(chosen, dec.judgment, case["dispute"])
     need = required(chosen, dec, case["dispute"])
     now = datetime.now()
-    if need and not team_mod.covers(t, who["id"], need):
+    if kind == "pass":
         # Over this person's limit: nothing goes to PayPal. The case passes to a colleague who may send it.
-        to = team_mod.handoff_to(t, need, exclude=who["id"])
-        if not to:
-            return 409, f"Nobody in the team may approve {need:.2f} {cur} from here. Decide in PayPal."
         handoff = {"from": who["id"], "from_name": who["name"], "action": chosen, "amount": need,
                    "message": message, "at": now.isoformat(timespec="minutes")}
         assignments_for(did).update(did, lambda a: {"to": to["id"], "handoff": handoff})
@@ -1345,7 +1401,10 @@ class Handler(BaseHTTPRequestHandler):
             self._person = f"{key}={asked}; Path=/; SameSite=Lax"
             return asked
         kept = self._jar().get(key)
-        return kept if team_mod.person(t, kept) else t["people"][0]["id"]
+        if team_mod.person(t, kept):
+            return kept
+        first = team_mod.first(t)  # for display only: a POST names its person itself (by_for_post)
+        return first["id"] if first else None
 
     def _send(self, body: str, code: int = 200):
         if self._film:
@@ -1385,6 +1444,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/favicon.ico":
                 return self._send("", 204)
             qs = parse_qs(u.query)
+            _REQUEST.qs = qs
             # The shop you're in stays the same from page to page: an Overview of one shop next to the
             # disputes of another made no sense (Claudia, 21/10). Demo by default: it has a history.
             asked = (qs.get("shop") or [""])[0]
@@ -1423,16 +1483,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send("Not found", 404)
         except Exception as err:  # show the reason on the page, never a blank screen
             self._fail(err)
+        finally:
+            _REQUEST.qs = {}
 
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         form = parse_qs(raw.decode()) if not self.path.startswith("/api/") else {}
         try:
-            # Who is acting comes from the case's own shop, not from whichever shop the cookie remembers.
-            shop = self._jar().get("sl_shop", "demo")
-            src = src_of_case(parts[1], shop) if len(parts) > 1 and parts[0] == "d" else shop
-            me = self._who({}, src)
+            me = None
+            if len(parts) == 3 and parts[0] == "d" and parts[2] in ("approve", "take"):
+                # The form says who it was shown to; it must be a real person of the case's own team.
+                ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
+                if not ok:
+                    return self._send("Choose who you are at the top of the page.", 400)
             if parts == ["rules", "add"]:
                 add_rule(form.get("rule", [""])[0])
                 return self._redirect("/rules")
@@ -1453,8 +1517,8 @@ class Handler(BaseHTTPRequestHandler):
                                      form.get("rule", [""])[0], by=me)
                 return self._redirect(f"/d/{parts[1]}") if code in (200, 202) else self._send(text, code)
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
-                take(parts[1], me)
-                return self._redirect(f"/d/{parts[1]}")
+                code, text = take(parts[1], me)
+                return self._redirect(f"/d/{parts[1]}") if code == 200 else self._send(text, code)
             # the API: the same review and the same approval, as JSON
             if len(parts) == 4 and parts[:2] == ["api", "disputes"] and parts[3] in ("review", "approve"):
                 did = parts[2]

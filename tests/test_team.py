@@ -112,6 +112,11 @@ def test_update_changes_one_case_from_its_current_state():
     assert store.get("D9") == {"to": "nico", "handoff": None}
 
 
+def test_no_name_never_matches_an_entry_without_an_id():
+    t = team.of({"people": [{"name": "no id", "role": "Boss"}], "roles": {"Boss": {"refund_up_to": None}}})
+    assert team.person(t, None) is None and team.person(t, "") is None and team.first(t) is None
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

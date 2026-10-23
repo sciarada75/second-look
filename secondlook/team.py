@@ -38,10 +38,22 @@ def _role(t: dict, p: dict) -> dict:
     return role if isinstance(role, dict) else {}
 
 
+def people(t: dict) -> list:
+    """The people a page may show: entries with an id (anything else in the file is skipped, not a crash)."""
+    return [p for p in _people(t) if isinstance(p.get("id"), str) and p["id"]]
+
+
+def first(t: dict) -> dict | None:
+    """The first valid person in the team, in the shop's own order. None when the file lists nobody usable."""
+    return next(iter(people(t)), None)
+
+
 def person(t: dict, pid: str | None) -> dict | None:
     """Who is acting. In a team of one it is always the seller; in a team, nobody is assumed."""
     if t.get("solo"):
         return t["people"][0]
+    if not isinstance(pid, str) or not pid:
+        return None  # no name never matches an entry written without an id
     return next((p for p in _people(t) if p.get("id") == pid), None)
 
 

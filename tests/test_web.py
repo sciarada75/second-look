@@ -200,12 +200,21 @@ def test_no_drafted_question_when_paypal_does_not_allow_it():
         assert code == 409 and b.sent == [] and "held back: PayPal doesn't allow it at this stage" in text
 
 
-def test_taking_a_case_keeps_the_colleague_s_handoff():
+def test_a_case_is_taken_once_and_a_waiting_handoff_stays():
+    with approval_bench() as b:
+        assert web.take("X", None)[0] == 400
+        assert web.take("X", "marta") == (200, "Marta took this case.")
+        code, text = web.take("X", "giulia")
+        assert code == 409 and "Marta" in text and b.store.get("X")["to"] == "marta"
     with approval_bench() as b:
         web.approve("X", "REFUND", "Hello", by="marta")                    # passed to Giulia, with a note
-        assert web.take("X", "giulia") == (200, "Giulia took this case.")
+        assert web.take("X", "marta")[0] == 409
         assert b.store.get("X")["to"] == "giulia" and b.store.get("X")["handoff"]["from"] == "marta"
-        assert web.take("X", None)[0] == 400
+
+
+def test_a_team_of_one_takes_nothing_and_writes_nothing():
+    with approval_bench(the_team=None) as b:
+        assert web.take("X", None)[0] == 400 and not b.store.path.exists()
 
 
 def test_two_approvals_at_once_send_once():
@@ -360,6 +369,72 @@ def test_the_case_page_shows_whose_case_and_a_waiting_handoff_to_the_right_perso
     with approval_bench(the_team=None):
         solo = look()
         assert "Take it" not in solo and "case.</p>" not in solo and "Sends exactly this to PayPal" in solo
+
+
+def test_one_decision_for_the_page_and_for_approve():
+    t = team_mod.of(TEAM)
+    d = {"dispute_amount": {"value": "45.00", "currency_code": "EUR"}}
+    refund = Decision("REFUND", [], Judgment("REFUND", 0.9, "why"), False, [])
+    giulia, marta = team_mod.person(t, "giulia"), team_mod.person(t, "marta")
+    assert web.outcome(refund, "REFUND", d, t, giulia) == ("send", None)
+    assert web.outcome(refund, "REFUND", d, t, marta) == ("pass", giulia)
+    assert web.outcome(refund, "DEFEND", d, t, giulia)[0] == "refused"
+    capped = team_mod.of({"roles": {"A": {"refund_up_to": 10.0}}, "people": [{"id": "a", "name": "A", "role": "A"}]})
+    kind, text = web.outcome(refund, "REFUND", d, capped, team_mod.person(capped, "a"))
+    assert kind == "refused" and "Nobody in the team" in text
+
+
+def test_a_question_that_can_t_be_sent_gets_no_question_form():
+    probes = [("DEFEND", ["paypal_allowed"], "PayPal doesn't allow it"),
+              ("ESCALATE", ["unknown_action"], "doesn't recognise"),
+              ("MESSAGE", ["paypal_allowed"], "PayPal doesn't allow it")]
+    for ai, stops, why in probes:
+        for the_team, by in ((None, None), (TEAM, "giulia")):
+            with approval_bench(action="ASK_SELLER", ai=ai, stops=stops, the_team=the_team) as b:
+                page = html.unescape(web.case_page("X", me=by))
+                assert 'action="/d/X/approve"' not in page and "Send this question" not in page, (ai, stops)
+                assert why in page and "Read the draft anyway" in page, (ai, stops)
+                code, text = web.approve("X", "MESSAGE", "Hello", by=by)
+                assert code == 409 and why in text and "changed since you saw it" not in text and b.sent == []
+
+
+def test_every_form_carries_who_it_was_shown_to():
+    with approval_bench() as b:
+        page = web.case_page("X", me="marta")
+        assert page.count('name="by" value="marta"') == 2              # the take form and the pass form
+        b.store.assign("X", "marta")
+        assert 'name="by" value="marta"' in web.case_page("X", me="marta")
+    with approval_bench(the_team=None):
+        assert 'name="by"' not in web.case_page("X")
+
+
+def test_a_post_must_name_a_real_person_of_the_case_s_team():
+    t = team_mod.of(TEAM)
+    assert web.by_for_post(t, "marta") == (True, "marta")
+    assert web.by_for_post(t, "") == (False, None) and web.by_for_post(t, "someone") == (False, None)
+    assert web.by_for_post(team_mod.of(None), "") == (True, None)    # a team of one needs no name
+
+
+def test_a_handoff_for_another_answer_pre_fills_nothing_and_others_get_no_form():
+    with approval_bench() as b:
+        b.store.assign("X", "giulia", handoff={"from": "marta", "from_name": "Marta", "action": "DEFEND",
+                                               "amount": 0.0, "message": "Defend it"})
+        giulia = web.case_page("X", me="giulia")
+        assert "Defend it" not in giulia and ">Hello</textarea>" in giulia
+        assert 'action="/d/X/approve"' not in web.case_page("X", me="marta")
+
+
+def test_malformed_team_data_never_breaks_a_page():
+    assert team_mod.first(team_mod.of({"people": "x"})) is None
+    assert web.person_badge(team_mod.of({"people": "x"}), None) == ""
+    assert web.person_badge(team_mod.of({"people": [{"name": "no id"}, 7]}), None) == ""
+    odd = team_mod.of({"people": [{"name": "no id"}, {"id": "m", "name": "Mia"}]})
+    assert team_mod.first(odd)["id"] == "m" and "Mia" in web.person_badge(odd, None)
+
+
+def test_switching_person_keeps_the_rest_of_the_address():
+    badge = web.person_badge(team_mod.of(TEAM), "marta", {"view": ["mine"], "as": ["marta"]})
+    assert 'href="?view=mine&amp;as=giulia"' in badge
 
 
 if __name__ == "__main__":
