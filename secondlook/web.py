@@ -1062,29 +1062,127 @@ def _size_only(dec: Decision) -> bool:
             and may_approve(dec.action, j.action, j.action, dec.stops))
 
 
-def _pass_says(chosen: str, dec: Decision, d: dict, name: str) -> str:
-    if money_out(chosen, dec.judgment, d) >= required(chosen, dec, d):
+def _pass_says(chosen: str, dec: Decision, d: dict, name: str, t: dict | None = None, me: str | None = None) -> str:
+    """Why this person passes the case on: the money over their limit (both numbers), or the shop's always-ask line."""
+    sends = money_out(chosen, dec.judgment, d)
+    if sends >= required(chosen, dec, d):
+        cap = team_mod.limit(t, me) if t is not None and me else None
+        if cap is not None:
+            cur = d["dispute_amount"].get("currency_code", "EUR")
+            return (f"{ACTION.get(chosen, chosen)} of {sends:.2f} {cur} is over your {cap:.2f} {cur} limit. "
+                    f"{name} decides; nothing is sent now.")
         return f"Over your limit. {name} decides; nothing is sent now."
     return f"Cases over your shop's always-ask line are decided by {name}."
 
 
-def held_action(did: str, dec: Decision, d: dict, t: dict, me: str | None) -> str:
+def _held_offer(dec: Decision, d: dict, t: dict, me: str | None) -> dict | None:
     """An answer the limits held back only for its size: the person who may send it gets the button,
-    anyone else passes it on. Empty when it was held back for trust (the page then says: decide in PayPal)."""
+    anyone else passes it on. None when it was held back for trust (the page then says: decide in PayPal)."""
     j = dec.judgment
     if not _size_only(dec):
-        return ""
+        return None
     kind, to = outcome(dec, j.action, d, t, team_mod.person(t, me))
     if kind == "refused":
-        return ""
+        return None
     amount = money_out(j.action, j, d)
     cur = d["dispute_amount"].get("currency_code", "EUR")
     if kind == "pass":
-        button, says = f"Pass to {to['name']}", _pass_says(j.action, dec, d, to["name"])
+        button, says = f"Pass to {to['name']}", _pass_says(j.action, dec, d, to["name"], t, me)
     else:
         button = f"Approve: {ACTION.get(j.action, j.action).lower()}" + (f" ({amount:.2f} {cur})" if amount else "")
         says = "Your limits held this back for its size only. You decide: this sends it."
-    return _send_form(did, "Your reply to the buyer", j.draft_message, j.action, button, says, me, kind == "pass")
+    return {"outcome": kind, "action": j.action, "amount": amount, "to": to["name"] if kind == "pass" else None,
+            "says": says, "button": button, "label": "Your reply to the buyer", "draft": j.draft_message,
+            "_via": "form", "_teach": False}
+
+
+def held_action(did: str, dec: Decision, d: dict, t: dict, me: str | None) -> str:
+    o = _held_offer(dec, d, t, me)
+    if not o:
+        return ""
+    return _send_form(did, o["label"], o["draft"], o["action"], o["button"], o["says"], me, o["outcome"] == "pass")
+
+
+def page_offer(did: str, me: str | None, case: dict | None = None) -> dict:
+    """What the case page offers this person, as data: the one decision behind the page's buttons AND the
+    API's `for_person`, so a connected system shows exactly what the page would.
+    outcome: not_reviewed · out_of_date · sent · nothing_to_send · waiting (`to` = who has the case) ·
+    send · pass (`to` = the colleague who decides) · refused. `action` is what the button sends, `amount` the
+    money it moves, `says` the page's own sentence, `draft` the reply the page puts in the box."""
+    case = case if case is not None else _case(did)
+    d = case["dispute"]
+    saved = _saved(did)
+    t = team_for(did)
+    a = None if t.get("solo") else assignments_for(did).get(did)
+    hand = a.get("handoff") if a else None
+    hand = hand if isinstance(hand, dict) and not (saved and saved[1]) else None
+    given = [ev for ev in d.get("evidences", []) if ev.get("source") == "SUBMITTED_BY_SELLER"]
+    # You answered and PayPal holds your evidence: there is nothing to send until the buyer moves.
+    nothing_to_do = d.get("status") == "WAITING_FOR_BUYER_RESPONSE" and bool(given)
+
+    def offer(kind: str, says: str, via: str, **kw) -> dict:
+        return {"outcome": kind, "action": None, "amount": None, "to": None, "says": says, "draft": None,
+                "_via": via, **kw}
+    if not saved:
+        if nothing_to_do:
+            return offer("nothing_to_send", "You've answered. Nothing to do now. Your evidence is with PayPal and PayPal "
+                         "is waiting for the buyer. If they reply or escalate, this case comes back to you.", "none")
+        return offer("not_reviewed", "Not reviewed yet. Take a second look before anyone answers.", "none")
+    dec, sent = saved
+    j = dec.judgment
+    who = team_mod.person(t, me)
+    offered = j.action if dec.overridden and _size_only(dec) else "MESSAGE" if dec.action == "ASK_SELLER" else dec.action
+    draft = j.draft_message
+    if hand and me == a["to"] and hand.get("action") == offered and hand.get("message") is not None:
+        draft = hand["message"]  # the colleague's edited reply is what this person sends
+    changes = _changes(did, case)
+    if changes:
+        return offer("out_of_date", f"This answer is out of date: {'; '.join(changes)}.", "stale", reasons=changes)
+    if sent:
+        return offer("sent", sent, "sent")
+    if nothing_to_do:
+        return offer("nothing_to_send", "Kept for reference: nothing to send while PayPal waits for the buyer. "
+                     "If they write again, Second Look marks this answer out of date.", "kept")
+    if hand and me != a["to"]:
+        # While a handoff waits, only the person it waits for gets a form: the page must not invite two
+        # people to approve the same case at once.
+        holder = team_mod.person(t, a["to"])
+        name = holder["name"] if holder else a["to"]
+        return offer("waiting", f"Waiting for {name}: they decide this one. Nothing to send from here.", "waiting", to=name)
+
+    def form(kind, to, action, says, button, label, teach):
+        return offer(kind, says, "form", action=action, amount=money_out(action, j, d),
+                     to=to["name"] if kind == "pass" else None, button=button, label=label, draft=draft, _teach=teach)
+    held = _held_offer(dec, d, t, me) if dec.overridden else None
+    if held:
+        return {**held, "draft": draft}
+    if dec.action == "ASK_SELLER" and dec.overridden and j.action in MONEY:
+        # The reply was written for the money action your limits stopped: it promises that money.
+        # Sending it as "a question" would make the promise without your approval.
+        what = ACTION.get(j.action, j.action).lower()
+        return offer("refused", f"The drafted reply promises a {what}, which your limits stopped. Decide first. If you "
+                     "refund, do it in PayPal, then come back: Second Look will see the change and draft a reply "
+                     "that matches.", "promise", draft=draft)
+    if dec.action == "ASK_SELLER" and draft:
+        # The drafted question, by the same decision approve() takes: never a button it would refuse.
+        kind, to = outcome(dec, "MESSAGE", d, t, who)
+        if kind == "refused":
+            return offer("refused", to, "draft_refused", draft=draft)
+        if kind == "pass":
+            return form("pass", to, "MESSAGE", _pass_says("MESSAGE", dec, d, to["name"], t, me),
+                        f"Pass to {to['name']}", "Before you decide, ask the buyer", False)
+        return form("send", None, "MESSAGE", "Sends only this message. No money moves.", "Send this question",
+                    "Before you decide, ask the buyer", True)
+    if dec.action == "ASK_SELLER":
+        return offer("nothing_to_send", "Nothing to send: read the checks and decide.", "no_draft")
+    kind, to = outcome(dec, dec.action, d, t, who)
+    if kind == "refused":
+        return offer("refused", to, "refused")
+    if kind == "pass":
+        return form("pass", to, dec.action, _pass_says(dec.action, dec, d, to["name"], t, me),
+                    f"Pass to {to['name']}", "Your reply to the buyer", False)
+    return form("send", None, dec.action, "Sends exactly this to PayPal.",
+                f"Approve: {ACTION.get(dec.action, dec.action).lower()}", "Your reply to the buyer", True)
 
 
 def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
@@ -1161,14 +1259,8 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     else:
         dec, sent = saved
         j = dec.judgment
-        who = team_mod.person(t, me)
-        offered = j.action if dec.overridden and _size_only(dec) else "MESSAGE" if dec.action == "ASK_SELLER" else dec.action
-        if hand and me == a["to"] and hand.get("action") == offered and hand.get("message") is not None:
-            j.draft_message = hand["message"]  # the colleague's edited reply is what this person sends
-        held = held_action(dispute_id, dec, d, t, me) if dec.overridden else ""
-        # While a handoff waits, only the person it waits for gets a form: the page must not invite two
-        # people to approve the same case at once.
-        waits_on_other = bool(hand) and me != a["to"]
+        o = page_offer(dispute_id, me, case)  # the same decision the API gives other systems
+        via = o["_via"]
         guard = ""
         if dec.reasons:
             guard = (f'<div class="guard"><b>Your limits changed the answer'
@@ -1181,52 +1273,30 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
                    f'<p>{e(lead)}</p>'
                    + (f'<details><summary>Full reasoning</summary><p>{e(rest)}</p></details>' if rest else "")
                    + f'{guard}</section>')
-        changes = _changes(dispute_id, case)
         done = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>' if sent else ""
-        if changes:
+        if via == "stale":
             action_part = done + (f'<form class="run" method="post" action="/d/{e(dispute_id)}/review"><div class="stale">'
-                           f'<b>This answer is out of date:</b> {e("; ".join(changes))}.</div>'
+                           f'<b>This answer is out of date:</b> {e("; ".join(o["reasons"]))}.</div>'
                            f'<button>Take a fresh look</button></form>'
                            '<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.'
                            'querySelector("button");b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>')
-        elif sent:
+        elif via == "sent":
             action_part = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>'
-        elif nothing_to_do:
-            action_part = ('<p class="conf">Kept for reference: nothing to send while PayPal waits for the buyer. '
-                           'If they write again, Second Look marks this answer out of date.</p>')
-        elif waits_on_other:
-            action_part = f'<p class="conf">Waiting for {e(holder_name)}: they decide this one. Nothing to send from here.</p>'
-        elif held:
-            action_part = held
-        elif dec.action == "ASK_SELLER" and dec.overridden and j.action in ("REFUND", "PARTIAL_REFUND", "REPLACE"):
-            # The reply was written for the money action your limits stopped: it promises that money.
-            # Sending it as "a question" would make the promise without your approval.
+        elif via in ("kept", "waiting", "no_draft", "refused"):
+            action_part = f'<p class="conf">{e(o["says"])}</p>'
+        elif via == "form":
+            action_part = _send_form(dispute_id, o["label"], o["draft"], o["action"], o["button"], o["says"], me,
+                                     o["outcome"] == "pass", TEACH if o["_teach"] and o["outcome"] != "pass" else "")
+        elif via == "promise":
             action_part = (f'<div class="stale"><b>The drafted reply promises a {e(ACTION.get(j.action, j.action).lower())}, '
                            'which your limits stopped.</b> Decide first. If you refund, do it in PayPal, then come back: '
                            'Second Look will see the change and draft a reply that matches.</div>'
-                           f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(j.draft_message)}</p></details>')
-        elif dec.action == "ASK_SELLER" and j.draft_message:
-            # The drafted question, by the same decision approve() takes: never a button it would refuse.
-            kind, to = outcome(dec, "MESSAGE", d, t, who)
-            if kind == "refused":
-                action_part = (f'<div class="stale"><b>{e(to)}</b></div>'
-                               f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(j.draft_message)}</p></details>')
-            else:
-                button, says = ((f"Pass to {to['name']}", _pass_says("MESSAGE", dec, d, to["name"])) if kind == "pass" else
-                                ("Send this question", "Sends only this message. No money moves."))
-                action_part = _send_form(dispute_id, "Before you decide, ask the buyer", j.draft_message, "MESSAGE",
-                                         button, says, me, kind == "pass", "" if kind == "pass" else TEACH)
-        elif dec.action == "ASK_SELLER":
-            action_part = '<p class="conf">Nothing to send: read the checks and decide.</p>'
+                           f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(o["draft"])}</p></details>')
+        elif via == "draft_refused":
+            action_part = (f'<div class="stale"><b>{e(o["says"])}</b></div>'
+                           f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(o["draft"])}</p></details>')
         else:
-            kind, to = outcome(dec, dec.action, d, t, who)
-            if kind == "refused":
-                action_part = f'<p class="conf">{e(to)}</p>'
-            else:
-                button, says = ((f"Pass to {to['name']}", _pass_says(dec.action, dec, d, to["name"])) if kind == "pass" else
-                                (f"Approve: {ACTION.get(dec.action, dec.action).lower()}", "Sends exactly this to PayPal."))
-                action_part = _send_form(dispute_id, "Your reply to the buyer", j.draft_message, dec.action,
-                                         button, says, me, kind == "pass", "" if kind == "pass" else TEACH)
+            action_part = ""
         right = f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
     return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
@@ -1413,14 +1483,6 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
     return 200, sent
 
 
-def offered_action(dec: Decision) -> str:
-    """The answer the page puts a button on: the recommendation; on "your call", the AI's own answer when the
-    limits held it back only for its size, else the drafted question."""
-    if dec.action != "ASK_SELLER":
-        return dec.action
-    return dec.judgment.action if held_for_size_only(dec.stops) and dec.judgment.action != "ASK_SELLER" else "MESSAGE"
-
-
 def api_case(did: str, as_person: str | None = None) -> dict:
     """Other systems -> Second Look: one case as data, what the page shows."""
     case = _case(did)
@@ -1435,25 +1497,25 @@ def api_case(did: str, as_person: str | None = None) -> dict:
         dec, sent = saved
         out["review"] = {"recommended": dec.action, "ai_said": dec.judgment.action, "confidence": dec.judgment.confidence,
                          "limits_notes": dec.reasons, "held_back_for": dec.stops, "reasoning": dec.judgment.reasoning,
-                         "draft_reply": dec.judgment.draft_message, "checks": dec.judgment.checks,
+                         "draft_reply": dec.judgment.draft_message,
+                         # each check with the page's group (what it means for the answer) and its plain label
+                         "checks": [{**c, "group": _bucket(c), "label": CHECKS.get(c.get("id"), c.get("id"))}
+                                    for c in dec.judgment.checks if isinstance(c, dict) and "id" in c and "result" in c],
                          "sent": sent, "by": _saved_by(did).get("by"), "out_of_date": _changes(did, case),
                          "mark": review_mark(did)}
     if not team_for(did).get("solo"):
         a = assignments_for(did).get(did)
         out["assigned_to"], out["handoff"] = a["to"], a["handoff"]
-    if as_person is not None and saved:
-        # What approving would do for this person: the same outcome() behind the case page's buttons.
+    if as_person is not None:
+        # What the case page offers this person: the same page_offer() behind its buttons.
         t = team_for(did)
         who = team_mod.person(t, as_person)
         if not who:
             out["for_person"] = {"outcome": "unknown_person"}
         else:
-            dec = saved[0]
-            chosen = offered_action(dec)
-            kind, detail = outcome(dec, chosen, d, t, who)
-            out["for_person"] = {"person": who["name"], "action": chosen, "outcome": kind,
-                                 "to": detail["name"] if kind == "pass" else None,
-                                 "why": detail if kind == "refused" else None}
+            o = page_offer(did, None if t.get("solo") else who["id"], case)
+            out["for_person"] = {"person": who["name"], **{k: v for k, v in o.items() if not k.startswith("_")},
+                                 "why": o["says"] if o["outcome"] == "refused" else None}
     return out
 
 

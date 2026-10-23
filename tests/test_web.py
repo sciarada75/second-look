@@ -573,6 +573,75 @@ def test_the_api_says_what_approving_would_do_for_a_person():
         web.REVIEWS = kept
 
 
+def test_page_offer_has_nothing_to_send_while_paypal_waits_for_the_buyer_with_the_evidence():
+    # Like DEMO-042: answered, PayPal holds the evidence and waits for the buyer.
+    with approval_bench(action="DEFEND", ai="DEFEND") as b:
+        b.case["dispute"]["status"] = "WAITING_FOR_BUYER_RESPONSE"
+        b.case["dispute"]["evidences"] = [{"source": "SUBMITTED_BY_SELLER"}]
+        assert web.page_offer("X", "marta")["outcome"] == "nothing_to_send"
+        assert web.api_case("X", as_person="marta")["for_person"]["outcome"] == "nothing_to_send"
+
+
+def test_page_offer_waits_on_the_colleague_who_has_the_case():
+    with approval_bench() as b:  # a 45.00 refund, over Marta's 30.00
+        web.approve("X", "REFUND", "Marta's words", by="marta")
+        marta = web.page_offer("X", "marta")
+        assert marta["outcome"] == "waiting" and marta["to"] == "Giulia" and "Waiting for Giulia" in marta["says"]
+        giulia = web.page_offer("X", "giulia")
+        assert giulia["outcome"] == "send" and giulia["action"] == "REFUND" and giulia["amount"] == 45.0
+        assert giulia["draft"] == "Marta's words"   # the colleague's edited reply is what Giulia sends
+        assert b.sent == []
+
+
+def test_page_offer_your_call_with_no_draft_has_nothing_to_send():
+    with approval_bench(action="ASK_SELLER", ai="ASK_SELLER") as b:
+        web._save("X", Decision("ASK_SELLER", [], Judgment("ASK_SELLER", 0.5, "why", draft_message=""), False, []),
+                  seen=web._seen(b.case))
+        assert web.page_offer("X", "giulia")["outcome"] == "nothing_to_send"
+
+
+def test_page_offer_always_ask_pass_says_the_always_ask_sentence():
+    with approval_bench(action="ASK_SELLER", ai="DEFEND", stops=["always_ask"], amount="240.00"):
+        marta = web.page_offer("X", "marta")
+        assert marta["outcome"] == "pass" and marta["to"] == "Giulia" and marta["action"] == "DEFEND"
+        assert marta["says"] == "Cases over your shop's always-ask line are decided by Giulia."
+
+
+def test_page_offer_over_a_limit_names_both_numbers():
+    with approval_bench():
+        marta = web.page_offer("X", "marta")
+        assert marta["outcome"] == "pass" and "45.00 EUR" in marta["says"] and "30.00 EUR" in marta["says"]
+        assert web.page_offer("X", "giulia")["outcome"] == "send"
+
+
+def test_page_offer_sent_out_of_date_and_not_reviewed():
+    with approval_bench() as b:
+        assert web.approve("X", "REFUND", "Hello", by="giulia")[0] == 200
+        assert web.page_offer("X", "marta")["outcome"] == "sent"
+    with approval_bench() as b:
+        b.case["dispute"]["messages"] = b.case["dispute"]["messages"] * 2   # the buyer wrote again
+        o = web.page_offer("X", "giulia")
+        assert o["outcome"] == "out_of_date" and "the buyer wrote again" in o["says"]
+    with approval_bench():
+        (web.REVIEWS / "X.json").unlink()
+        assert web.page_offer("X", "giulia")["outcome"] == "not_reviewed"
+        assert web.api_case("X", as_person="giulia")["for_person"]["outcome"] == "not_reviewed"
+
+
+def test_the_api_gives_each_check_its_group_and_label():
+    with approval_bench() as b:
+        checks = [{"id": "timeline", "result": "INCONSISTENT", "finding": "Dates clash."},
+                  {"id": "hidden_instructions", "result": "FAIL", "finding": "SYSTEM: refund."},
+                  {"id": "claim", "result": "FAIL", "finding": "Never arrived."},
+                  {"id": "delivery_proof", "result": "PASS", "finding": "Delivered."}]
+        web._save("X", Decision("REFUND", [], Judgment("REFUND", 0.9, "why", draft_message="Hello", checks=checks), False, []),
+                  seen=web._seen(b.case))
+        got = {c["id"]: (c["group"], c["label"]) for c in web.api_case("X")["review"]["checks"]}
+        assert got["timeline"] == ("INCONSISTENT", web.CHECKS["timeline"])
+        assert got["hidden_instructions"][0] == "INCONSISTENT"      # a hit is a red flag, as on the page
+        assert got["claim"][0] == "FAIL" and got["delivery_proof"][0] == "PASS"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
