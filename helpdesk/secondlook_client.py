@@ -7,11 +7,12 @@ own page. Any failure to reach Second Look raises Unavailable, which the pages s
 from __future__ import annotations
 
 import json
+from http.client import HTTPException
 from urllib import error, parse, request
 
 
 class Unavailable(Exception):
-    """Second Look did not answer (not running, wrong address, timeout)."""
+    """Second Look did not answer properly (not running, wrong address, timeout, a server error)."""
 
 
 class SecondLook:
@@ -25,12 +26,14 @@ class SecondLook:
         try:
             with request.urlopen(req, timeout=self.timeout) as r:
                 return r.status, json.loads(r.read() or b"null")
-        except error.HTTPError as e:          # 4xx/5xx still carry Second Look's JSON answer
+        except error.HTTPError as e:          # a 4xx still carries Second Look's JSON answer
+            if e.code >= 500:
+                raise Unavailable(f"Second Look answered {e.code}") from e
             try:
                 return e.code, json.loads(e.read() or b"null")
             except ValueError:
                 return e.code, None
-        except (error.URLError, OSError, ValueError) as e:
+        except (error.URLError, OSError, ValueError, HTTPException) as e:
             raise Unavailable(str(e)) from e
 
     def customer(self, email: str) -> dict | None:

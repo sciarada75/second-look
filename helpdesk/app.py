@@ -11,11 +11,14 @@ Run:  python3 -m helpdesk serve   ->  http://127.0.0.1:8766
 """
 from __future__ import annotations
 
+import hmac
 import html
 import json
+import os
 import re
+import secrets
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlparse
@@ -83,10 +86,10 @@ h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
 .sl{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--kraft);border-radius:10px;
   animation:arrive .28s ease-out both}
 @keyframes arrive{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-.sl > header{display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--kraft-bg);border-bottom:1px solid #EADCC8;
-  font-weight:600;font-size:14px}
-.sl > header .dot{width:10px;height:10px;border-radius:50%;background:var(--kraft)}
-.sl > header small{margin-left:auto;font-weight:400;color:#8A6A40;font-size:12px}
+.sl > header{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--kraft-bg);border-bottom:1px solid #EADCC8;
+  font-family:"Schibsted Grotesk",system-ui,sans-serif;color:#1E2935}
+.sl-name{font-weight:700;font-size:17px;letter-spacing:-.01em}
+.sl > header small{margin-left:auto;font-weight:500;color:#8A6A40;font-size:12px}
 .sl .body{padding:14px 16px 16px}
 .sl .body > *:first-child{margin-top:0}
 .sl p{margin:8px 0} .sl .soft{color:var(--soft);font-size:13px}
@@ -98,10 +101,16 @@ h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
 .pill.paypal{background:#E9ECF1;color:var(--soft)} .pill.claim{background:#EFE6F3;color:#6B3F80}
 .rec{font-size:18px;font-weight:600;margin:10px 0 2px}
 .sl ul{margin:6px 0;padding-left:18px} .sl li{margin:3px 0}
-.flag li::marker{color:var(--bad)} .flag b{font-weight:500}
-.costs{background:#F6F8FB;border-radius:8px;padding:8px 12px;font-size:14px}
+.group{margin-top:14px} .group h4{font-size:13px;font-weight:600;margin:0 0 4px}
+.group h4 span{font-weight:400;color:var(--soft)}
+.group.incon h4{color:var(--bad)} .group.fail h4{color:var(--warn)}
+.group ul{list-style:none;padding:0;margin:0} .group li{font-size:14px;margin:4px 0;padding-left:10px;border-left:2px solid var(--line)}
+.group.incon li{border-left-color:var(--bad)} .group.fail li{border-left-color:#E2B77A}
+.group b{font-weight:500} .group summary{cursor:pointer} .group details p{margin:4px 0 0;color:var(--soft)}
+.drafted summary{cursor:pointer;font-size:13px;color:var(--soft);margin-top:8px}
+.costs{background:#F6F8FB;border-radius:8px;padding:8px 12px;font-size:14px;margin-top:14px}
 .sl label{display:block;font-size:13px;color:var(--soft);margin:12px 0 4px}
-.sl textarea{width:100%;min-height:150px;font:inherit;font-size:14px;padding:10px;border:1px solid var(--line);border-radius:8px;resize:vertical}
+.sl textarea{width:100%;min-height:118px;font:inherit;font-size:14px;padding:10px;border:1px solid var(--line);border-radius:8px;resize:vertical}
 .sl .draft{white-space:pre-wrap;font-size:14px;background:#F6F8FB;border-radius:8px;padding:10px}
 .sl button{margin-top:10px;font:500 15px "IBM Plex Sans",system-ui,sans-serif;padding:9px 16px;border:0;border-radius:7px;
   background:var(--accent);color:#fff;cursor:pointer;width:100%}
@@ -199,43 +208,84 @@ def event_text(ev: dict) -> str:
     return str(kind)
 
 
+def plural(n, word: str) -> str:
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        n = 0
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def first_sentence(text: str) -> tuple:
+    """(the first sentence, the rest): the panel shows the first, the rest folds away."""
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z\"'(])", text.strip(), maxsplit=1)
+    return parts[0], (parts[1] if len(parts) > 1 else "")
+
+
+# Second Look's own groups, as its case page shows them. Only these two matter before answering.
+GROUPS = [("INCONSISTENT", "Doesn't add up: check these first", "incon"),
+          ("FAIL", "Supports the buyer's claim", "fail")]
+
+# Second Look's own mark (secondlook/web.py MARK), a little larger: another product inside this one.
+SL_MARK = ('<svg class="sl-mark" width="34" height="25" viewBox="0 0 30 22" aria-hidden="true">'
+           '<circle cx="11" cy="11" r="9" fill="#B5874F"/><circle cx="19" cy="11" r="9" fill="none" stroke="#1E2935" stroke-width="3"/></svg>')
+
+NO_READ = "Second Look answered something Ticketbook couldn't read. Open it in Second Look."
+
+
 class Helpdesk:
     def __init__(self, tickets_path, events_path, sl):
         self.tickets_path, self.events_path, self.sl = Path(tickets_path), Path(events_path), sl
         self._lock = threading.Lock()
+        self._flashes: dict = {}  # one-time messages after an approval: token -> (text, ok)
+
+    # ---------- one-time messages ----------
+
+    def put_flash(self, text: str, ok: bool) -> str:
+        token = secrets.token_urlsafe(12)
+        with self._lock:
+            self._flashes[token] = (text, ok)
+            while len(self._flashes) > 200:              # never grows without end
+                self._flashes.pop(next(iter(self._flashes)))
+        return token
+
+    def take_flash(self, token: str | None):
+        with self._lock:
+            return self._flashes.pop(token, None) if token else None
 
     # ---------- Second Look's notifications ----------
 
     def add_event(self, payload) -> bool:
-        """Keep one notification from Second Look (one JSON line). Anything that isn't one is ignored.
-        Stored as it came: it is escaped when shown, never when stored."""
+        """Keep one notification from Second Look (one JSON line), with the time it arrived. Anything that isn't
+        one is ignored. Stored as it came: it is escaped when shown, never when stored."""
         if not (isinstance(payload, dict) and isinstance(payload.get("event"), str)
                 and isinstance(payload.get("dispute_id"), str)):
             return False
+        line = {**payload, "received": datetime.now(timezone.utc).isoformat(timespec="microseconds")}
         with self._lock:
             self.events_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.events_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+                f.write(json.dumps(line, ensure_ascii=False, default=str) + "\n")
         return True
 
-    def events_for(self, dispute_id: str) -> list:
-        """This case's notifications, oldest first (newest last)."""
+    def events_for(self, *dispute_ids: str) -> list:
+        """These cases' notifications in the order they arrived (newest last), across all of them."""
         try:
             lines = self.events_path.read_text(encoding="utf-8").splitlines()
         except OSError:
             return []
         out = []
-        for line in lines:
+        for i, line in enumerate(lines):
             try:
                 ev = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(ev, dict) and ev.get("dispute_id") == dispute_id:
-                out.append(ev)
-        return out
+            if isinstance(ev, dict) and ev.get("dispute_id") in dispute_ids:
+                out.append((str(ev.get("received") or ""), i, ev))
+        return [ev for _, _, ev in sorted(out, key=lambda x: (x[0], x[1]))]
 
     def history(self, dispute_ids: list) -> str:
-        evs = [ev for did in dispute_ids for ev in self.events_for(did)]
+        evs = self.events_for(*dispute_ids)
         if not evs:
             return ""
         items = "".join(f"<li>Second Look: {e(event_text(ev))}</li>" for ev in evs)
@@ -259,6 +309,13 @@ class Helpdesk:
     def secondlook_url(self) -> str:
         return getattr(self.sl, "base", "http://127.0.0.1:8765")
 
+    def open_disputes(self, cu) -> list:
+        """The customer's open PayPal disputes, as Second Look's customer record lists them."""
+        if not isinstance(cu, dict):
+            raise ValueError("customer record is not an object")
+        return [str(d["dispute_id"]) for d in cu.get("disputes") or []
+                if isinstance(d, dict) and d.get("outcome") == "Open" and d.get("dispute_id")]
+
     # ---------- pages ----------
 
     def _page(self, title: str, crumb: str, me: dict, body: str, here: str = "inbox") -> str:
@@ -269,7 +326,7 @@ class Helpdesk:
         return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Schibsted+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 <style>{CSS}</style></head><body>
 <aside class="rail"><div class="brand"><b>Ticketbook</b><small>a made-up helpdesk</small></div>
 <nav aria-label="Views"><a href="/"{" class=on" if here == "inbox" else ""}>Inbox <span>{open_n} open</span></a></nav>
@@ -317,47 +374,59 @@ class Helpdesk:
     # ---------- the Second Look panel: only what the API says ----------
 
     def panel(self, t: dict, me: dict) -> str:
+        """Never takes the ticket down: whatever Second Look answers, the email still opens."""
         try:
             body = self._panel_body(t, me)
         except Unavailable:
             body = "<p>Second Look isn't answering. Is it running on port 8765?</p>"
-        return ('<section class="sl" aria-label="Second Look"><header><span class="dot"></span>Second Look'
+        except Exception:  # noqa: BLE001 - an answer of the wrong shape is a message, never a broken ticket
+            body = (f'<p>{e(NO_READ)}</p><a class="open-sl" href="{e(self.secondlook_url())}/" target="_blank" '
+                    'rel="noopener">Open Second Look</a>')
+        return (f'<section class="sl" aria-label="Second Look"><header>{SL_MARK}<span class="sl-name">Second Look</span>'
                 f'<small>PayPal disputes</small></header><div class="body">{body}</div></section>')
 
     def _panel_body(self, t: dict, me: dict) -> str:
         cu = self.sl.customer(t.get("from_email", ""))
-        if not cu:
+        if cu is None:
             return "<p>No orders or PayPal disputes for this email in Second Look.</p>"
+        open_ids = self.open_disputes(cu)
         disputes = cu.get("disputes") or []
-        n = len(disputes)
-        line = f'{cu.get("name") or t.get("from_name", "")}: {cu.get("orders", 0)} orders, {n} PayPal dispute{"" if n == 1 else "s"}'
+        line = f'{cu.get("name") or t.get("from_name", "")}: {plural(cu.get("orders"), "order")}, {plural(len(disputes), "PayPal dispute")}'
         if cu.get("dispute_rate") is not None:
             line += f' ({float(cu["dispute_rate"]):.0%})'
         line += "."
         if cu.get("shop_dispute_rate") is not None:
             line += f' Your shop: {float(cu["shop_dispute_rate"]):.0%}.'
         parts = [f"<p>{e(line)}</p>"]
-        open_ids = [d.get("dispute_id") for d in disputes if d.get("outcome") == "Open" and d.get("dispute_id")]
         if not open_ids:
             parts.append('<p class="soft">No open PayPal dispute.</p>')
         for did in open_ids:
-            parts.append(self._case_block(str(did), me, int(t["id"])))
-        parts.append(self.history([str(d) for d in open_ids]))
+            parts.append(self._case_block(did, me, int(t["id"])))
+        parts.append(self.history(open_ids))
         return "".join(parts)
 
     def _case_block(self, did: str, me: dict, tid: int) -> str:
         link = (f'<a class="open-sl" href="{e(self.secondlook_url())}/d/{e(quote(did))}?as={e(quote(me["id"]))}" '
                 f'target="_blank" rel="noopener">Open in Second Look</a>')
         c = self.sl.case(did, as_person=me["id"])
-        if not c:
+        if c is None:
             return f'<div class="case"><p>Second Look has no case {e(did)}.</p>{link}</div>'
+        if not isinstance(c, dict):
+            raise ValueError("case is not an object")
         head = (f'<div class="line">{pill(c)}<span class="amt">{e(money(c.get("amount")))}</span>'
-                f'<span>{e(REASON.get(c.get("reason"), c.get("reason") or ""))}</span></div>'
+                f'<span>{e(REASON.get(c.get("reason"), str(c.get("reason") or "")))}</span></div>'
                 f'<p class="soft">PayPal dispute {e(did)}</p>')
         r = c.get("review")
-        if not r:
-            return (f'<div class="case">{head}<p>Not reviewed yet. Open in Second Look to take a second look.</p>'
+        fp = c.get("for_person")
+        if fp is not None and not isinstance(fp, dict):
+            raise ValueError("for_person is not an object")
+        if r is None:
+            says = (fp or {}).get("says") or "Not reviewed yet."
+            return (f'<div class="case">{head}<p>{e(str(says))} Open in Second Look to take a second look.</p>'
                     f'{link}</div>')
+        if not isinstance(r, dict):
+            raise ValueError("review is not an object")
+        # The decision first (what Second Look recommends, and the one button it allows), then the why.
         out = [head, f'<p class="rec">{e(words(r.get("recommended")))}</p>']
         conf = r.get("confidence")
         sub = f"Confidence {float(conf):.0%}." if isinstance(conf, (int, float)) else ""
@@ -365,75 +434,95 @@ class Helpdesk:
             sub += f' The AI\'s own answer: {words(r["ai_said"]).lower()}.'
         if sub:
             out.append(f'<p class="soft">{e(sub.strip())}</p>')
-        notes = [n for n in r.get("limits_notes") or [] if n]
-        if notes:
-            out.append('<ul>' + "".join(f"<li>{e(str(n))}</li>" for n in notes) + '</ul>')
-        flagged = [k for k in r.get("checks") or [] if isinstance(k, dict) and k.get("result") in ("FAIL", "INCONSISTENT")]
-        if flagged:
-            out.append('<label>What doesn\'t add up</label><ul class="flag">' + "".join(
-                f'<li><b>{e(label(k.get("id")))}</b>: {e(str(k.get("finding", "")))}</li>'
-                for k in flagged) + '</ul>')
+        notes = r.get("limits_notes")
+        if isinstance(notes, list) and any(notes):
+            out.append('<ul class="limits">' + "".join(f"<li>{e(str(n))}</li>" for n in notes if n) + '</ul>')
+        out.append(self._action(c, r, fp or {}, did, me, tid))
+        out.append(self._checks(r.get("checks")))
         costs = (c.get("evidence") or {}).get("costs")
         if isinstance(costs, dict):
             out.append(costs_line(costs))
-        out.append(self._action(c, r, did, me, tid))
         out.append(link)
         return f'<div class="case">{"".join(out)}</div>'
 
-    def _action(self, c: dict, r: dict, did: str, me: dict, tid: int) -> str:
-        """The button Second Look's for_person allows, and nothing else."""
-        draft = r.get("draft_reply") or ""
-        shown = f'<label>Drafted reply</label><div class="draft">{e(draft)}</div>' if draft else ""
-        if r.get("sent"):
-            return f'<p class="state sent">Sent: {e(str(r["sent"]))}</p>'
-        if r.get("out_of_date"):
-            return (f'<p class="state stop">Out of date in Second Look: {e(", ".join(map(str, r["out_of_date"])))}.</p>'
-                    + shown)
-        fp = c.get("for_person") or {}
+    def _checks(self, checks) -> str:
+        """The checks that matter before answering, in Second Look's own groups: a label and the first sentence
+        of the finding; the rest folds away."""
+        if not isinstance(checks, list):
+            return ""
+        out = []
+        for group, title, cls in GROUPS:
+            rows = []
+            for k in checks:
+                if not isinstance(k, dict) or k.get("group") != group:
+                    continue
+                lead, rest = first_sentence(str(k.get("finding") or ""))
+                name = e(str(k.get("label") or label(k.get("id"))))
+                rows.append(f'<li><details><summary><b>{name}.</b> {e(lead)}</summary><p>{e(rest)}</p></details></li>'
+                            if rest else f'<li><b>{name}.</b> {e(lead)}</li>')
+            if rows:
+                out.append(f'<section class="group {cls}"><h4>{e(title)} <span>{len(rows)}</span></h4>'
+                           f'<ul>{"".join(rows)}</ul></section>')
+        return "".join(out)
+
+    def _action(self, c: dict, r: dict, fp: dict, did: str, me: dict, tid: int) -> str:
+        """What Second Look's for_person says this agent can do, shown as it says it. Ticketbook decides nothing."""
+        draft = fp.get("draft") if fp.get("draft") is not None else (r.get("draft_reply") or "")
+        folded = (f'<details class="drafted"><summary>Read the drafted reply</summary><div class="draft">{e(str(draft))}</div></details>'
+                  if draft else "")
         kind = fp.get("outcome")
-        if kind == "refused":
-            return f'<p class="state stop">{e(str(fp.get("why") or "Second Look does not allow this answer."))}</p>' + shown
+        says = str(fp.get("says") or fp.get("why") or "")
+        # A sent or stale review never gets a button, whatever else the answer says.
+        if kind in ("send", "pass") and r.get("sent"):
+            kind, says = "sent", str(r["sent"])
+        elif kind in ("send", "pass") and r.get("out_of_date"):
+            kind, says = "out_of_date", "Out of date in Second Look: " + ", ".join(map(str, r["out_of_date"])) + "."
+        if kind == "sent":
+            return f'<p class="state sent">Sent: {e(says)}</p>'
+        if kind in ("out_of_date", "nothing_to_send", "waiting", "refused", "not_reviewed"):
+            return f'<p class="state stop">{e(says or "Nothing to approve from here.")}</p>' + folded
         if kind == "unknown_person":
             return (f'<p class="state stop">Second Look doesn\'t know {e(me["name"])} as a person in this shop\'s team.</p>'
-                    + shown)
+                    + folded)
         if kind not in ("send", "pass"):
             return (f'<p class="state stop">Second Look didn\'t say what approving would do for {e(me["name"])}. '
-                    'Decide in Second Look.</p>' + shown)
-        # A case already passed on, as Second Look reports it (handoff, assigned_to): its own page says the same.
+                    'Decide in Second Look.</p>' + folded)
         hand = c.get("handoff") if isinstance(c.get("handoff"), dict) else None
-        if hand and kind == "pass" and c.get("assigned_to") != me["id"]:
-            to = fp.get("to") or "a colleague"
-            return (f'<p class="state stop">Waiting for {e(to)}: they decide this one. Nothing is sent from here.</p>'
-                    + shown)
-        handed = ""
-        if hand and c.get("assigned_to") == me["id"] and hand.get("action") == fp.get("action"):
-            handed = f'<p class="note">Passed to you by {e(str(hand.get("from_name") or "a colleague"))}, with their reply.</p>'
-            if hand.get("message") is not None:
-                draft = hand["message"]
+        handed = (f'<p class="note">Passed to you by {e(str(hand.get("from_name") or "a colleague"))}, with their reply.</p>'
+                  if hand and c.get("assigned_to") == me["id"] else "")
         if kind == "send":
-            button = f'<button type="submit">Approve as {e(fp.get("person") or me["name"])}: {e(words(fp.get("action")).lower())}</button>'
-            say = "Second Look sends this to PayPal and the buyer."
+            amount = fp.get("amount")
+            cur = (c.get("amount") or {}).get("currency_code", "") if isinstance(c.get("amount"), dict) else ""
+            much = f" ({float(amount):.2f} {cur})".replace(" )", ")") if isinstance(amount, (int, float)) and amount else ""
+            button = (f'<button type="submit">Approve as {e(str(fp.get("person") or me["name"]))}: '
+                      f'{e(words(fp.get("action")).lower())}{e(much)}</button>')
         else:
-            to = fp.get("to") or "a colleague"
-            button = f'<button type="submit" class="pass">Pass to {e(to)}</button>'
-            say = f"Over your limit: {to} decides. Nothing is sent now."
-        return (f'<form method="post" action="/t/{tid}/approve">'
+            button = f'<button type="submit" class="pass">Pass to {e(str(fp.get("to") or "a colleague"))}</button>'
+        return (f'<form method="post" action="/t/{int(tid)}/approve">'
                 f'<input type="hidden" name="dispute_id" value="{e(did)}">'
                 f'<input type="hidden" name="action" value="{e(str(fp.get("action") or ""))}">'
                 f'<input type="hidden" name="review" value="{e(str(r.get("mark") or ""))}">'
                 f'<input type="hidden" name="by" value="{e(me["id"])}">{handed}'
                 f'<label for="msg-{e(did)}">Reply to the buyer</label>'
-                f'<textarea id="msg-{e(did)}" name="message">{e(draft)}</textarea>'
-                f'{button}<p class="note">{e(say)}</p></form>')
+                f'<textarea id="msg-{e(did)}" name="message">{e(str(draft))}</textarea>'
+                f'{button}<p class="note">{e(says)}</p></form>')
 
     # ---------- actions ----------
 
     def approve(self, ticket_id: int, agent_id: str, form: dict) -> tuple:
-        """The agent's approval, sent to Second Look as it is: Second Look applies the limits and answers."""
+        """The agent's approval, sent to Second Look as it is: Second Look applies the limits and answers.
+        Only for one of this ticket's customer's open disputes, as Second Look lists them."""
+        t = self.ticket(ticket_id)
+        if not t:
+            return 404, "No such ticket."
         try:
+            if form.get("dispute_id") not in self.open_disputes(self.sl.customer(t.get("from_email", ""))):
+                return 400, "That PayPal dispute isn't one of this customer's open disputes. Nothing was sent."
             return self.sl.approve(form["dispute_id"], form["action"], form.get("message"), agent_id, form.get("review"))
-        except Unavailable:
-            return 503, "Second Look isn't answering. Nothing was sent."
+        except Unavailable as err:
+            return 503, f"Second Look didn't answer properly ({err}). Check the case in Second Look before trying again."
+        except ValueError:
+            return 502, NO_READ
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -462,11 +551,25 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b)
 
+    def _text(self, text: str, code: int):
+        self._send(text, code, "text/plain; charset=utf-8")
+
     def _redirect(self, to: str):
         self.send_response(303)
         self.send_header("Location", to)
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def _from_here(self) -> bool:
+        """A form post must come from Ticketbook's own pages when the browser says where it came from.
+        (A local prototype with no sign-in: this stops another site posting into it, nothing more.)"""
+        port = self.server.server_address[1]
+        here = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        for name in ("Origin", "Referer"):
+            v = self.headers.get(name)
+            if v and urlparse(v).netloc not in here:
+                return False
+        return True
 
     def do_GET(self):
         u = urlparse(self.path)
@@ -481,10 +584,10 @@ class Handler(BaseHTTPRequestHandler):
             parts = u.path.strip("/").split("/")
             if len(parts) == 2 and parts[0] == "t" and parts[1].isdigit():
                 tid = int(parts[1])
-                page = self.hd.ticket_page(tid, me, flash=(qs.get("flash") or [""])[0],
-                                           ok=(qs.get("ok") or ["1"])[0] == "1")
+                flash = self.hd.take_flash((qs.get("flash") or [""])[0]) or ("", True)
+                page = self.hd.ticket_page(tid, me, flash=flash[0], ok=flash[1])
                 return self._send(page, 200 if self.hd.ticket(tid) else 404)
-            self._send("Not found", 404, "text/plain; charset=utf-8")
+            self._text("Not found", 404)
         except Exception as err:  # noqa: BLE001 - say what went wrong, never a blank page
             self._send(f"<p>That didn't work: {e(str(err))}</p>", 500)
 
@@ -494,29 +597,36 @@ class Handler(BaseHTTPRequestHandler):
         parts = u.path.strip("/").split("/")
         try:
             if len(parts) == 3 and parts[0] == "t" and parts[1].isdigit() and parts[2] == "approve":
+                if not self._from_here():
+                    return self._text("This form can only be sent from Ticketbook's own pages.", 403)
                 tid = int(parts[1])
                 # keep_blank_values: an emptied reply box arrives empty, never as "use the draft"
                 form = {k: v[0] for k, v in parse_qs(raw.decode(), keep_blank_values=True).items()}
                 by = form.get("by")  # the agent the page was shown to
                 if not self.hd.is_agent(by) or not form.get("dispute_id") or not form.get("action"):
-                    code, text = 400, "Choose who you are at the top of the page, then try again."
-                else:
-                    code, text = self.hd.approve(tid, by, form)
-                q = {"flash": text, "ok": "1" if code in (200, 202) else "0"}
+                    return self._text("Choose who you are at the top of the page, then try again.", 400)
+                code, text = self.hd.approve(tid, by, form)
+                q = {"flash": self.hd.put_flash(text, code in (200, 202))}
                 if "film=1" in (self.headers.get("Referer") or ""):
                     q["film"] = "1"
                 return self._redirect(f"/t/{tid}?{urlencode(q)}")
             if parts == ["hooks", "secondlook"]:
-                # Second Look -> Ticketbook: a notification (answer.sent, case.handed_off, review.ready)
+                # Second Look -> Ticketbook: a notification (answer.sent, case.handed_off, review.ready).
+                # With TICKETBOOK_HOOK_KEY set, Second Look's address must carry ?key=<the same key>.
+                key = os.environ.get("TICKETBOOK_HOOK_KEY")
+                if key and not hmac.compare_digest((parse_qs(u.query).get("key") or [""])[0].encode(), key.encode()):
+                    return self._text("Wrong or missing key.", 403)
+                if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                    return self._text("Send JSON (Content-Type: application/json).", 415)
                 try:
                     payload = json.loads(raw or b"null")
                 except ValueError:
-                    return self._send("Not JSON", 400, "text/plain; charset=utf-8")
+                    return self._text("Not JSON", 400)
                 self.hd.add_event(payload)
                 self.send_response(204)
                 self.end_headers()
                 return None
-            self._send("Not found", 404, "text/plain; charset=utf-8")
+            self._text("Not found", 404)
         except Exception as err:  # noqa: BLE001
             self._send(f"<p>That didn't work: {e(str(err))}</p>", 500)
 
