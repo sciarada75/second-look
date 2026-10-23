@@ -138,6 +138,27 @@ def test_the_guard_records_why_it_stopped_an_answer():
     assert apply_policy(Judgment("DEFEND", 0.9, "x"), POLICY, dispute(20), {}).stops == []
 
 
+def size_and_trust_cases():
+    """A refund of 80 (over the cap of 50) that ALSO has a trust problem, one per trust rule."""
+    broken = [{"id": "timeline", "result": "INCONSISTENT", "finding": "delivered before it was ordered"}]
+    pol = {**POLICY, "repeat_buyer": {"times_shop_rate": 3, "min_earlier_disputes": 2, "min_shop_orders": 20}}
+    no_refund = dispute(80)
+    no_refund["dispute_life_cycle_stage"] = "CHARGEBACK"
+    no_refund["allowed_response_options"] = {"make_offer": {"offer_types": ["REPLACEMENT_WITHOUT_REFUND"]}}
+    no_refund["links"] = [{"rel": "provide_evidence"}]
+    return [("inconsistent", apply_policy(Judgment("REFUND", 0.95, "x", checks=broken), POLICY, dispute(80), {})),
+            ("repeat_buyer", apply_policy(Judgment("REFUND", 0.95, "x"), pol, dispute(80), history(3, 3, 4, 400, 2))),
+            ("paypal_allowed", apply_policy(Judgment("REFUND", 0.95, "x"), POLICY, no_refund, {}))]
+
+
+def test_a_size_stop_never_hides_a_trust_stop():
+    for why, d in size_and_trust_cases():
+        assert d.action == "ASK_SELLER" and "cap" in d.stops and why in d.stops, (why, d.stops)
+    broken = [{"id": "timeline", "result": "INCONSISTENT", "finding": "x"}]
+    d = apply_policy(Judgment("DEFEND", 0.9, "x", checks=broken), POLICY, dispute(250), {})
+    assert d.action == "ASK_SELLER" and d.stops == ["always_ask", "inconsistent"], d.stops
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

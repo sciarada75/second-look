@@ -63,9 +63,15 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     if action != j.action:
         notes.append(f"Model returned unknown action {j.action!r}; routed to you.")
         stops.append("unknown_action")
+    # The answer the AI drafted, before any rule below. Rules 6-8 check it even when an earlier rule
+    # already handed the case to the seller: a person may now take an answer held back ONLY for its
+    # size (may_approve), so every trust reason must be on record after a size stop too. Without this,
+    # a refund over the cap with broken evidence was stopped for "cap" alone (found 2026-10-23).
+    # Recording only: the resulting action is exactly what it was before.
+    drafted = action
 
     amount = float(dispute["dispute_amount"]["value"])
-    money_out = action in ("REFUND", "PARTIAL_REFUND", "REPLACE")
+    sends_money = action in MONEY
     # The cap applies to the money actually going out: a partial refund of 20 on a 60 order is 20.
     # (Bug found by the eval, 2026-10-16: the guard compared the whole order with the cap.)
     out_amount = amount
@@ -79,14 +85,14 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             stops.append("partial_amount")
 
     # Rule 1: never move money below the confidence bar.
-    if money_out and j.confidence < policy["min_confidence"]:
+    if sends_money and j.confidence < policy["min_confidence"]:
         notes.append(f"Confidence {j.confidence:.2f} is below your bar of {policy['min_confidence']:.2f} for giving money back.")
         action = "ASK_SELLER"
         stops.append("confidence")
 
     # Rule 2: never refund above the seller's cap without asking.
     cap = policy["max_auto_refund"]
-    if money_out and out_amount > cap:
+    if sends_money and out_amount > cap:
         notes.append(f"Refund of {out_amount:.2f} {dispute['dispute_amount']['currency_code']} is above your auto-refund cap of {cap:.2f}; you decide.")
         action = "ASK_SELLER"
         stops.append("cap")
@@ -112,7 +118,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     buyer_text = " ".join(m.get("content", "") for m in dispute.get("messages", [])
                           if m.get("posted_by") == "BUYER").lower()
     for marker in policy.get("injection_markers", []):
-        if marker in buyer_text and money_out:
+        if marker in buyer_text and sends_money:
             notes.append(f"Buyer text contains {marker!r}: looks like an attempt to instruct the assistant. Routed to you.")
             action = "ASK_SELLER"
             stops.append("injection")
@@ -135,8 +141,9 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         for t in allowed.get("make_offer", {}).get("offer_types", []):
             can.add({"REFUND": "PARTIAL_REFUND", "REPLACEMENT_WITHOUT_REFUND": "REPLACE",
                      "REFUND_WITH_REPLACEMENT": "REPLACE"}.get(t, ""))
-        if action != "ASK_SELLER" and action not in can:
-            notes.append(f"PayPal does not allow {action} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
+        subject = drafted if action == "ASK_SELLER" else action
+        if subject != "ASK_SELLER" and subject not in can:
+            notes.append(f"PayPal does not allow {subject} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
                          f"(allowed: {', '.join(sorted(c for c in can if c))}). Routed to you.")
             action = "ASK_SELLER"
             stops.append("paypal_allowed")
@@ -145,7 +152,8 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     # tracking that may belong to another order), nobody defends or pays on it unseen. This runs
     # after rule 4 on purpose: "delivered to the PayPal address" means nothing if the dates are wrong.
     failed = [c["id"] for c in j.checks if c.get("id") in INTEGRITY_CHECKS and c.get("result") == "INCONSISTENT"]
-    if failed and (action == "DEFEND" or action in ("REFUND", "PARTIAL_REFUND", "REPLACE")):
+    subject = drafted if action == "ASK_SELLER" else action
+    if failed and (subject == "DEFEND" or subject in MONEY):
         notes.append(f"The judge found the evidence inconsistent ({', '.join(failed)}); check it before anything is sent.")
         action = "ASK_SELLER"
         stops.append("inconsistent")
@@ -153,7 +161,8 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     # Rule 8: a buyer who disputes far more often than the shop's usual rate (the base rate, not a raw
     # count) gets no money unseen. Only with enough orders to compare, and the numbers are the seller's.
     h, rb = records.get("buyer_history_counts") or {}, policy.get("repeat_buyer") or {}
-    if h and rb and action in ("REFUND", "PARTIAL_REFUND", "REPLACE") and h.get("buyer_orders") \
+    subject = drafted if action == "ASK_SELLER" else action
+    if h and rb and subject in MONEY and h.get("buyer_orders") \
             and h.get("shop_disputes") and h.get("shop_orders", 0) >= rb.get("min_shop_orders", 20) \
             and h.get("earlier_disputes", 0) >= rb.get("min_earlier_disputes", 2):
         times = (h["buyer_disputes"] / h["buyer_orders"]) / (h["shop_disputes"] / h["shop_orders"])
