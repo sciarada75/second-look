@@ -133,7 +133,7 @@ as the screen.
 | `GET /api/disputes` | the open cases, with the recommended answer once reviewed |
 | `GET /api/disputes/<id>` | one case: what was said, the evidence and its sources, the review, the drafted reply, the ten checks, whether the review is out of date |
 | `POST /api/disputes/<id>/review` | ask for a review (the AI runs; a few cents) |
-| `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop |
+| `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
 
 **Second Look → your systems**: set `SECONDLOOK_NOTIFY_URL` in `.env` and Second Look POSTs a small
@@ -146,7 +146,7 @@ Add `?shop=demo` or `?practice=1` to try any of it on the demo shop or the pract
 ## Teams: who may send what
 
 A shop with a customer care team lists its people and roles in `policy.json` → `team`
-(for the demo shop: `demo/shop.json` → `shop.team`). Each role has a refund limit. The shop's
+(the demo shop's team arrives with the demo-shop update, in `demo/shop.json`). Each role has a refund limit. The shop's
 limits still decide which answers need a person; a role's limit only narrows which person may
 send them, and no role can send an answer the limits held back for trust.
 
@@ -164,8 +164,9 @@ send them, and no role can send an answer the limits held back for trust.
   notification. Cases belong to someone: *Mine · Unassigned · Everyone*, and *Take it*.
 - **The API must say who approves:** `POST /api/disputes/<id>/approve` with `"by": "<person id>"`.
   In a team shop, an approval without a known name is refused (400) and nothing is sent.
-- A shop with no `team` block is a team of one and sees nothing of this, with one gain: an answer
-  held back only for its size gets an Approve button instead of "do it in PayPal".
+- A shop with no `team` block is a team of one: no picker, no owners, no handoffs. One thing changes
+  for a solo seller: an answer held back only for its size gets an Approve button instead of "do it
+  in PayPal".
 
 **Not built:** sign-in. You choose who you are at the top of the page; this is a prototype that
 runs on your own machine. The person picker is not authentication: anyone at the machine can pick
@@ -229,10 +230,10 @@ answer was to defend.
 
 | judge | correct (after guard) | unjustified refunds | losing fights | sent to the seller |
 |---|---|---|---|---|
-| `rules` baseline | 11/16 | 0 | see `eval --judge rules` | 3 |
+| `rules` baseline (re-measured 23/10) | 10/16 | 0 | 1 (PP-D-013) | 3 |
 | `claude` (Opus 5.5, effort high) | **15/16** | **0** | **0** | 3 |
 
-**Re-measure pending.** This score was measured on 2026-10-17. Since then the judge has a third
+**Re-measure pending** for the `claude` row. Its score was measured on 2026-10-17. Since then the judge has a third
 seller rule, a "plain words" instruction and, on 2026-10-20, the costs and escalation rule (10). A
 score is only quoted for the prompt it was measured with, so a full run comes before quoting it again.
 
