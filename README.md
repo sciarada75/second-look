@@ -133,14 +133,45 @@ as the screen.
 | `GET /api/disputes` | the open cases, with the recommended answer once reviewed |
 | `GET /api/disputes/<id>` | one case: what was said, the evidence and its sources, the review, the drafted reply, the ten checks, whether the review is out of date |
 | `POST /api/disputes/<id>/review` | ask for a review (the AI runs; a few cents) |
-| `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…"}`: send the answer. Exactly the page's checks: only the recommended action (or the question on "your call"), refused if the case changed, sent once |
+| `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
 
 **Second Look → your systems**: set `SECONDLOOK_NOTIFY_URL` in `.env` and Second Look POSTs a small
 JSON event there when a review is ready (`review.ready`: case, recommended answer, confidence) and
-when an answer is sent (`answer.sent`). A failed notification is logged and never blocks the answer.
+when an answer is sent (`answer.sent`, with who sent it), and in a team when a case passes to a colleague
+(`case.handed_off`). A failed notification is logged and never blocks the answer.
 
 Add `?shop=demo` or `?practice=1` to try any of it on the demo shop or the practice cases, without keys.
+
+## Teams: who may send what
+
+A shop with a customer care team lists its people and roles in `policy.json` → `team`
+(for the demo shop: `demo/shop.json` → `shop.team`). Each role has a refund limit. The shop's
+limits still decide which answers need a person; a role's limit only narrows which person may
+send them, and no role can send an answer the limits held back for trust.
+
+- **Over your limit, the case passes on.** An agent who approves a refund above their limit sends
+  nothing: the case goes to the first colleague whose role covers it, with the draft and a note
+  ("Marta suggests: refund in full (89.00 EUR)"). They send it with one click.
+- **Held back for its size, a person decides.** When the AI's answer was stopped only by the
+  shop's amount limits, a person with the authority may send it. A case over the shop's
+  always-ask line goes to someone whose limit covers the whole dispute, even to defend it. When
+  the answer was stopped for trust (hidden instructions, evidence that doesn't add up, low
+  confidence, a habitual escalator, PayPal's rules), nobody sends it from here.
+- **The page and the API decide the same way.** A button never promises what the approval won't
+  do: over your limit it reads "Pass to Giulia", never "this sends it".
+- **Every answer is signed:** on the case, in the API (`review.by`) and in the `answer.sent`
+  notification. Cases belong to someone: *Mine · Unassigned · Everyone*, and *Take it*.
+- **The API must say who approves:** `POST /api/disputes/<id>/approve` with `"by": "<person id>"`.
+  In a team shop, an approval without a known name is refused (400) and nothing is sent.
+- A shop with no `team` block is a team of one and sees nothing of this, with one gain: an answer
+  held back only for its size gets an Approve button instead of "do it in PayPal".
+
+**Not built:** sign-in. You choose who you are at the top of the page; this is a prototype that
+runs on your own machine. The person picker is not authentication: anyone at the machine can pick
+any name. Each form carries the person it was shown to, so an approval acts as the person whose
+page it was, and a form with no known person is refused. Real accounts with passwords come before
+any shared or hosted use.
 
 ## How it works
 
