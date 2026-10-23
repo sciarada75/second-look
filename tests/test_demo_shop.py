@@ -1,4 +1,5 @@
 """The demo shop grows without moving a single open case. Run: python3 tests/test_demo_shop.py"""
+import collections
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -68,10 +69,39 @@ def test_a_customer_care_team_of_four():
 
 
 def test_closed_cases_say_who_handled_them():
-    closed = [d["dispute_id"] for d in pp.disputes() if d["status"] == "RESOLVED"]
+    closed = {d["dispute_id"]: d for d in pp.disputes() if d["status"] == "RESOLVED"}
     handled = pp.raw["handled_by"]
     assert set(handled) <= set(closed) and len(handled) >= len(closed) // 2
     assert set(handled.values()) <= {"Giulia", "Marta", "Luca", "Sara"}
+    # nobody signs a case the buyer withdrew or PayPal closed with no decision
+    assert not any(ledger.outcome(closed[did]) in ("withdrew", "closed") for did in handled)
+    # agents send refunds up to 30 EUR: a bigger refund or accepted offer the shop sent is the manager's
+    big = [did for did in handled if ledger.outcome(closed[did]) in ("refunded", "settled_offer") and ledger.refunded(closed[did]) > 30]
+    assert big and all(handled[did] == "Giulia" for did in big), [(did, handled[did]) for did in big]
+
+
+def test_the_new_cases_are_plausible():
+    grown = [d for d in pp.disputes() if int(d["dispute_id"][5:]) > 42]
+    first = (pp.today - timedelta(days=ledger.WINDOW_DAYS)).isoformat()
+    claim_ends = {"MERCHANDISE_OR_SERVICE_NOT_RECEIVED": {"VALID_PROOF_OF_DELIVERY", "NO_PROOF_OF_DELIVERY", "PROTECTED_BY_PAYPAL"},
+                  "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED": {"ITEM_SOLD_AS_DESCRIBED", "ITEM_NOT_AS_DESCRIBED"},
+                  "CREDIT_NOT_PROCESSED": {"NO_DOCUMENTATION_SUPPORTING_DUE_OF_CREDIT", "VALID_RETURN_DELIVERY_PROOF"}}
+    for d in grown:
+        assert d["create_time"][:10] >= first, d["dispute_id"]   # inside the shop's 90 days: one rate everywhere
+        ended = d.get("dispute_outcome") or {}
+        if d["dispute_life_cycle_stage"] == "INQUIRY":
+            assert ended.get("outcome_code") != "RESOLVED_WITH_PAYOUT", d["dispute_id"]
+        else:
+            assert ended.get("outcome_reason") in claim_ends[d["reason"]], d["dispute_id"]
+        item, msg = d["disputed_transactions"][0]["items"][0]["item_name"].lower(), d["messages"][0]["content"].lower()
+        for word in ("napkin", "shirt", "apron", "frame"):
+            assert word not in msg or word in item, (d["dispute_id"], item, msg)
+
+
+def test_new_customers_are_not_the_team_and_names_rarely_repeat():
+    new = {o["payer_id"]: o["name"] for o in pp.orders() if o["payer_id"].startswith("DEMN")}
+    assert not any(n.split()[0] in ("Giulia", "Marta", "Luca", "Sara") for n in new.values())
+    assert max(collections.Counter(new.values()).values()) <= 5
 
 
 if __name__ == "__main__":

@@ -9,8 +9,12 @@ disputes stay the proof that Second Look runs on PayPal; this file shows the sam
 """
 import json
 import random
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from secondlook import ledger  # noqa: E402  (how a case ended, the shop's window: the app's own reading)
 
 OUT = Path(__file__).resolve().parent / "shop.json"
 TODAY = date(2026, 10, 20)
@@ -292,10 +296,26 @@ dispute(o, NR, opened_at(o, 9, 16, 45), "No apron.", status="WAITING_FOR_BUYER_R
 # Everything above uses `rng` and is unchanged, so the 12 open cases (and the reviews already paid for)
 # stay exactly as they were. Growth uses its own stream: new customers only (each existing buyer's history,
 # which the reviews quote, stays the same), more orders, and more CLOSED cases from DEMO-043 on.
+TEAM_NAMES = {p["name"] for p in SHOP["team"]["people"]}
+# Names for the new customers: none of the team's, and a wider list so a name repeats at most 5 times.
+# Surnames are new ones, so no new customer shares a full name with an existing one.
+FIRST2 = [f for f in FIRST if f not in TEAM_NAMES] + [
+    "Alessia", "Davide", "Chiara", "Federico", "Valentina", "Simone", "Martina", "Andrea", "Francesca", "Lorenzo",
+    "Camille", "Julien", "Manon", "Théo", "Lukas", "Hannah", "Maximilian", "Lena", "Sophie", "Paul", "Lucía",
+    "Javier", "Carmen", "Diego", "Marie", "Thomas", "Emma", "Jakob", "Ana", "João", "Beatriz", "Rui", "Femke",
+    "Daan", "Lotte", "Sven", "Elif", "Yusuf", "Amira", "Tomasz", "Zofia", "Katarina", "Nikola", "Lars", "Ingrid"]
+LAST2 = ["Romano", "Colombo", "Ricci", "Marino", "Gallo", "Fontana", "Caruso", "Mancini", "Lombardi", "Barbieri",
+         "Leroy", "Bernard", "Petit", "Laurent", "Fischer", "Schneider", "Wagner", "Becker", "Hoffmann", "Schulz",
+         "Fernández", "López", "Sánchez", "Pérez", "Moreno", "Santos", "Pereira", "Oliveira", "Peeters", "Maes",
+         "Willems", "Bakker", "Visser", "Nowak", "Wójcik", "Kovač", "Babić", "Novotný", "Svoboda", "Andersson",
+         "Nilsson", "Hansen", "Berg", "Gruber", "Huber", "Bauer", "Moser", "Rinaldi", "Testa", "Vidal"]
 rng2 = random.Random(20261023)
-new_customers = []
+new_customers, name_count = [], {}
 for k in range(4000):
-    f, l = rng2.choice(FIRST), rng2.choice(LAST)
+    f, l = rng2.choice(FIRST2), rng2.choice(LAST2)
+    while name_count.get((f, l), 0) >= 5:
+        f, l = rng2.choice(FIRST2), rng2.choice(LAST2)
+    name_count[(f, l)] = name_count.get((f, l), 0) + 1
     city = rng2.choice(CITIES)
     new_customers.append({"payer_id": "DEMN" + "".join(rng2.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(9)),
                           "name": f"{f} {l}", "email": f"{f.lower()}.{l.lower()[:1]}{1300 + k}@example.com",
@@ -308,42 +328,67 @@ while d <= TODAY:
         grown.append(order(c, d, rng2.choice(pool), r=rng2))
     d += timedelta(days=1)
 
-window_from = (TODAY - timedelta(days=90)).isoformat()
+# One shop rate everywhere: the last 90 days, as the evidence and the customer card count it (ledger.WINDOW_DAYS).
+window_start = TODAY - timedelta(days=ledger.WINDOW_DAYS)
+window_from = window_start.isoformat()
 q_from, q_to = "2026-07-01", "2026-09-30"           # PayPal's previous full quarter, as ledger counts it
-in_window = lambda x: x["create_time"][:10] >= window_from  # noqa: E731
 orders_90 = sum(1 for o in orders if o["date"] >= window_from)
 sales_q = sum(1 for o in orders if q_from <= o["date"] <= q_to)
 claims_q = sum(1 for x in disputes if x["dispute_life_cycle_stage"] != "INQUIRY" and q_from <= x["create_time"][:10] <= q_to)
-want_disputes = round(0.020 * orders_90) - sum(1 for x in disputes if in_window(x))
+# Every growth case opens inside the window, so the window holds 2.0% of its orders in disputes.
+want_disputes = round(0.020 * orders_90) - sum(1 for x in disputes if x["create_time"][:10] >= window_from)
 want_claims = round(0.006 * sales_q) - claims_q
-templates = [p for p in closed_plan]                 # the same mix of reasons, stages and outcomes as the first 25
 claims_left = max(0, want_claims)
-disputed = {x["disputed_transactions"][0]["seller_transaction_id"] for x in disputes}
+
+# How a claim ends depends on what was claimed (outcome reasons from PayPal's Disputes API v1 enum).
+CLAIM_OUTCOMES = {NR: [(WON, "VALID_PROOF_OF_DELIVERY"), (BUYER, "NO_PROOF_OF_DELIVERY"), (PAYOUT, "PROTECTED_BY_PAYPAL")],
+                  NAD: [(WON, "ITEM_SOLD_AS_DESCRIBED"), (BUYER, "ITEM_NOT_AS_DESCRIBED")],
+                  CNP: [(WON, "NO_DOCUMENTATION_SUPPORTING_DUE_OF_CREDIT"), (BUYER, "VALID_RETURN_DELIVERY_PROOF")]}
+# The same buyer messages as the first 25 closed cases, used only where they fit the item ordered.
+MENTIONS = {"napkin": {"Linen napkins"}, "shirt": {"Linen shirt"}, "apron": {"Linen apron"}, "bag": {"Linen tote bag"},
+            "notebook": {"Notebook set"}, "frame": {"Framed print set"}, "3 prints": {"Framed print set"},
+            "print": {"Art print", "Framed print set"},
+            "linen": {"Linen tote bag", "Linen apron", "Linen napkins", "Linen shirt"}}
+
+
+def fits(msg, item):
+    """A message names no item, or names this one."""
+    return all(item in items for word, items in MENTIONS.items() if word in msg.lower())
+
+
+inquiry_templates = [p for p in closed_plan if p[2] == "INQUIRY"]
+candidates = [x for x in grown if x["date"] <= "2026-10-05"]   # one dispute per order, as pick() does above
 for k in range(max(0, want_disputes)):
-    # one dispute per order, as pick() does above
-    o = rng2.choice([x for x in grown if x["date"] <= "2026-10-05" and x["transaction_id"] not in disputed])
-    disputed.add(o["transaction_id"])
-    month, reason, stage, code, why, share, msg = rng2.choice(templates)
-    opened = datetime.strptime(o["date"], "%Y-%m-%d") + timedelta(days=rng2.randint(6, 18), hours=rng2.randint(8, 21))
-    in_q = q_from <= opened.strftime("%Y-%m-%d") <= q_to
-    if in_q and claims_left:
-        stage, claims_left = "CHARGEBACK", claims_left - 1
-        code, why = rng2.choice([(WON, "VALID_PROOF_OF_DELIVERY"), (BUYER, "ITEM_NOT_AS_DESCRIBED"),
-                                 (BUYER, "NO_PROOF_OF_DELIVERY"), (PAYOUT, "PROTECTED_BY_PAYPAL")])
+    while True:
+        o = rng2.choice(candidates)
+        opened = datetime.strptime(o["date"], "%Y-%m-%d") + timedelta(days=rng2.randint(6, 18), hours=rng2.randint(8, 21))
+        if window_start <= opened.date() <= TODAY - timedelta(days=3):
+            break
+    candidates.remove(o)
+    item = o["items"][0]["item_name"]
+    if q_from <= opened.strftime("%Y-%m-%d") <= q_to and claims_left:
+        claims_left -= 1
+        _, reason, _, _, _, _, msg = rng2.choice([p for p in closed_plan if p[1] in CLAIM_OUTCOMES and fits(p[6], item)])
+        stage, (code, why) = "CHARGEBACK", rng2.choice(CLAIM_OUTCOMES[reason])
         share = 1 if code == BUYER else 0
-    elif stage == "CHARGEBACK":
-        stage = "INQUIRY"
-    if opened.date() > TODAY - timedelta(days=3):
-        opened = datetime.combine(TODAY - timedelta(days=3), opened.time())
+    else:  # an inquiry, with an inquiry's outcome
+        _, reason, stage, code, why, share, msg = rng2.choice([p for p in inquiry_templates if fits(p[6], item)])
     dispute(o, reason, opened, msg, stage=stage, outcome=(code, why) if code else None,
             refunded=round(o["amount"] * share, 2) if share else None)
 
 # Who handled each closed case (the team signs its work). Not part of PayPal's data: the shop's own record.
+# Nobody signs a case the buyer withdrew or PayPal closed with no decision. Agents send refunds up to 30 EUR,
+# so a bigger refund or accepted offer the shop sent is the manager's.
 handled_by = {}
 for x in disputes:
-    if x["status"] == "RESOLVED" and (x.get("dispute_outcome") or {}).get("outcome_code") != "CANCELED_BY_BUYER":
-        amount = float(x["dispute_amount"]["value"])
-        handled_by[x["dispute_id"]] = "Giulia" if amount > 30 and rng2.random() < 0.5 else rng2.choice(["Marta", "Luca", "Sara"])
+    ended = ledger.outcome(x)
+    if ended in (None, "withdrew", "closed"):
+        continue
+    if ended in ("refunded", "settled_offer") and ledger.refunded(x) > 30:
+        handled_by[x["dispute_id"]] = "Giulia"
+        continue
+    amount = float(x["dispute_amount"]["value"])
+    handled_by[x["dispute_id"]] = "Giulia" if amount > 30 and rng2.random() < 0.5 else rng2.choice(["Marta", "Luca", "Sara"])
 
 # Who has each open case this morning (the film follows Marta). Unassigned cases are simply absent.
 assignments = {did: {"to": who, "handoff": None} for did, who in
