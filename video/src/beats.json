@@ -1,0 +1,12 @@
+[
+  {"key": "s1a", "gap": 0.6}, {"key": "s1b", "gap": 1.0},
+  {"key": "s2a", "gap": 0.5}, {"key": "s2b", "gap": 0.5}, {"key": "s2c", "gap": 0.6}, {"key": "s2d", "gap": 1.0},
+  {"key": "s3a", "gap": 0.4}, {"key": "s3b", "gap": 1.0},
+  {"key": "s4a", "gap": 0.8}, {"key": "s4b", "gap": 1.0},
+  {"key": "s5a", "gap": 0.6}, {"key": "s5b", "gap": 0.6}, {"key": "s5c", "gap": 1.0},
+  {"key": "s6a", "gap": 1.4},
+  {"key": "s7a", "gap": 0.5}, {"key": "s7b", "gap": 1.4},
+  {"key": "s8a", "gap": 1.0}, {"key": "s8b", "gap": 1.2},
+  {"key": "s9a", "gap": 1.2},
+  {"key": "s10a", "gap": 0.8}, {"key": "s10b", "gap": 2.5}
+]

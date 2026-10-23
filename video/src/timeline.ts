@@ -2,26 +2,16 @@
 // narration.json). Edit a line, re-run narrate, and the whole film retimes itself.
 import narration from './narration.json';
 import lines from './lines.json';
+import beats from './beats.json';
 import {sec} from './theme';
 
 const durations = narration as Record<string, number>;
 export const LINES = lines as Record<string, string>;
 
-// gap = silence after the line, in seconds. Inside a scene the captions just swap; between scenes
-// the picture needs a breath. `extra` holds the picture after a line when the screen needs time
-// to be read (a result appearing, a button being pressed).
+// gap = silence after the line, in seconds (beats.json, also read by srt.mjs). Inside a scene the
+// lines just follow; between scenes, or after a click, the picture needs a breath.
 type Beat = {key: string; gap?: number};
-export const BEATS: Beat[] = [
-  {key: 's1a', gap: 0.5}, {key: 's1b', gap: 0.9},
-  {key: 's2a', gap: 0.4}, {key: 's2b', gap: 0.4}, {key: 's2c', gap: 0.9},
-  {key: 's3a', gap: 0.4}, {key: 's3b', gap: 0.9},
-  {key: 's4a', gap: 0.4}, {key: 's4b', gap: 0.4}, {key: 's4c', gap: 0.9},
-  {key: 's5a', gap: 0.5}, {key: 's5b', gap: 1.0},
-  {key: 's6a', gap: 0.4}, {key: 's6b', gap: 0.5}, {key: 's6c', gap: 0.5}, {key: 's6d', gap: 0.5}, {key: 's6e', gap: 0.9},
-  {key: 's6f', gap: 0.4}, {key: 's6g', gap: 0.9},
-  {key: 's7a', gap: 0.9},
-  {key: 's8a', gap: 2.2},
-]
+export const BEATS = beats as Beat[];
 
 export type Timed = {key: string; from: number; to: number; next: number};
 

@@ -1,5 +1,8 @@
 {
   "_comment": "Applied ONLY to what the voice is given, never to what appears on screen. Whole-word, case-insensitive. Add an entry when a word is actually heard wrong, not on suspicion.",
   "PayPal's": "Pay Pal's",
-  "PayPal": "Pay Pal"
+  "PayPal": "Pay Pal",
+  "_comment_pauses": "[[slnc N]] is macOS say's embedded silence (ms): used where the voice ran two sentences together and changed the meaning (heard back through local whisper, 23/10).",
+  "has written. Next": "has written. [[slnc 220]] Next",
+  "recommends. Limits": "recommends. [[slnc 250]] Limits"
 }
