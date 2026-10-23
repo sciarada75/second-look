@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import html
 import json
+import re
+import threading
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -182,9 +184,62 @@ def costs_line(c: dict) -> str:
     return f'<p class="costs">{e(" ".join(out))}</p>' if out else ""
 
 
+def event_text(ev: dict) -> str:
+    """One Second Look notification as a line in the ticket's history (plain text: escaped when shown)."""
+    kind = ev.get("event")
+    if kind == "answer.sent":
+        by = ev.get("by")
+        text = f"answer sent to PayPal by {by}" if by else "answer sent to PayPal"
+        at = re.search(r"\b(\d{1,2}:\d{2})\b", str(ev.get("what_happened") or ""))
+        return text + (f", {at.group(1)}" if at else "")
+    if kind == "case.handed_off":
+        return f"passed to {ev.get('to') or 'a colleague'} by {ev.get('from') or 'a colleague'}"
+    if kind == "review.ready":
+        return f"review ready ({words(ev.get('recommended'))})"
+    return str(kind)
+
+
 class Helpdesk:
     def __init__(self, tickets_path, events_path, sl):
         self.tickets_path, self.events_path, self.sl = Path(tickets_path), Path(events_path), sl
+        self._lock = threading.Lock()
+
+    # ---------- Second Look's notifications ----------
+
+    def add_event(self, payload) -> bool:
+        """Keep one notification from Second Look (one JSON line). Anything that isn't one is ignored.
+        Stored as it came: it is escaped when shown, never when stored."""
+        if not (isinstance(payload, dict) and isinstance(payload.get("event"), str)
+                and isinstance(payload.get("dispute_id"), str)):
+            return False
+        with self._lock:
+            self.events_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.events_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+        return True
+
+    def events_for(self, dispute_id: str) -> list:
+        """This case's notifications, oldest first (newest last)."""
+        try:
+            lines = self.events_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        out = []
+        for line in lines:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(ev, dict) and ev.get("dispute_id") == dispute_id:
+                out.append(ev)
+        return out
+
+    def history(self, dispute_ids: list) -> str:
+        evs = [ev for did in dispute_ids for ev in self.events_for(did)]
+        if not evs:
+            return ""
+        items = "".join(f"<li>Second Look: {e(event_text(ev))}</li>" for ev in evs)
+        return f'<div class="history"><h3>In this ticket</h3><ul>{items}</ul></div>'
 
     # ---------- data ----------
 
@@ -287,6 +342,7 @@ class Helpdesk:
             parts.append('<p class="soft">No open PayPal dispute.</p>')
         for did in open_ids:
             parts.append(self._case_block(str(did), me, int(t["id"])))
+        parts.append(self.history([str(d) for d in open_ids]))
         return "".join(parts)
 
     def _case_block(self, did: str, me: dict, tid: int) -> str:
@@ -439,6 +495,16 @@ class Handler(BaseHTTPRequestHandler):
                 if "film=1" in (self.headers.get("Referer") or ""):
                     q["film"] = "1"
                 return self._redirect(f"/t/{tid}?{urlencode(q)}")
+            if parts == ["hooks", "secondlook"]:
+                # Second Look -> Ticketbook: a notification (answer.sent, case.handed_off, review.ready)
+                try:
+                    payload = json.loads(raw or b"null")
+                except ValueError:
+                    return self._send("Not JSON", 400, "text/plain; charset=utf-8")
+                self.hd.add_event(payload)
+                self.send_response(204)
+                self.end_headers()
+                return None
             self._send("Not found", 404, "text/plain; charset=utf-8")
         except Exception as err:  # noqa: BLE001
             self._send(f"<p>That didn't work: {e(str(err))}</p>", 500)

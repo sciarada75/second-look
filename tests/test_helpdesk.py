@@ -140,6 +140,15 @@ def test_second_look_down_the_ticket_still_opens():
     assert "Where is my apron?" in html and "Second Look isn't answering" in html
 
 
+def test_a_second_look_notification_lands_on_the_ticket():
+    hd = bench(FakeSL())
+    hd.add_event({"event": "answer.sent", "dispute_id": "DEMO-031", "action": "DEFEND", "by": "Marta",
+                  "what_happened": "Evidence submitted and reply sent. Sent by Marta, 09:14."})
+    hd.add_event({"event": "answer.sent", "dispute_id": "DEMO-999", "by": "Luca", "what_happened": "elsewhere"})
+    html = hd.ticket_page(2041, "marta")
+    assert "answer sent to PayPal by Marta" in html and "elsewhere" not in html
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
