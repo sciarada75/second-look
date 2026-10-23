@@ -2,12 +2,12 @@
 // only what the voice names. App scenes are built on the captured journey (capture.mjs, Stage.tsx);
 // graphic scenes are cards in the product's own design. Script: video/script-v3.md.
 import React from 'react';
-import {AbsoluteFill, Easing, interpolate, useCurrentFrame} from 'remotion';
+import {AbsoluteFill, Easing, Img, interpolate, OffthreadVideo, Sequence, staticFile, useCurrentFrame} from 'remotion';
 import {Arrow, Box as FlowBox} from './Scenes';
 import {beat, sentenceStarts} from './timeline';
 import {HEIGHT, WIDTH, theme} from './theme';
 import {
-  box, camAt, camOn, camTop, Cam, CamKey, Cursor, CursorPoint, Screen, Spot, Spotlight, union, WhereLabel,
+  box, Box, camAt, camOn, camTop, Cam, CamKey, Cursor, CursorPoint, Screen, Spot, Spotlight, union, WhereLabel,
 } from './Stage';
 
 const EASE = Easing.bezier(0.4, 0, 0.2, 1);
@@ -55,6 +55,11 @@ const MARTA_TB = {sub: 'Marta · a made-up helpdesk'};
 const MARTA_SL = {sub: 'Marta · demo shop, made-up data'};
 const GIULIA_SL = {sub: 'Giulia · demo shop, made-up data'};
 const CUT = 8; // frames between a click and the page it opens
+/** On a Second Look case page: only the right column, zoomed so the left column (with the big buyer
+ *  quote) stays entirely out of frame instead of being sliced at the edge. */
+const rightCol = (b: Box, z = 2.3): Cam => ({...camOn(b, z), x: 1536 - WIDTH / z});
+/** A measured box with room around it: the timeline's labels spill a little outside its own box. */
+const grow = (b: Box, px: number): Box => ({x: b.x - px, y: b.y - px, w: b.w + 2 * px, h: b.h + 2 * px});
 
 // The moments where one scene's last click opens the next scene's page.
 const click45 = () => beat('s5a').from + 6;          // "She opens the case."
@@ -63,22 +68,50 @@ const click6 = () => beat('s6a').from + 16;          // "She approves."
 const cut6 = () => click6() + CUT;
 const giuliaOpens = () => beat('s8a').from - 36;     // the case arrives in Giulia's list before the voice names her
 
+// ---------- backgrounds ----------
+// Claudia's pictures and reels behind the graphic scenes (draft 4: "make the presentation taste more
+// real"): cover-cropped, blurred, under a veil, with a slow push-in. Every clip used here was checked
+// frame by frame for logos (HANDOVER, Video). Text never sits on the picture itself: on white cards and
+// tiles, or in light type over a dark veil.
+const Backdrop: React.FC<{
+  src: string; from: number; to: number; video?: boolean; startAt?: number; rate?: number;
+  veil?: string; blur?: number; push?: number;
+}> = ({src, from, to, video, startAt = 0, rate = 1, veil = 'rgba(30,41,53,0.66)', blur = 10, push = 0.06}) => {
+  const frame = useCurrentFrame();
+  if (frame < from || frame >= to) return null;
+  const s = 1.06 + push * interpolate(frame, [from, to], [0, 1], clamp); // overscan hides the blur's soft edge
+  const style: React.CSSProperties = {position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover',
+    filter: `blur(${blur}px)`, transform: `scale(${s})`};
+  return (
+    <AbsoluteFill style={{overflow: 'hidden', background: theme.ink}}>
+      {video ? (
+        <Sequence from={from} durationInFrames={to - from}>
+          <OffthreadVideo src={staticFile(src)} startFrom={Math.round(startAt * 30)} playbackRate={rate} muted style={style} />
+        </Sequence>
+      ) : <Img src={staticFile(src)} style={style} />}
+      <AbsoluteFill style={{background: veil}} />
+    </AbsoluteFill>
+  );
+};
+
 // ---------- 1. What happens? ----------
+// The buyer's words are not spoken: they type out in the silence after "A buyer has opened a PayPal dispute."
 const MESSAGE = '“Never received the apron. Refund me or I go to PayPal.”';
 const Moment: React.FC = () => {
   const frame = useCurrentFrame();
-  const from = beat('s1a').from, to = beat('s1b').next;
-  const [q1, q2] = sentenceStarts('s1a');
-  const shown = Math.round(interpolate(frame, [q2 - 2, beat('s1a').to], [0, MESSAGE.length], clamp));
-  const card = fadeIn(frame, q1, 12);
+  const a = beat('s1a');
+  const from = a.from, to = beat('s1b').next;
+  const shown = Math.round(interpolate(frame, [a.to + 2, a.next - 4], [0, MESSAGE.length], clamp));
+  const card = fadeIn(frame, from + 4, 12);
   return (
     <Scene from={from} to={to}>
+      <Backdrop src="footage/web/shipping 3.jpg" from={from} to={to} blur={16} />
       <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center'}}>
-        <div style={{opacity: card, transform: `translateY(${(1 - card) * 16}px)`, width: 1100, background: '#fff',
-          border: `1px solid ${theme.rule}`, borderLeft: `8px solid ${theme.fail}`, padding: '44px 56px 50px', boxSizing: 'border-box',
-          boxShadow: '0 18px 50px rgba(30,41,53,0.10)'}}>
+        <div style={{opacity: card, transform: `translateY(${(1 - card) * 16}px)`, width: 1180, background: '#fff',
+          borderLeft: `8px solid ${theme.fail}`, padding: '44px 56px 50px', boxSizing: 'border-box',
+          boxShadow: '0 24px 70px rgba(0,0,0,0.35)'}}>
           <div style={{font: `500 26px ${theme.sans}`, color: theme.soft}}>A buyer writes</div>
-          <div style={{font: `400 64px/1.25 ${theme.serif}`, color: theme.ink, marginTop: 18}}>
+          <div style={{font: `400 66px/1.25 ${theme.serif}`, color: theme.ink, marginTop: 18, minHeight: 166}}>
             {MESSAGE.slice(0, shown)}<span style={{opacity: 0}}>{MESSAGE.slice(shown)}</span>
           </div>
         </div>
@@ -89,38 +122,70 @@ const Moment: React.FC = () => {
   );
 };
 
-// ---------- 2. Why does it matter? ----------
-const FIGURES = [
-  {key: 's2a', label: 'Answered while it’s still a dispute', big: '0 EUR', sub: 'PayPal fee', tone: theme.pass, src: 'PayPal User Agreement, 14 Sep 2026'},
-  {key: 's2b', label: 'It becomes a claim, and the shop loses', big: '14 EUR', sub: 'PayPal fee', tone: theme.fail, src: 'PayPal fees, 7 Sep 2026'},
-  {key: 's2c', label: 'A busy shop, any claim', big: '28 EUR', sub: 'even when you win', tone: theme.fail, src: 'PayPal fees + User Agreement'},
-  {key: 's2d', label: 'Big merchants, card chargebacks', big: '46%', sub: 'accepted without a fight', tone: theme.ink,
-    src: 'Mastercard / Datos, 2025: card chargebacks, mid-size and large merchants'},
-];
-const Figures: React.FC = () => {
+// ---------- 2 and 2b: tiles that land, stay and build a benchmark ----------
+type Tile = {on: number; label?: string; big: string; sub: string; extra?: string; extraOn?: number; tone: string; src: string};
+const Tiles: React.FC<{tiles: Tile[]}> = ({tiles}) => {
   const frame = useCurrentFrame();
-  const from = beat('s2a').from, to = beat('s2d').next;
-  const ons = FIGURES.map((f) => beat(f.key).from);
-  const current = ons.filter((o) => frame >= o).length - 1;
+  const lit = tiles.filter((t) => frame >= t.on).length - 1;
+  const W = 520, GAP = 44;
+  return (
+    <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center'}}>
+      <div style={{display: 'flex', gap: GAP, alignItems: 'flex-start'}}>
+        {tiles.map((t, i) => {
+          const o = fadeIn(frame, t.on, 12);
+          // the tile being named is lit; the ones before it dim slightly, and stay
+          const dim = i < lit ? interpolate(frame, [tiles[lit].on, tiles[lit].on + 10], [1, 0.62], clamp) : 1;
+          const ring = i === lit ? fadeIn(frame, t.on, 10) : i === lit - 1 ? 1 - fadeIn(frame, tiles[lit].on, 10) : 0;
+          return (
+            <div key={i} style={{width: W, opacity: o * dim, transform: `translateY(${(1 - o) * 24}px)`}}>
+              <div style={{background: '#fff', borderTop: `10px solid ${t.tone}`, padding: '30px 34px 34px', minHeight: 330, boxSizing: 'border-box',
+                boxShadow: `0 20px 60px rgba(0,0,0,0.35), 0 0 0 ${4 * ring}px ${theme.kraft}`}}>
+                {t.label ? <div style={{font: `500 30px/1.25 ${theme.sans}`, color: theme.soft}}>{t.label}</div> : null}
+                <div style={{font: `700 112px/1.05 ${theme.sans}`, color: t.tone, letterSpacing: -3, marginTop: 14, whiteSpace: 'nowrap'}}>{t.big}</div>
+                <div style={{font: `500 32px/1.25 ${theme.sans}`, color: theme.ink, marginTop: 12}}>{t.sub}</div>
+                {t.extra ? <div style={{font: `400 28px/1.3 ${theme.sans}`, color: theme.soft, marginTop: 10,
+                  opacity: t.extraOn ? fadeIn(frame, t.extraOn, 10) : 1}}>{t.extra}</div> : null}
+              </div>
+              <div style={{font: `400 23px/1.35 ${theme.sans}`, color: '#E3E7EA', marginTop: 16, textShadow: '0 1px 8px rgba(0,0,0,0.6)'}}>{t.src}</div>
+            </div>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+};
+
+// 2. What does a dispute cost?
+const Costs: React.FC = () => {
+  const from = beat('s2a').from, to = beat('s2c').next;
+  const tiles: Tile[] = [
+    {on: beat('s2a').from, label: 'Settled in the dispute', big: '0 EUR', sub: 'PayPal fee', tone: theme.pass, src: 'PayPal User Agreement, 14 Sep 2026'},
+    {on: beat('s2b').from, label: 'A claim, lost', big: '14 EUR', sub: 'PayPal fee', tone: theme.fail, src: 'PayPal fees, 7 Sep 2026'},
+    {on: beat('s2c').from, label: 'A busy shop, any claim', big: '28 EUR', sub: 'even when you win', tone: theme.fail, src: 'PayPal fees + User Agreement'},
+  ];
   return (
     <Scene from={from} to={to}>
-      {FIGURES.map((f, i) => {
-        const o = Math.min(fadeIn(frame, ons[i], 10), i + 1 < ons.length ? 1 - fadeIn(frame, ons[i + 1] - 4, 10) : 1);
-        if (o <= 0) return null;
-        return (
-          <AbsoluteFill key={f.key} style={{alignItems: 'center', justifyContent: 'center', opacity: o, textAlign: 'center'}}>
-            <div style={{font: `500 44px ${theme.sans}`, color: theme.soft}}>{f.label}</div>
-            <div style={{font: `700 180px/1.05 ${theme.sans}`, color: f.tone, letterSpacing: -4, marginTop: 18}}>{f.big}</div>
-            <div style={{font: `500 46px ${theme.sans}`, color: f.tone, marginTop: 6}}>{f.sub}</div>
-            <div style={{font: `400 26px ${theme.sans}`, color: theme.soft, marginTop: 60}}>{f.src}</div>
-          </AbsoluteFill>
-        );
-      })}
-      <div style={{position: 'absolute', left: 0, right: 0, bottom: 70, display: 'flex', justifyContent: 'center', gap: 18}}>
-        {FIGURES.map((f, i) => (
-          <div key={f.key} style={{width: 14, height: 14, borderRadius: 7, background: i === current ? theme.ink : theme.rule}} />
-        ))}
-      </div>
+      <Backdrop src="footage/money flow.mp4" video from={from} to={to} rate={0.85} />
+      <Tiles tiles={tiles} />
+    </Scene>
+  );
+};
+
+// 2b. What does it do to a business? Currency as the sources give it.
+const Business: React.FC = () => {
+  const from = beat('s2e').from, to = beat('s2g').next;
+  const [, e2] = sentenceStarts('s2e'); // after "And disputes cost more than fees:"
+  const tiles: Tile[] = [
+    {on: e2, big: 'US$8.01', sub: 'per live customer-care contact', extra: 'vs US$0.10 self-service', tone: theme.ink, src: 'Gartner, 2019'},
+    {on: beat('s2f').from, big: 'US$4.61', sub: 'lost for every US$1 of fraud', tone: theme.fail,
+      src: 'LexisNexis True Cost of Fraud, 2025 · US retail & e-commerce'},
+    {on: beat('s2g').from, big: '46%', sub: 'of card chargebacks accepted without a fight', extra: 'won 1 in 5 when fought',
+      extraOn: at('s2g', 0.55), tone: theme.incon, src: 'Mastercard / Datos 2025 · midsize & large merchants'},
+  ];
+  return (
+    <Scene from={from} to={to}>
+      <Backdrop src="footage/late night answer 3.mp4" video from={from} to={to} rate={0.9} />
+      <Tiles tiles={tiles} />
     </Scene>
   );
 };
@@ -140,9 +205,11 @@ const Team: React.FC = () => {
   const card = fadeIn(frame, from, 12);
   return (
     <Scene from={from} to={to}>
+      {/* the shop itself: a light paper veil, so the ink type reads as on the product's own pages */}
+      <Backdrop src="footage/web/linen and paper store.jpg" from={from} to={to} blur={5} veil="rgba(245,246,242,0.80)" />
       <div style={{position: 'absolute', left: 0, right: 0, top: 150, textAlign: 'center', opacity: card}}>
         <div style={{font: `700 92px/1.1 ${theme.sans}`, color: theme.ink, letterSpacing: -2}}>Linen &amp; Paper</div>
-        <div style={{font: `400 40px ${theme.sans}`, color: theme.soft, marginTop: 18}}>a made-up shop · about 2,000 orders a month</div>
+        <div style={{font: `500 40px ${theme.sans}`, color: theme.ink, opacity: 0.8, marginTop: 18}}>a made-up shop · about 2,000 orders a month</div>
       </div>
       <div style={{position: 'absolute', left: 0, right: 0, top: 520, display: 'flex', justifyContent: 'center', gap: 70}}>
         {PEOPLE.map((p, i) => {
@@ -152,8 +219,8 @@ const Team: React.FC = () => {
               <div style={{width: 150, height: 150, borderRadius: 75, background: p.color, color: '#fff', margin: '0 auto',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', font: `700 64px ${theme.sans}`}}>{p.initials}</div>
               <div style={{font: `700 40px ${theme.sans}`, color: theme.ink, marginTop: 22}}>{p.name}</div>
-              <div style={{font: `400 27px/1.35 ${theme.sans}`, color: theme.soft, marginTop: 6}}>{p.role}</div>
-              {p.note ? <div style={{font: `500 27px ${theme.sans}`, color: '#6E4F27', marginTop: 4}}>{p.note}</div> : null}
+              <div style={{font: `500 27px/1.35 ${theme.sans}`, color: theme.ink, opacity: 0.75, marginTop: 6}}>{p.role}</div>
+              {p.note ? <div style={{font: `700 27px ${theme.sans}`, color: '#6E4F27', marginTop: 4}}>{p.note}</div> : null}
             </div>
           );
         })}
@@ -195,8 +262,8 @@ const TheCase: React.FC = () => {
     {id, from, to,
       cams: [{at: from, cam: camTop()}, {at: a2, cam: camOn(box(id, 'timeline'), 1.6), dur: 26},
         {at: addr, cam: camOn(where, 1.6), dur: 26}, {at: beat('s5b').from, cam: camOn(box(id, 'history'), 1.6), dur: 26},
-        {at: beat('s5c').from, cam: camOn(box(id, 'costs'), 1.6), dur: 30}],
-      spots: [{at: a2 + 10, box: box(id, 'timeline')}, {at: addr + 10, box: where}, {at: beat('s5b').from + 10, box: box(id, 'history')},
+        {at: beat('s5c').from, cam: rightCol(box(id, 'costs')), dur: 30}],
+      spots: [{at: a2 + 10, box: grow(box(id, 'timeline'), 24)}, {at: addr + 10, box: where}, {at: beat('s5b').from + 10, box: box(id, 'history')},
         {at: beat('s5c').from + 12, box: box(id, 'costs')}],
       where: {text: 'Second Look › Case DEMO-031', ...MARTA_SL}},
   ];
@@ -263,11 +330,11 @@ const Giulia: React.FC = () => {
       cursor: [{at: a.from - 4, pos: {x: 1400, y: 900}}, {at: clickRow, box: box(list, 'row-034'), ax: 0.3, click: true, move: 22}],
       where: {text: 'Second Look › Disputes', ...GIULIA_SL}, labelIn: true},
     {id: page, from: note, to: clickApprove + CUT,
-      cams: [{at: note, cam: camOn(box(page, 'note'), 1.6)}, {at: reply - 8, cam: camOn(replyBlock, 1.6), dur: 22}],
+      cams: [{at: note, cam: rightCol(box(page, 'note'))}, {at: reply - 8, cam: rightCol(replyBlock), dur: 22}],
       spots: [{at: note + 2, box: box(page, 'note')}, {at: reply, box: box(page, 'reply')}, {at: clickApprove - 14, box: box(page, 'approve')}],
       cursor: [{at: reply + 6, pos: {x: 1500, y: 950}}, {at: clickApprove, box: box(page, 'approve'), click: true, move: 18}],
       where: {text: 'Second Look › Case DEMO-034', ...GIULIA_SL}},
-    {id: sent, from: clickApprove + CUT, to: a.next, cams: [{at: from, cam: camOn(box(sent, 'sent'), 1.6)}],
+    {id: sent, from: clickApprove + CUT, to: a.next, cams: [{at: from, cam: rightCol(box(sent, 'sent'))}],
       spots: [{at: clickApprove + CUT + 2, box: box(sent, 'sent')}],
       where: {text: 'Second Look › Case DEMO-034', ...GIULIA_SL}},
     {id: ov, from: a.next, to,
@@ -323,9 +390,10 @@ const Trust: React.FC = () => {
       ) : null}
       {card > 0 ? (
         <AbsoluteFill style={{alignItems: 'center', justifyContent: 'center', opacity: card, textAlign: 'center'}}>
-          <div style={{font: `700 120px/1 ${theme.sans}`, color: theme.ink, letterSpacing: -3}}>Second Look</div>
-          <div style={{font: `400 56px/1.2 ${theme.serif}`, color: theme.kraft, marginTop: 22, opacity: fadeIn(frame, n - 4, 12)}}>Sell without fear.</div>
-          <div style={{font: `400 34px/1.6 ${theme.sans}`, color: theme.soft, marginTop: 70, opacity: fadeIn(frame, n + 14, 14)}}>
+          <Backdrop src="footage/seller daylight.mp4" video from={end} to={to} startAt={1} blur={9} veil="rgba(30,41,53,0.70)" />
+          <div style={{font: `700 120px/1 ${theme.sans}`, color: theme.paper, letterSpacing: -3, position: 'relative'}}>Second Look</div>
+          <div style={{font: `400 56px/1.2 ${theme.serif}`, color: '#D9B27F', marginTop: 22, opacity: fadeIn(frame, n - 4, 12), position: 'relative'}}>Sell without fear.</div>
+          <div style={{font: `400 34px/1.6 ${theme.sans}`, color: '#E3E7EA', marginTop: 70, opacity: fadeIn(frame, n + 14, 14), position: 'relative'}}>
             claudiaonclaude.com<br />github.com/sciarada75/second-look
           </div>
         </AbsoluteFill>
@@ -336,7 +404,7 @@ const Trust: React.FC = () => {
 
 export const Scenes3: React.FC = () => (
   <>
-    <Moment /><Figures /><Team /><Helpdesk /><TheCase /><Approve /><OverLimit /><Giulia /><Live /><Trust />
+    <Moment /><Costs /><Business /><Team /><Helpdesk /><TheCase /><Approve /><OverLimit /><Giulia /><Live /><Trust />
   </>
 );
 void HEIGHT;

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Writes out/second-look-v3.srt: the film's spoken lines as closed captions for YouTube.
+// Writes out/second-look-<draft>.srt: the film's spoken lines as closed captions for YouTube.
 // Draft 3 has no caption band on screen (the picture shows only what the voice names); viewers who
 // watch muted turn these on instead.
 //
 // Timings are the film's own: the same measured narration (src/narration.json), the same beats and
 // gaps (src/beats.json) and the same arithmetic as src/timeline.ts. Re-run after `node narrate.mjs`.
 //
-//   node srt.mjs
+//   node srt.mjs        (draft 4: out/second-look-v4.srt)
+//   node srt.mjs v3
 
 import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 
@@ -15,6 +16,7 @@ const lines = read('./src/lines.json');
 const durations = read('./src/narration.json');
 const beats = read('./src/beats.json');
 
+const DRAFT = process.argv[2] ?? 'v4';
 const FPS = 30;
 const sec = (s) => Math.round(s * FPS);
 const LEAD = sec(0.6);
@@ -98,5 +100,5 @@ for (const t of timed) {
 }
 
 mkdirSync(new URL('./out/', import.meta.url), {recursive: true});
-writeFileSync(new URL('./out/second-look-v3.srt', import.meta.url), blocks.join('\n'));
-console.log(`out/second-look-v3.srt: ${blocks.length} cues, ${timed.length} lines, first at frame ${timed[0].from}, last ends at frame ${timed[timed.length - 1].to}`);
+writeFileSync(new URL(`./out/second-look-${DRAFT}.srt`, import.meta.url), blocks.join('\n'));
+console.log(`out/second-look-${DRAFT}.srt: ${blocks.length} cues, ${timed.length} lines, first at frame ${timed[0].from}, last ends at frame ${timed[timed.length - 1].to}`);
