@@ -2,12 +2,10 @@
   "_comment": "Applied ONLY to what the voice is given, never to what appears on screen. Whole-word, case-insensitive. Add an entry when a word is actually heard wrong, not on suspicion.",
   "PayPal's": "Pay Pal's",
   "PayPal": "Pay Pal",
-  "_comment_pauses": "[[slnc N]] is macOS say's embedded silence (ms): used where the voice ran words together and changed the meaning (heard back through local whisper, 23/10: 'has written next to his email', 'goes to Adario', 'note in her reply. Anne approves').",
+  "_comment_pauses": "[[slnc N]] is macOS say's embedded silence (ms): used where the voice ran words together and changed what was heard (checked with local whisper, 23/10: 'has written next to his email', 'goes to Adario', 'note in her reply. Anne approves', 'right, Babo sent').",
   "has written. Next": "has written. [[slnc 220]] Next",
   "recommends. Limits": "recommends. [[slnc 250]] Limits",
   "goes to Dario": "goes to [[slnc 60]] Dario",
   "note and her reply, and approves": "note, [[slnc 120]] and her reply, [[slnc 200]] and approves",
-  "_comment_rate": "[[rate N]] is say's embedded speaking rate: the sentence-final 'person approves' was drawn out (Claudia: 'peeeerson approves'); measured with whisper word timestamps, 23/10.",
-  "until a person approves": "until a [[rate 185]] person approves[[rate 160]]",
-  "word. A person approves": "word. [[slnc 250]] A [[rate 185]] person approves[[rate 160]]"
+  "right. Pablo": "right. [[slnc 300]] Pablo [[slnc 40]]"
 }

@@ -207,7 +207,7 @@ const Business: React.FC = () => {
 
 // ---------- 2c. So what helps? Second Look, before we meet the shop ----------
 // The product's own mark (two rings: kraft and ink) and name; then what it does, each item as the voice
-// names it; then the person, lit in kraft, on the last sentence.
+// names it; then "You approve", lit in kraft, on the last sentence.
 const MARK = (size: number) => (
   <svg width={size * 30 / 22} height={size} viewBox="0 0 30 22" aria-hidden="true">
     <circle cx="11" cy="11" r="9" fill={theme.kraft} />
@@ -217,13 +217,13 @@ const MARK = (size: number) => (
 const Enter: React.FC = () => {
   const frame = useCurrentFrame();
   const from = beat('s2h').from, to = beat('s2h').next;
-  // Where the voice says each word, as a share of the line (whisper word timestamps on s2h.wav, 23/10):
-  // "It's" 0.152, "reads" 0.228, "runs" 0.506, "drafts" 0.719, "Nothing" 0.814.
-  const w2 = at('s2h', 0.152), w3 = at('s2h', 0.814);
+  // Where the voice says each word, as a share of the line (whisper word timestamps on s2h.wav, draft 6):
+  // "It's" 0.155, "reads" 0.230, "runs" 0.511, "drafts" 0.726, "Nothing" 0.820.
+  const w2 = at('s2h', 0.155), w3 = at('s2h', 0.82);
   const items = [
-    {on: at('s2h', 0.228), text: 'Reads the dispute and PayPal’s evidence'},
-    {on: at('s2h', 0.506), text: 'Runs a specialist’s ten checks'},
-    {on: at('s2h', 0.719), text: 'Drafts the answer'},
+    {on: at('s2h', 0.23), text: 'Reads the dispute and PayPal’s evidence'},
+    {on: at('s2h', 0.511), text: 'Runs a specialist’s ten checks'},
+    {on: at('s2h', 0.726), text: 'Drafts the answer'},
   ];
   const head = fadeIn(frame, from + 2, 14);
   const person = fadeIn(frame, w3, 12);
@@ -249,8 +249,8 @@ const Enter: React.FC = () => {
         })}
         <div style={{marginTop: 26, display: 'flex', alignItems: 'center', gap: 26, padding: '22px 30px', background: theme.kraftBg,
           borderLeft: `8px solid ${theme.kraft}`, opacity: person, transform: `translateY(${(1 - person) * 14}px)`}}>
-          <span style={{font: `700 54px/1.15 ${theme.sans}`, color: '#6E4F27'}}>A person approves</span>
-          <span style={{font: `400 34px ${theme.sans}`, color: '#6E4F27'}}>Nothing moves before.</span>
+          <span style={{font: `700 54px/1.15 ${theme.sans}`, color: '#6E4F27'}}>You approve</span>
+          <span style={{font: `400 34px ${theme.sans}`, color: '#6E4F27'}}>Nothing is sent before.</span>
         </div>
       </div>
     </Scene>
@@ -340,7 +340,7 @@ const TheCase: React.FC = () => {
 // ---------- 6. What happens when she approves? ----------
 const Approve: React.FC = () => {
   const from = beat('s6a').from, to = beat('s6a').next;
-  const records = at('s6a', 0.64); // "and the ticket records who sent it"
+  const records = at('s6a', 0.76); // "and the ticket records who sent it" (whisper: "ticket" at 0.81)
   const sent = 'tb-2001-sent';
   const shots: ShotSpec[] = [
     {id: 'tb-2001', from, to: cut6(), cams: [{at: from, cam: camOn(box('tb-2001', 'panel'), 1.6)}],
@@ -358,16 +358,17 @@ const Approve: React.FC = () => {
 // ---------- 7. What if it's more than she may give? ----------
 const OverLimit: React.FC = () => {
   const from = beat('s7a').from, to = giuliaOpens();
-  const [, a2, a3] = sentenceStarts('s7a');
+  const [, a2] = sentenceStarts('s7a'); // "Pablo sent a shirt back" (whisper: 0.437 of the line)
   const [, b2] = sentenceStarts('s7b');
   const id = 'tb-2004', after = 'tb-2004-passed';
   const passBlock = union(box(id, 'pass'), box(id, 'pass-says'));
+  const aiCall = union(box(id, 'your-call'), box(id, 'ai-says'));
   const clickPass = b2 + Math.round((beat('s7b').to - b2) * 0.35); // "goes to Giulia"
   const shots: ShotSpec[] = [
     {id, from, to: clickPass + CUT,
-      cams: [{at: from, cam: camTop()}, {at: a3 - 6, cam: camOn(union(box(id, 'your-call'), box(id, 'ai-says')), 1.6), dur: 26},
+      cams: [{at: from, cam: camOn(aiCall, 1.6)}, {at: a2 - 6, cam: camTop(), dur: 26},
         {at: beat('s7b').from, cam: camOn(passBlock, 1.6), dur: 26}],
-      spots: [{at: a2, box: box(id, 'email')}, {at: a3, box: union(box(id, 'your-call'), box(id, 'ai-says'))},
+      spots: [{at: from + 8, box: aiCall}, {at: a2 + 4, box: box(id, 'email')},
         {at: beat('s7b').from + 8, box: box(id, 'pass-says')}, {at: b2, box: passBlock}],
       cursor: [{at: b2 - 4, pos: {x: 1500, y: 980}}, {at: clickPass, box: box(id, 'pass'), click: true, move: 22}],
       where: {text: 'Ticketbook › Ticket #2004', ...MARTA_TB}, labelIn: true},
@@ -450,7 +451,7 @@ const Trust: React.FC = () => {
           <Arrow x1={x(0) + W + 8} y1={Y + H / 2} x2={x(1) - 8} y2={Y + H / 2} on={t2 - 4} />
           <FlowBox x={x(1)} y={Y} w={W} h={H} on={t2} title="Your limits, in code" tone={theme.kraft}>They have the last word.</FlowBox>
           <Arrow x1={x(1) + W + 8} y1={Y + H / 2} x2={x(2) - 8} y2={Y + H / 2} on={t3 - 4} />
-          <FlowBox x={x(2)} y={Y} w={W} h={H} on={t3} title="A person approves" tone={theme.pass}>Nothing moves before.</FlowBox>
+          <FlowBox x={x(2)} y={Y} w={W} h={H} on={t3} title="You approve" tone={theme.pass}>Nothing is sent before.</FlowBox>
           <Arrow x1={x(2) + W + 8} y1={Y + H / 2} x2={x(3) - 8} y2={Y + H / 2} on={t3 + 10} />
           <FlowBox x={x(3)} y={Y} w={W} h={H} on={t3 + 14} title="PayPal">Evidence, reply or refund.</FlowBox>
         </AbsoluteFill>
@@ -469,9 +470,31 @@ const Trust: React.FC = () => {
   );
 };
 
+// ---------- signature ----------
+// "claudiaonclaude.com", small, bottom-right, on every screen but the end card (which carries it). The
+// where-label is bottom-left, and no lit element reaches this corner. Light on the dark scenes, soft ink
+// elsewhere (with a pale halo so it stays readable under a spotlight's veil).
+const Signature: React.FC = () => {
+  const frame = useCurrentFrame();
+  const endCard = beat('s10b').from - 6;
+  if (frame >= endCard) return null;
+  const dark = frame < beat('s2h').from; // scenes 1, 2 and 2b
+  // over the captured pages there is page text in that corner: a small paper chip keeps it clean
+  const app = frame >= beat('s4a').from && frame < beat('s10a').from;
+  const o = Math.min(fadeIn(frame, 0, 12), 1 - fadeIn(frame, endCard - 10, 10));
+  return (
+    <div style={{position: 'absolute', right: app ? 24 : 34, bottom: app ? 22 : 30, font: `500 20px ${theme.sans}`, letterSpacing: 0.2,
+      opacity: o, padding: app ? '4px 10px' : 0, borderRadius: 4, background: app ? 'rgba(245,246,242,0.88)' : 'transparent',
+      color: dark ? 'rgba(245,246,242,0.6)' : 'rgba(30,41,53,0.6)', textShadow: dark ? '0 1px 6px rgba(0,0,0,0.5)' : 'none'}}>
+      claudiaonclaude.com
+    </div>
+  );
+};
+
 export const Scenes3: React.FC = () => (
   <>
     <Moment /><Costs /><Business /><Enter /><Team /><Helpdesk /><TheCase /><Approve /><OverLimit /><Giulia /><Live /><Trust />
+    <Signature />
   </>
 );
 void HEIGHT;

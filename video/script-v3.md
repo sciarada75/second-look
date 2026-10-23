@@ -1,4 +1,4 @@
-# Film draft 5 — script (23/10, written by Claude; Claudia: "you do all"; drafts 4 and 5 change it after her verdicts)
+# Film draft 6 — script (23/10, written by Claude; Claudia: "you do all"; drafts 4–6 change it after her verdicts)
 
 Target under 3:00 (draft 4: about 2:45), about 410 spoken words at rate 160. **The rule for every scene:** it answers one question the
 previous scene raised, the voice names that question or its answer, and the screen shows only what the
@@ -39,9 +39,9 @@ sources give it: US$.]
 
 ## 2c. So what helps? (Second Look before the shop case: Claudia on draft 4, "it should happen before introducing the shop case")
 [Paper. The Second Look mark and name, large; "an AI for PayPal disputes"; three items appear as named — Reads the
-dispute and PayPal's evidence · Runs a specialist's ten checks · Drafts the answer — then **A person approves**
-lit in kraft on the last sentence.]
-- That's where Second Look comes in. It's an AI that reads every PayPal dispute and the evidence behind it, runs the checks a specialist would, and drafts the answer. Nothing moves until a person approves.
+dispute and PayPal's evidence · Runs a specialist's ten checks · Drafts the answer — then **You approve**
+lit in kraft on the last sentence, with "Nothing is sent before."]
+- That's where Second Look comes in. It's an AI that reads every PayPal dispute and the evidence behind it, runs the checks a specialist would, and drafts the answer. Nothing is sent until you approve it.
 
 ## 3. Who are we following?
 [Behind: Claudia's picture of a linen and paper shop, lightly veiled. A simple card: "Linen & Paper — a made-up shop · about 2,000 orders a month". Four initials appear as
@@ -59,18 +59,18 @@ they are named: Giulia (Customer care manager), Marta, Luca, Sara (Customer care
 line with its PayPal tag, then the buyer-history line, then "What each way out costs".]
 - She opens the case. The courier recorded the apron as delivered three days after it shipped, to the address on Dario's PayPal account.
 - Dario has disputed four of his five orders, and took two of them to a claim.
-- And she sees what each way out costs: refunding now, twenty-six euros out of pocket; losing a claim, forty.
+- And what each way out costs: refunding now, twenty-six euros out of pocket. Defending costs nothing, unless PayPal later sides with him.
 
-## 6. What happens when she approves? (1:35–1:47)
+## 6. What happens when she defends?
 [Back to **Ticketbook › Ticket #2001**. Cursor: "Approve as Marta". The note appears; the ticket history
 gains "Second Look: answer sent to PayPal by Marta".]
-- She approves. The proof goes to PayPal, the reply goes to Dario, and the ticket records who sent it.
+- She defends. No refund: the proof goes to PayPal, the reply goes to Dario, and the ticket records who sent it.
 
-## 7. What if it's more than she may give? (1:47–2:02)
+## 7. And when the buyer is right?
 [**Ticketbook › Ticket #2004**, Pablo's email. Light "Your call", then the button "Pass to Giulia" and its
 sentence "…over your 30.00 EUR limit. Giulia decides; nothing is sent now." Cursor clicks it.]
-- Next, Pablo. He sent a shirt back, and the refund never went out. He's right.
-- But it's eighty-nine euros, over Marta's limit. So the case goes to Giulia, and nothing is sent.
+- Second Look also says when the buyer is right. Pablo sent a shirt back, and the refund never went out.
+- It's eighty-nine euros, over Marta's limit. So the case goes to Giulia, and nothing is sent.
 
 ## 8. Who decides, and what's the big picture? (2:02–2:22)
 [**Second Look › Disputes**, signed in as Giulia: the case marked "passed by Marta" → the case page:
@@ -87,7 +87,7 @@ Overview**: what the open cases could cost; the meter "0.6% claims · PayPal's l
 ## 10. Can I trust it? (2:36–2:50)
 [Four boxes build left to right: The AI recommends → Your limits, in code → A person approves → PayPal.
 Then the end card, over a darkened, blurred clip of a seller with parcels: **Second Look** · *Sell without fear.* · claudiaonclaude.com · github.com/sciarada75/second-look]
-- The AI recommends. Limits written in code have the last word. A person approves.
+- The AI recommends. Limits written in code have the last word. You approve.
 - Second Look. Sell without fear.
 
 ---
@@ -108,7 +108,9 @@ Then the end card, over a darkened, blurred clip of a seller with parcels: **Sec
 | already reviewed; answer: defend with evidence | .tmp/reviews/DEMO-031.json: DEFEND, 85% |
 | delivered three days after it shipped, to the address on his PayPal account | DEMO-031 tracking: shipped 10 Oct, delivered 13 Oct, `delivered_to_paypal_address: true` |
 | disputed four of five orders, took two to a claim | evidence: "4 disputes in 5 orders … Took 2 of 3 earlier disputes … to a PayPal claim" |
-| refunding now 26 EUR out of pocket; losing a claim 40 | DEMO-031 costs: refund_now.out_of_pocket 26.22; claim_lost.out_of_pocket 40.22 |
+| refunding now 26 EUR out of pocket | DEMO-031 costs: refund_now.out_of_pocket 26.22 |
+| defending costs nothing, unless PayPal later sides with him | no PayPal fee at the inquiry stage (User Agreement 14/09/2026); DEMO-031 costs: claim_lost.out_of_pocket 40.22 (refund + 14 EUR fee), visible in the lit costs block — the only loss path is a lost claim |
+| she defends; no refund | DEMO-031 approve DEFEND = evidence + message (`execute`): no money moves |
 | proof goes to PayPal, reply to Dario, ticket records who sent it | approve DEFEND = provide evidence + message (`execute`); `answer.sent` notification with `by` → Ticketbook history. Demo: logged, not sent (label on screen) |
 | Pablo sent a shirt back, refund never went out, he's right | DEMO-034 record (return delivered 8 Oct, refund_issued false); review: AI refund 95%, checks favour the buyer |
 | 89 EUR over Marta's limit; goes to Giulia; nothing is sent | `page_offer` → pass; approve → 202 "Nothing was sent." |
@@ -116,7 +118,7 @@ Then the end card, over a darkened, blurred clip of a seller with parcels: **Sec
 | what the open cases could cost; how far from the busy-shop line | Overview: exposure section; meter 37/6,112 = 0.61% vs 1.5% |
 | runs on PayPal's sandbox; one-person shop; real dispute; reply to the buyer, tracking to PayPal as proof | PP-R-UCT-10193281: reply sent 18/10, evidence (tracking LC1810260042) submitted 19/10; policy.json has no team |
 | an AI that reads every PayPal dispute and the evidence behind it, runs a specialist's checks, drafts the answer | `evidence.py` gathers the dispute and PayPal's own records (order, tracking, buyer history) with their sources; `judge.py` runs the ten `CHECKS` and drafts the reply; `guard.py` applies the seller's limits after it |
-| nothing moves until a person approves (s2h); a person approves (s10a) | every send goes through `web.approve`, which needs a named person in the team (`may_approve` + `page_offer`); demo actions are logged, never sent |
+| nothing is sent until you approve it (s2h); you approve (s10a) | every send goes through `web.approve`, which needs a named person in the team (`may_approve` + `page_offer`); demo actions are logged, never sent |
 | limits in code have the last word | `guard.py` runs after the AI and can only make the answer more careful |
 
 ## Not said, on purpose
