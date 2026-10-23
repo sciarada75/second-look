@@ -449,6 +449,9 @@ header.top.demo{{--ctx:var(--kraft);--ctx-bg:#F6EDE0}} header.top.practice{{--ct
 .pill.you{{background:#F6E6C8;color:#7A4E0C}} .pill.buyer{{background:#DDEBE1;color:var(--pass)}}
 .pill.paypal{{background:#E4E7EA;color:var(--soft)}} .pill.onclaim{{background:#EEDDE9;color:var(--fail)}}
 .filters{{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}}
+.tabs{{display:flex;gap:6px;margin:4px 0 14px}} .tabs a{{padding:7px 14px;border:1px solid var(--rule);text-decoration:none;font-size:15px}}
+.tabs a[aria-current]{{background:var(--ink);color:#fff;border-color:var(--ink)}} .tabs b{{font-variant-numeric:tabular-nums;margin-left:4px}}
+.owner{{margin-left:10px;padding:2px 8px;border:1px solid var(--rule);font-size:13px;color:var(--soft)}}
 .filters input,.filters select{{font:400 16px "Schibsted Grotesk",sans-serif;padding:9px 12px;border:1px solid var(--rule);background:#fff;color:var(--ink)}}
 .filters input{{min-width:320px}}
 .exposure{{margin:10px 0 26px;max-width:1100px}}
@@ -669,9 +672,27 @@ def _shop(src: str):
     return pp, evidence_mod.shop_disputes(pp, now), evidence_mod._orders(pp, now), now.date()
 
 
+def in_view(view: str, a: dict, me: str | None) -> bool:
+    return view == "all" or (view == "mine" and a["to"] == me) or (view == "unassigned" and not a["to"])
+
+
+def owner_tag(t: dict, a: dict) -> str:
+    if not a["to"]:
+        return "Unassigned"
+    who = team_mod.person(t, a["to"])
+    name = who["name"] if who else a["to"]
+    hand = a.get("handoff")
+    return name + (f' · passed by {hand.get("from_name")}' if isinstance(hand, dict) and hand.get("from_name") else "")
+
+
 def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
     practice, demo = src == "practice", src == "demo"
     pp = DemoPayPal() if demo else MockPayPal(ROOT / "cases", ROOT / ".tmp" / "actions.jsonl") if practice else client_from_env(ROOT)
+    t = team_for_src(src)
+    # In a team: who has which case, read once for the whole list (a team of one has no owners or tabs).
+    assigned = None if t.get("solo") else assignments_for("DEMO-" if demo else None).all()
+    owner_of = lambda did: assigned.get(did, {"to": None, "handoff": None})  # noqa: E731
+    view = view if view in ("mine", "unassigned", "all") else "all"
     today = pp.today if demo else datetime.utcnow().date()
     items = []
     for state in (["REQUIRED_ACTION"] if practice else ["REQUIRED_ACTION", "REQUIRED_OTHER_PARTY_ACTION"]):
@@ -681,6 +702,10 @@ def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
         if d["dispute_id"] in seen:
             continue
         seen.add(d["dispute_id"])
+        a = owner_of(d["dispute_id"]) if assigned is not None else None
+        if a is not None and not in_view(view, a, me):
+            continue
+        owner = f' <span class="owner">{e(owner_tag(t, a))}</span>' if a is not None else ""
         full = d if practice or demo else pp.get_dispute(d["dispute_id"])
         msg = next((m["content"] for m in full.get("messages", []) if m.get("posted_by") == "BUYER"), "")
         due = _t(full.get("seller_response_due_date"))
@@ -691,7 +716,7 @@ def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
         rows.append((full.get("status") != "WAITING_FOR_SELLER_RESPONSE", left if left is not None else 99,
                      f'<li><a href="/d/{e(d["dispute_id"])}"><blockquote>{e(msg)}</blockquote>'
                      f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
-                     f'<span class="meta">{pill_for(full)} {e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}</span></a></li>'))
+                     f'<span class="meta">{pill_for(full)} {e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}{owner}</span></a></li>'))
     ordered = sorted(rows, key=lambda r: (r[0], r[1])) if not practice else rows
     yours = [r for r in ordered if not r[0]]
     if practice:
@@ -711,7 +736,13 @@ def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
              '<a href="/?shop=demo">Demo shop</a> · <a href="/?practice=1">Practice cases</a>')
     title = "Practice cases" if practice else f"{DemoPayPal().shop['name']}: open disputes" if demo else "Your PayPal disputes"
     about = f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else ""
-    body = (f'<h1 class="page">{e(title)}</h1>{about}<p class="who">{other}</p>{whatnow}'
+    tabs = ""
+    if assigned is not None:  # counts over every open case, whichever view is showing
+        counts = {v: sum(1 for did in seen if in_view(v, owner_of(did), me)) for v in ("mine", "unassigned", "all")}
+        tabs = '<p class="tabs">' + "".join(
+            f'<a href="?view={v}"{" aria-current=page" if v == view else ""}>{label} <b>{counts[v]}</b></a>'
+            for v, label in (("mine", "Mine"), ("unassigned", "Unassigned"), ("all", "Everyone"))) + "</p>"
+    body = (f'<h1 class="page">{e(title)}</h1>{about}<p class="who">{other}</p>{whatnow}{tabs}'
             + ('<div class="filters" role="search"><input id="q" type="search" placeholder="Search what the buyer said, reason, amount" '
                'aria-label="Search disputes"></div><script>addEventListener("DOMContentLoaded",()=>{const q=document.getElementById("q"),rows=[...document.querySelectorAll(".inbox li")];'
                'q.addEventListener("input",()=>rows.forEach(r=>r.hidden=!!q.value&&!r.textContent.toLowerCase().includes(q.value.toLowerCase())))});</script>'

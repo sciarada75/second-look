@@ -277,6 +277,43 @@ def test_a_case_page_and_its_posts_take_the_people_of_the_case_s_own_shop():
     assert web.src_of_case(practice, "demo") == "practice"
 
 
+def test_the_list_filters_mine_unassigned_everyone():
+    store = team_mod.Assignments(Path(tempfile.mkdtemp()) / "a.json",
+                                 seed={"D1": {"to": "marta"}, "D2": {"to": "giulia", "handoff": {"from_name": "Marta"}}})
+    rows = [("D1", "x"), ("D2", "y"), ("D3", "z")]
+    keep = lambda view: [d for d, _ in rows if web.in_view(view, store.get(d), "marta")]  # noqa: E731
+    assert keep("mine") == ["D1"] and keep("unassigned") == ["D3"] and keep("all") == ["D1", "D2", "D3"]
+    assert web.owner_tag(TEAM, store.get("D2")) == "Giulia · passed by Marta"
+    assert web.owner_tag(TEAM, store.get("D3")) == "Unassigned"
+
+
+@contextmanager
+def demo_team(seed):
+    """The demo shop's real disputes with a team that exists only for this test (no file is changed)."""
+    saved = web.team_for, web.assignments_for, web.SUGGESTED
+    store = team_mod.Assignments(Path(tempfile.mkdtemp()) / "a.json", seed=seed)
+    try:
+        web.team_for = lambda did: team_mod.of(TEAM)
+        web.assignments_for = lambda did: store
+        web.SUGGESTED = Path(tempfile.mkdtemp()) / "suggested.json"
+        yield store
+    finally:
+        web.team_for, web.assignments_for, web.SUGGESTED = saved
+
+
+def test_in_a_team_the_inbox_has_tabs_and_owners_and_a_team_of_one_has_neither():
+    solo = web.inbox_page("demo")
+    assert 'class="tabs"' not in solo and 'class="owner"' not in solo and "You are" not in solo
+    open_ids = [d["dispute_id"] for d in DemoPayPal().disputes()
+                if d["status"] in ("WAITING_FOR_SELLER_RESPONSE", "WAITING_FOR_BUYER_RESPONSE")]
+    with demo_team({open_ids[0]: {"to": "marta"}}):
+        everyone = web.inbox_page("demo", "marta")
+        assert 'class="tabs"' in everyone and "Mine <b>1</b>" in everyone and f"Everyone <b>{len(open_ids)}</b>" in everyone
+        assert everyone.count('class="owner"') == len(open_ids) and "You are <b>Marta</b>" in everyone
+        mine = web.inbox_page("demo", "marta", "mine")
+        assert mine.count("<li>") == 1 and f"/d/{open_ids[0]}" in mine and "Mine <b>1</b>" in mine
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
