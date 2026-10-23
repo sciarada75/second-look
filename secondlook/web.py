@@ -11,6 +11,7 @@ decision: the seller approves what is on the screen, not a fresh answer.
 """
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import re
@@ -83,6 +84,18 @@ def _saved(dispute_id: str):
                     overridden=raw["overridden"], stops=raw.get("stops", [])), raw.get("sent")
 
 
+def review_mark(dispute_id: str) -> str:
+    """A short fingerprint of the review a page or a system was shown: what was recommended, what the AI said,
+    its amount and draft, and the case it saw. An approval that carries one is refused if the review changed."""
+    try:
+        raw = json.loads((REVIEWS / f"{dispute_id}.json").read_text())
+    except (OSError, ValueError):
+        return ""
+    j = raw.get("judgment") or {}
+    basis = [raw.get("action"), j.get("action"), j.get("partial_amount"), j.get("draft_message"), raw.get("seen")]
+    return hashlib.sha256(json.dumps(basis, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
+
+
 def _saved_by(dispute_id: str) -> dict:
     """Who sent the answer and when, as saved with it (empty before teams existed, or for a solo seller)."""
     try:
@@ -149,6 +162,8 @@ def take(did: str, by: str | None) -> tuple[int, str]:
     who = team_mod.person(t, by)
     if not who:
         return 400, "Say who you are: a person in this shop's team."
+    if not _is_open_case(did):
+        return 404, "No open case with that id in this shop."
     holder = []
 
     def claim(a):
@@ -164,9 +179,24 @@ def take(did: str, by: str | None) -> tuple[int, str]:
     return 200, f"{who['name']} took this case."
 
 
+# PayPal's dispute ids: PP-R-ZOY-10193120 (live sandbox), PP-D-001 (practice cases).
+_PAYPAL_ID = re.compile(r"PP-[A-Z]-[A-Z]{3}-\d+|PP-D-\d+")
+
+
+def _is_open_case(did: str) -> bool:
+    """A cheap check that an id is a case of this shop, so nobody fills the assignments file with made-up ids.
+    Demo: an open dispute in the demo data. Live: a case reviewed here, or an id shaped like PayPal's (asking
+    PayPal on every Take it would cost a call; an id of the right shape that isn't open only adds a stale row)."""
+    if is_demo(did):
+        return any(d.get("dispute_id") == did and d.get("status") != "RESOLVED" for d in DemoPayPal().disputes())
+    return (REVIEWS / f"{did}.json").exists() or bool(_PAYPAL_ID.fullmatch(did or ""))
+
+
 def by_for_post(t: dict, by: str | None) -> tuple[bool, str | None]:
-    """Who a form says it was shown to. In a team it must be a real person of the case's team: a POST never
-    falls back to the first person (that would let anyone act as the manager). A team of one needs no name."""
+    """Who a form says it was shown to. In a team it must be a real person of the case's team, and a POST
+    never falls back to the first person: each form names the person whose page it was. This is not
+    authentication: anyone at this machine can pick any name in the picker (README, "Not built").
+    A team of one needs no name."""
     if t.get("solo"):
         return True, None
     p = team_mod.person(t, by)
@@ -318,6 +348,10 @@ def _changes(dispute_id: str, case: dict) -> list:
 def _t(iso):
     try:
         return datetime.strptime(str(iso)[:19], "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(str(iso)[:16], "%Y-%m-%dT%H:%M")  # how Second Look saves who sent what, when
     except ValueError:
         try:
             return datetime.strptime(str(iso)[:10], "%Y-%m-%d")
@@ -656,7 +690,7 @@ def shop_badge(context: str) -> str:
 _REQUEST = threading.local()
 
 
-def person_badge(t: dict, me: str | None, qs: dict | None = None) -> str:
+def person_badge(t: dict, me: str | None, qs: dict | None = None, currency: str = "") -> str:
     """Who you are in a team, and the switch to a colleague. Nothing for a team of one, or for a team
     file that lists nobody usable."""
     if t.get("solo"):
@@ -667,7 +701,8 @@ def person_badge(t: dict, me: str | None, qs: dict | None = None) -> str:
     qs = getattr(_REQUEST, "qs", {}) if qs is None else qs
     keep = [(k, v) for k, vs in qs.items() if k != "as" for v in vs]
     cap = team_mod.limit(t, p["id"])
-    may = "sends any amount the limits hand to a person" if cap is None else f"sends refunds up to {cap:.0f} EUR"
+    may = ("sends any amount the limits hand to a person" if cap is None
+           else f"sends refunds up to {cap:.0f}" + (f" {currency}" if currency else ""))
     menu = "".join(f'<a href="?{e(urlencode(keep + [("as", o["id"])]))}"><span>{e(str(o.get("name") or o["id"]))}'
                    f'<small>{e(str(o.get("role") or ""))}</small></span></a>'
                    for o in team_mod.people(t) if o["id"] != p["id"])
@@ -678,6 +713,16 @@ def person_badge(t: dict, me: str | None, qs: dict | None = None) -> str:
 
 MARK = ('<svg class="mark-logo" width="30" height="22" viewBox="0 0 30 22" aria-hidden="true">'
         '<circle cx="11" cy="11" r="9" fill="#B5874F"/><circle cx="19" cy="11" r="9" fill="none" stroke="#1E2935" stroke-width="3"/></svg>')
+
+
+def _shop_currency(t: dict, demo: bool) -> str:
+    """The currency a role's limit is in: the team block's own, else the demo shop's disputes'. None known: none shown."""
+    if isinstance(t.get("currency"), str):
+        return t["currency"]
+    if demo:
+        ds = DemoPayPal().disputes()
+        return ds[0]["dispute_amount"].get("currency_code", "") if ds else ""
+    return ""
 
 
 def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = None) -> str:
@@ -691,7 +736,8 @@ def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = 
     nav = (f'<nav><a href="/{q}"{cur("disputes")}>Disputes</a><a href="/overview"{cur("overview")}>Overview</a>'
            f'<a href="/rules"{cur("rules")}>{rules}</a>'
            f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
-    who = person_badge(team_for("DEMO-" if demo else None) if context != "practice" else team_mod.of(None), me)
+    t = team_for("DEMO-" if demo else None) if context != "practice" else team_mod.of(None)
+    who = person_badge(t, me, currency=_shop_currency(t, demo)) if not t.get("solo") else ""
     return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(context) + who, mark=MARK)
 
 
@@ -966,10 +1012,18 @@ EVIDENCE_KIND = {"PROOF_OF_FULFILLMENT": "proof of shipment or delivery", "PROOF
                  "PROOF_OF_RETURN": "proof of return"}
 
 
-def conversation(d: dict) -> str:
-    """Everything said and sent on this case, in order: a seller must see whether they already answered."""
+def conversation(d: dict, signed: dict | None = None) -> str:
+    """Everything said and sent on this case, in order: a seller must see whether they already answered.
+    In a team, `signed` ({"by", "at", "text"}) names who sent the answer from here."""
     items = [(m.get("time_posted") or "", "buyer" if m.get("posted_by") == "BUYER" else "you",
               "Buyer" if m.get("posted_by") == "BUYER" else "You", m.get("content", "")) for m in d.get("messages", [])]
+    if signed and signed.get("by"):
+        who = f"Sent by {signed['by']}"
+        mine = [i for i, it in enumerate(items) if it[1] == "you" and it[3] == signed.get("text")]
+        if mine:  # PayPal already shows the message: sign it
+            items[mine[-1]] = items[mine[-1]][:2] + (who,) + items[mine[-1]][3:]
+        else:     # not in PayPal's record (yet, or a practice/demo case): show what was sent
+            items.append((signed.get("at") or "~", "you", who, signed.get("text") or ""))
     for ev in d.get("evidences", []):
         if ev.get("source") == "SUBMITTED_BY_SELLER":
             kind = EVIDENCE_KIND.get(ev.get("evidence_type"), str(ev.get("evidence_type", "evidence")).lower().replace("_", " "))
@@ -989,6 +1043,8 @@ def _send_form(did: str, label: str, draft: str, action: str, button: str, says:
                passing: bool, teach: str = "") -> str:
     """An approve form. It carries who it was shown to (`by`), so the POST acts as that person."""
     by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+    mark = review_mark(did)
+    by += f'<input type="hidden" name="review" value="{e(mark)}">' if mark else ""
     return (f'<form class="send" method="post" action="/d/{e(did)}/approve">'
             f'<label class="reply" for="reply">{label}</label>'
             f'<textarea id="reply" name="message">{e(draft)}</textarea>'
@@ -1064,6 +1120,10 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
             by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
             owner = (f'<form class="owner-line" method="post" action="/d/{e(dispute_id)}/take">Nobody has this case yet. '
                      f'{by}<button class="link">Take it</button></form>')
+    signed = None
+    if a is not None and saved and saved[1]:
+        sb = _saved_by(dispute_id)
+        signed = {"by": sb.get("by"), "at": sb.get("at"), "text": saved[0].judgment.draft_message or saved[1]}
     card = (f'<p class="cardlink"><a href="/customer/{e(buyer)}{q}">This customer\'s record with you</a></p>'
             if buyer and not practice else "")
     nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
@@ -1071,7 +1131,7 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
             f'{pill_for(d)}<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
             f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
-            f'{conversation(d)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
+            f'{conversation(d, signed)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
     costs = costs_block(r.get("costs"), r.get("buyer_history_counts"))
     banner = ""
     given = [ev for ev in d.get("evidences", []) if ev.get("source") == "SUBMITTED_BY_SELLER"]
@@ -1193,8 +1253,19 @@ def notify(event: str, payload: dict) -> None:
 
 def run_review(did: str) -> Decision:
     from .__main__ import review
+    saved = _saved(did)
+    if saved and saved[1] and not _changes(did, _case(did)):
+        return saved[0]  # answered, and nothing new since: keep the record (and don't pay for a review)
     dec = review(_client(did), did, "claude")
-    _save(did, dec, seen=_seen(_case(did)))
+    with _case_lock(did):  # never between an approval's read and its save
+        case, saved = _case(did), _saved(did)
+        if saved and saved[1] and not _changes(did, case):
+            return saved[0]  # sent while the judge was reading: the sent record stays
+        _save(did, dec, seen=_seen(case))
+        t = team_for(did)
+        if not t.get("solo") and assignments_for(did).get(did)["handoff"]:
+            # A colleague's note was about the old review: the case stays theirs, the note goes.
+            assignments_for(did).update(did, lambda a: {**a, "handoff": None})
     notify("review.ready", {"dispute_id": did, "recommended": dec.action, "confidence": dec.judgment.confidence,
                             "limits_changed_it": dec.overridden})
     return dec
@@ -1256,24 +1327,34 @@ def required(chosen: str, dec: Decision, dispute: dict) -> float:
     return max(money_out(chosen, dec.judgment, dispute), whole)
 
 
-def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None) -> tuple[int, str]:
+# Actions whose text reaches the buyer or PayPal: an emptied box must not fall back to the AI's draft or reasoning.
+_WORDS_NEEDED = ("MESSAGE", "REFUND", "PARTIAL_REFUND", "REPLACE")
+
+
+def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None,
+            review: str | None = None) -> tuple[int, str]:
     """Send the answer a person chose. Returns (HTTP status, what happened).
-    200 sent · 202 passed to a colleague (nothing sent) · 400 nobody named · 409 changed or not allowed."""
+    200 sent · 202 passed to a colleague (nothing sent) · 400 nobody named or no words · 409 changed or not allowed.
+    `review`: the review_mark of the review they were shown; when given, a different review is refused."""
     from .__main__ import execute
     t = team_for(did)
     who = team_mod.person(t, by)
     if not who:
         return 400, "Say who is approving: a person in this shop's team."
     with _case_lock(did):  # from reading the review to saving what was sent, or the handoff
-        return _approve(did, chosen, message, rule, t, who, execute)
+        return _approve(did, chosen, message, rule, t, who, execute, review)
 
 
-def _approve(did, chosen, message, rule, t, who, execute) -> tuple[int, str]:
+def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[int, str]:
     saved = _saved(did)
     if saved and saved[1]:
         return 200, saved[1]  # already sent: a second approval sends nothing
     if not saved:
         return 409, _refused(None, chosen)
+    if review and review != review_mark(did):
+        return 409, "This answer changed since you saw it. Look again."
+    if chosen in _WORDS_NEEDED and message is not None and not message.strip():
+        return 400, "Write a message first."
     dec = saved[0]
     case = _case(did)
     if _changes(did, case):
@@ -1345,7 +1426,8 @@ def api_case(did: str) -> dict:
         out["review"] = {"recommended": dec.action, "ai_said": dec.judgment.action, "confidence": dec.judgment.confidence,
                          "limits_notes": dec.reasons, "held_back_for": dec.stops, "reasoning": dec.judgment.reasoning,
                          "draft_reply": dec.judgment.draft_message, "checks": dec.judgment.checks,
-                         "sent": sent, "by": _saved_by(did).get("by"), "out_of_date": _changes(did, case)}
+                         "sent": sent, "by": _saved_by(did).get("by"), "out_of_date": _changes(did, case),
+                         "mark": review_mark(did)}
     if not team_for(did).get("solo"):
         a = assignments_for(did).get(did)
         out["assigned_to"], out["handoff"] = a["to"], a["handoff"]
@@ -1404,7 +1486,7 @@ class Handler(BaseHTTPRequestHandler):
         kept = self._jar().get(key)
         if team_mod.person(t, kept):
             return kept
-        first = team_mod.first(t)  # for display only: a POST names its person itself (by_for_post)
+        first = team_mod.first(t)  # for display only: a POST must name its person itself (by_for_post)
         return first["id"] if first else None
 
     def _send(self, body: str, code: int = 200):
@@ -1490,7 +1572,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        form = parse_qs(raw.decode()) if not self.path.startswith("/api/") else {}
+        # keep_blank_values: an emptied reply box arrives empty, never as "use the AI's draft"
+        form = parse_qs(raw.decode(), keep_blank_values=True) if not self.path.startswith("/api/") else {}
         try:
             me = None
             if len(parts) == 3 and parts[0] == "d" and parts[2] in ("approve", "take"):
@@ -1515,7 +1598,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._redirect(f"/d/{parts[1]}")
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "approve":
                 code, text = approve(parts[1], form.get("action", [""])[0], form.get("message", [None])[0],
-                                     form.get("rule", [""])[0], by=me)
+                                     form.get("rule", [""])[0], by=me, review=form.get("review", [None])[0])
                 return self._redirect(f"/d/{parts[1]}") if code in (200, 202) else self._send(text, code)
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
                 code, text = take(parts[1], me)
@@ -1529,7 +1612,7 @@ class Handler(BaseHTTPRequestHandler):
                 data = json.loads(raw or b"{}")
                 # a connected system must say who approves ("by": a person id) in a team shop
                 code, text = approve(did, data.get("action", ""), data.get("message"), data.get("rule", ""),
-                                     by=data.get("by"))
+                                     by=data.get("by"), review=data.get("review"))
                 return self._json({"dispute_id": did, "result": text}, code)
             self._send("Not found", 404)
         except Exception as err:

@@ -22,7 +22,10 @@ SOLO = {"roles": {"Owner": {"refund_up_to": None}},
 
 def of(block: dict | None) -> dict:
     # A fresh copy: a caller that edits the team of one must not change it for everyone else.
-    return block if isinstance(block, dict) and block.get("people") else copy.deepcopy(SOLO)
+    if not (isinstance(block, dict) and block.get("people")):
+        return copy.deepcopy(SOLO)
+    # "solo" is ours to set, never the file's: a team block that says it would skip every team check.
+    return {k: v for k, v in block.items() if k != "solo"}
 
 
 # The team block is typed by hand into a JSON file. Whatever shape it arrives in, a wrong shape means

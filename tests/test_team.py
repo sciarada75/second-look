@@ -29,7 +29,7 @@ def test_over_the_limit_the_case_goes_to_the_first_colleague_who_may_send_it():
 def test_no_team_block_means_a_team_of_one_with_full_rights():
     solo = team.of(None)
     assert solo["solo"] and team.person(solo, None)["name"] == "You" and team.covers(solo, "you", 5_000)
-    assert team.of(T) is T and team.person(T, None) is None   # in a team, nobody is assumed
+    assert team.of(T) == T and team.person(T, None) is None   # in a team, nobody is assumed
 
 
 def test_assignments_are_kept_per_case_and_seeded_once():
@@ -115,6 +115,11 @@ def test_update_changes_one_case_from_its_current_state():
 def test_no_name_never_matches_an_entry_without_an_id():
     t = team.of({"people": [{"name": "no id", "role": "Boss"}], "roles": {"Boss": {"refund_up_to": None}}})
     assert team.person(t, None) is None and team.person(t, "") is None and team.first(t) is None
+
+
+def test_outside_data_can_t_claim_to_be_a_team_of_one():
+    t = team.of({"people": [{"id": "m", "name": "M", "role": "R"}], "roles": {"R": {"refund_up_to": 10}}, "solo": True})
+    assert not t.get("solo") and team.person(t, None) is None
 
 
 if __name__ == "__main__":

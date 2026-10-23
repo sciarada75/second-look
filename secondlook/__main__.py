@@ -16,6 +16,7 @@ from pathlib import Path
 
 from . import judge as judge_mod
 from . import evidence
+from . import team as team_mod
 from .guard import apply_policy, may_approve, Decision, CHECKS, QUESTION_STOPS, SIZE_STOPS, _partial
 from .paypal import client_from_env, MockPayPal
 
@@ -172,6 +173,10 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     load_dotenv(ROOT / ".env")
     practice = a.dispute_id and (ROOT / "cases" / f"{a.dispute_id}.json").exists()
+    if a.cmd == "approve" and not practice and not team_mod.of(load_policy().get("team")).get("solo"):
+        # The command line knows no person and no role limit: in a team it would skip both.
+        print("In a team shop, approve from the page or the API: they check who you are and your limit.")
+        return 2
     if a.cmd == "eval" or practice:  # practice cases always run locally, never on the live sandbox
         os.environ.pop("PAYPAL_CLIENT_ID", None)
     pp = client_from_env(ROOT)

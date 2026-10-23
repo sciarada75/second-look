@@ -97,6 +97,7 @@ def approval_bench(action="REFUND", ai="REFUND", stops=(), amount="45.00", the_t
     patched = {(web, n): getattr(web, n) for n in
                ("REVIEWS", "SUGGESTED", "_case", "_client", "team_for", "assignments_for", "notify")}
     patched[(cli, "execute")] = cli.execute
+    patched[(cli, "review")] = cli.review
     tmp = Path(tempfile.mkdtemp())
     c = {"dispute": {"dispute_id": "X", "messages": [{"posted_by": "BUYER", "content": "Never arrived"}],
                      "dispute_life_cycle_stage": "INQUIRY", "status": "WAITING_FOR_SELLER_RESPONSE",
@@ -443,6 +444,96 @@ def test_malformed_team_data_never_breaks_a_page():
 def test_switching_person_keeps_the_rest_of_the_address():
     badge = web.person_badge(team_mod.of(TEAM), "marta", {"view": ["mine"], "as": ["marta"]})
     assert 'href="?view=mine&amp;as=giulia"' in badge
+
+
+def fresh_review(b, draft="New draft"):
+    """The next review the (patched) judge returns: a new draft for the same answer."""
+    b.reviews = getattr(b, "reviews", 0)
+
+    def review(pp, did, backend):
+        b.reviews += 1
+        return Decision("REFUND", [], Judgment("REFUND", 0.9, "why", draft_message=draft), False, [])
+    cli.review = review
+
+
+def test_a_fresh_review_clears_a_waiting_handoff():
+    with approval_bench() as b:
+        web.approve("X", "REFUND", "Marta's old edit", by="marta")              # passed to Giulia
+        fresh_review(b)
+        web.run_review("X")
+        assert b.store.get("X") == {"to": "giulia", "handoff": None}           # still hers; the note is gone
+        assert ">New draft</textarea>" in web.case_page("X", me="giulia")
+        assert web.approve("X", "REFUND", None, by="giulia")[0] == 200 and b.drafts == ["New draft"]
+
+
+def test_a_sent_answer_is_never_wiped_by_a_review_when_nothing_changed():
+    with approval_bench() as b:
+        text = web.approve("X", "REFUND", "Hello", by="giulia")[1]
+        fresh_review(b)
+        web.run_review("X")
+        assert web._saved("X")[1] == text and b.reviews == 0                  # kept, and no model call paid
+        b.case["dispute"]["messages"].append({"posted_by": "BUYER", "content": "Still nothing"})
+        web.run_review("X")
+        assert web._saved("X")[1] is None and b.reviews == 1                  # the buyer wrote: a new review
+
+
+def test_an_approval_is_tied_to_the_review_it_was_shown():
+    with approval_bench() as b:
+        mark = web.review_mark("X")
+        assert mark and f'name="review" value="{mark}"' in web.case_page("X", me="giulia")
+        assert web.api_case("X")["review"]["mark"] == mark
+        fresh_review(b, draft="A different reply")
+        web.run_review("X")                                                     # the review changed under the page
+        code, text = web.approve("X", "REFUND", "Hello", by="giulia", review=mark)
+        assert code == 409 and "changed since you saw it" in text and b.sent == []
+        assert web.approve("X", "REFUND", "Hello", by="giulia", review=web.review_mark("X"))[0] == 200
+        assert b.sent == ["REFUND"]
+
+
+def test_an_emptied_reply_is_never_replaced_by_the_ai_s_words():
+    with approval_bench(action="ASK_SELLER", ai="MESSAGE", stops=["always_ask"], amount="20.00", the_team=None) as b:
+        assert web.approve("X", "MESSAGE", "  ") == (400, "Write a message first.") and b.sent == []
+    with approval_bench(amount="20.00", the_team=None) as b:
+        assert web.approve("X", "REFUND", "")[0] == 400 and b.sent == []    # the note would be the AI's reasoning
+    with approval_bench(action="DEFEND", ai="DEFEND", the_team=None) as b:
+        assert web.approve("X", "DEFEND", "")[0] == 200 and b.sent == ["DEFEND"] and b.drafts == [""]
+
+
+def test_only_an_open_case_of_the_shop_can_be_taken():
+    with approval_bench():
+        assert web.take("NOT-A-CASE", "marta")[0] == 404
+        assert web.take("DEMO-999", "marta")[0] == 404
+        assert web.take("X", "marta")[0] == 200                                # it has a review here
+
+
+def test_the_picker_shows_the_shop_s_currency():
+    badge = web.person_badge(team_mod.of(TEAM), "marta", {}, currency="USD")
+    assert "sends refunds up to 30 USD" in badge and "EUR" not in badge
+
+
+def test_what_s_been_said_shows_who_sent_the_answer():
+    with approval_bench() as b:
+        web.approve("X", "REFUND", "Here is your refund", by="giulia")
+        talk = web.case_page("X", me="giulia").split('<ol class="talk">')[1].split("</ol>")[0]
+        assert "Sent by Giulia" in talk and "Here is your refund" in talk
+    with approval_bench(the_team=None):
+        web.approve("X", "REFUND", "Here is your refund")
+        assert "Sent by" not in web.case_page("X")
+
+
+def test_the_cli_leaves_approvals_in_a_team_shop_to_the_page_and_the_api():
+    import contextlib
+    import io
+    tmp, root = Path(tempfile.mkdtemp()), cli.ROOT
+    (tmp / "policy.json").write_text(json.dumps({"team": TEAM}))
+    out = io.StringIO()
+    try:
+        cli.ROOT = tmp
+        with contextlib.redirect_stdout(out):
+            code = cli.main(["approve", "PP-D-999", "--action", "REFUND"])
+    finally:
+        cli.ROOT = root
+    assert code == 2 and "approve from the page or the API" in out.getvalue()
 
 
 if __name__ == "__main__":
