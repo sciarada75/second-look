@@ -642,6 +642,64 @@ def test_the_api_gives_each_check_its_group_and_label():
         assert got["claim"][0] == "FAIL" and got["delivery_proof"][0] == "PASS"
 
 
+
+def _marks(html_):
+    """(label, row, x%) for each mark of a rendered timeline."""
+    import re
+    rows = {"": 0, " lift": 1, " lift2": 2, " low": 3}
+    return [(lab, rows[lift], float(x)) for lift, x, lab in
+            re.findall(r'<li class="mark( lift2| lift| low|)(?: hot)?" style="left:([0-9.]+)%"><span class="lab"><b>([^<]+)</b>', html_)]
+
+
+def test_timeline_labels_that_would_touch_never_share_a_row():
+    # DEMO-031 on 23/10: "Paid" and "Delivered" were 10% apart on the same row, and their dates ran
+    # together ("09 Oct, 19:4013 Oct"), because only the previous mark was checked.
+    c = {"dispute": {"create_time": "2026-10-18T21:14:00Z", "seller_response_due_date": "2026-11-07T21:14:00Z",
+                     "disputed_transactions": [{"create_time": "2026-10-09T19:40:00Z"}]},
+         "seller_records": {"order_date": "2026-10-09T19:40:00Z",
+                            "tracking": {"shipped_date": "2026-10-10", "last_update": "2026-10-13", "status": "DELIVERED"}}}
+    marks = _marks(web.timeline(c))
+    assert [m[0] for m in marks] == ["Paid", "Shipped", "Delivered", "Dispute opened", "Your reply due"]
+    for i, a in enumerate(marks):
+        for b in marks[i + 1:]:
+            if abs(a[2] - b[2]) < web.LABEL_ROOM:
+                assert a[1] != b[1], (a, b)
+    assert {m[0]: m[1] for m in marks}["Paid"] == 0 and {m[0]: m[1] for m in marks}["Dispute opened"] == 0
+
+
+def test_label_rows_fill_from_below_and_share_the_last_row_only_when_all_are_taken():
+    assert web.label_row(50, ([], [], [], [])) == 0
+    assert web.label_row(50, ([45], [], [], [])) == 1
+    assert web.label_row(50, ([45], [48], [], [])) == 2
+    assert web.label_row(50, ([45], [48], [52], [])) == 3       # lower below the line
+    assert web.label_row(50, ([40], [48], [52], [49])) == 0     # all taken: the furthest neighbour (10 away)
+    assert web.label_row(90, ([45], [48], [52], [49])) == 0     # far from all: below the line
+
+
+def test_four_events_close_together_get_four_rows_and_a_deeper_ruler():
+    # DEMO-035: paid, shipped, last tracking and the dispute all inside 11% of the ruler.
+    c = {"dispute": {"create_time": "2026-10-18T08:12:00Z", "seller_response_due_date": "2026-11-07T08:12:00Z",
+                     "disputed_transactions": [{"create_time": "2026-10-15T19:54:00Z"}]},
+         "seller_records": {"order_date": "2026-10-15T19:54:00Z",
+                            "tracking": {"shipped_date": "2026-10-16", "last_update": "2026-10-17", "status": "IN_TRANSIT"}}}
+    html_ = web.timeline(c)
+    assert sorted(m[1] for m in _marks(html_)[:4]) == [0, 1, 2, 3] and 'class="ruler deep"' in html_
+    assert 'class="ruler deep"' not in web.timeline({**c, "dispute": {**c["dispute"], "create_time": "2026-10-25T08:12:00Z"}})
+
+
+def test_a_page_is_marked_with_the_section_it_says_not_one_guessed_from_its_text():
+    # 23/10: the demo list's intro says "four people in customer care", and the page was marked Overview.
+    def current(html_):
+        nav = html_.split("<nav>")[1].split("</nav>")[0]
+        return [a.split(">")[-1] for a in nav.split("</a>") if 'aria-current="page"' in a]
+    body = "<p>Demo shop, made-up data: four people in customer care.</p>"
+    assert current(web.page("Second Look", "", body)) == ["Disputes"]
+    assert current(web.page("Overview | Second Look", "", body, here="overview")) == ["Overview"]
+    assert current(web.page("Your rules | Second Look", "", body, here="rules"))[0].startswith("Your rules")
+    with demo_team({}):
+        assert current(web.inbox_page("demo", "giulia", "mine")) == ["Disputes"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

@@ -320,7 +320,7 @@ def rules_page(flash: str = "", demo: bool = False, me: str | None = None) -> st
             '<h2>Your limits</h2><p class="who">Numbers, enforced by code after the AI has answered. '
             'They can make an answer more careful, never more generous.</p>'
             f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in limits)}</ul></section>')
-    return page("Your rules | Second Look", "", body, demo, me=me)
+    return page("Your rules | Second Look", "", body, demo, me=me, here="rules")
 
 # What a review was based on. If any of it changes, the review is out of date and Approve is withdrawn:
 # the seller must never approve an answer to a situation that no longer exists.
@@ -383,18 +383,37 @@ def timeline(case: dict) -> str:
         return ""
     t0, t1 = points[0][1], points[-1][1]
     span = max((t1 - t0).total_seconds(), 1)
-    marks, prev, last_x, level = [], None, -100.0, 0
+    marks, prev, rows = [], None, ([], [], [], [])
     for label, t in points:
         x = 3 + 94 * (t - t0).total_seconds() / span
-        # events close together take turns: below the line, above it, higher above it
-        level = (level + 1) % 3 if x - last_x < 9 else 0
-        lift = ["", " lift", " lift2"][level]
+        level = label_row(x, rows)
+        rows[level].append(x)
+        lift = ["", " lift", " lift2", " low"][level]
         gap = f'<span class="gap">{e(_gap(prev, t))}</span>' if prev and label == "Dispute opened" else ""
         when = f"{t:%d %b}" if (t.hour, t.minute) == (0, 0) else f"{t:%d %b, %H:%M}"
         marks.append(f'<li class="mark{lift}{" hot" if gap else ""}" style="left:{x:.2f}%">'
                      f'<span class="lab"><b>{e(label)}</b><time>{when}</time>{gap}</span></li>')
-        prev, last_x = t, x
-    return f'<ol class="ruler" aria-label="Timeline">{"".join(marks)}</ol>'
+        prev = t
+    deep = " deep" if rows[3] else ""  # a fourth row, under the first: the ruler makes room for it
+    return f'<ol class="ruler{deep}" aria-label="Timeline">{"".join(marks)}</ol>'
+
+
+# A label is about 130 px wide on a ruler about 600 px wide: two labels closer than this (in % of the
+# ruler) would touch. Checking only the previous mark let a third label land on the first one's row
+# (DEMO-031: "Paid" and "Delivered" ran together).
+LABEL_ROOM = 24.0
+
+
+def label_row(x: float, rows: tuple) -> int:
+    """The first row (0 below the line, 1 above it, 2 higher above, 3 lower below) with no label within
+    LABEL_ROOM of x.
+    When every row is taken, the row whose nearest label is furthest away."""
+    def room(row):
+        return min((abs(x - other) for other in row), default=float("inf"))
+    for level, row in enumerate(rows):
+        if room(row) >= LABEL_ROOM:
+            return level
+    return max(range(len(rows)), key=lambda level: room(rows[level]))
 
 
 def evidence(r: dict) -> str:
@@ -561,7 +580,8 @@ h1.page{{font-size:36px;line-height:1.2;margin:0 0 6px}}
 .mark{{position:absolute;top:89px;width:0}}
 .mark::before{{content:"";position:absolute;left:-7px;top:0;width:14px;height:14px;border-radius:50%;background:var(--ink)}}
 .mark .lab{{position:absolute;left:0;top:24px;transform:translateX(-50%);width:170px;text-align:center}}
-.mark.lift .lab{{top:auto;bottom:16px}} .mark.lift2 .lab{{top:auto;bottom:56px}}
+.mark.lift .lab{{top:auto;bottom:16px}} .mark.lift2 .lab{{top:auto;bottom:56px}} .mark.low .lab{{top:92px}}
+.ruler.deep{{height:265px}}
 .mark b{{display:block;font-size:15px}} .mark time{{display:block;font-size:14px;color:var(--soft)}}
 .mark.hot::before{{background:var(--incon);box-shadow:0 0 0 5px #F3E3C4}}
 .gap{{display:block;margin-top:2px;font-family:Newsreader,serif;font-style:italic;font-size:19px;color:var(--incon)}}
@@ -725,13 +745,14 @@ def _shop_currency(t: dict, demo: bool) -> str:
     return ""
 
 
-def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = None) -> str:
+def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = None, here: str = "disputes") -> str:
+    """`here`: the section the page belongs to ("disputes", "overview" or "rules"), said by the page itself.
+    It used to be guessed from the title and the body's first characters, and a list page whose intro says
+    "customer care" was marked Overview."""
     q = "?shop=demo" if demo else ""
     waiting = len(suggestions())
     rules = f'Your rules<span class="count">{waiting} to review</span>' if waiting else "Your rules"
     context = "demo" if demo else "practice" if mode.startswith("Practice") else "live"
-    here = "rules" if title.startswith("Your rules") else "overview" if title.startswith("Overview") or \
-        "customer" in body[:400] else "disputes"
     cur = lambda k: ' aria-current="page"' if here == k else ""  # noqa: E731
     nav = (f'<nav><a href="/{q}"{cur("disputes")}>Disputes</a><a href="/overview"{cur("overview")}>Overview</a>'
            f'<a href="/rules"{cur("rules")}>{rules}</a>'
@@ -970,7 +991,7 @@ def overview_page(src: str, me: str | None = None) -> str:
             f'<h2 style="margin-top:40px">Open now: {ov["open"]}</h2>{exposure_box}{filters}'
             f'<table class="waiting"><thead><tr><th>Case</th><th>Amount</th><th>Waiting on</th><th>Days left</th>'
             f'<th>If nobody answers</th></tr></thead><tbody>{waits}</tbody></table>')
-    return page("Overview | Second Look", "PayPal sandbox", body, demo, me=me)
+    return page("Overview | Second Look", "PayPal sandbox", body, demo, me=me, here="overview")
 
 
 def customer_page(key: str, src: str, me: str | None = None) -> str:
@@ -981,7 +1002,7 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
     q = "?shop=demo" if demo else ""
     if not cu:
         return page("Customer | Second Look", "PayPal sandbox", '<h1 class="page">No customer with that id or email.</h1>', demo,
-                    me=me)
+                    me=me, here="overview")
     rate = (f'{len(cu["disputes"])} disputes in {cu["orders"]} orders ({cu["dispute_rate"]:.0%}). '
             f'Your shop: {cu["shop_dispute_rate"]:.1%}.' if cu["dispute_rate"] is not None else "")
     if cu["times_shop_rate"]:
@@ -1002,7 +1023,7 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
             f'<tbody>{rows or "<tr><td colspan=5>No disputes.</td></tr>"}</tbody></table>'
             f'<section class="api"><h2>In your customer database</h2><p class="who">Your CRM or helpdesk can ask for this card '
             f'when this customer orders or calls, by email or PayPal payer id:</p><code>GET {e(api)}</code></section>')
-    return page(f"{cu['name'] or 'Customer'} | Second Look", "PayPal sandbox", body, demo, me=me)
+    return page(f"{cu['name'] or 'Customer'} | Second Look", "PayPal sandbox", body, demo, me=me, here="overview")
 
 
 def customer_json(key: str, src: str) -> dict | None:
