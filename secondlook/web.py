@@ -21,9 +21,9 @@ from pathlib import Path
 from datetime import timedelta
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import evidence as evidence_mod, ledger
+from . import evidence as evidence_mod, ledger, team as team_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
-from .guard import may_approve, CHECKS, Decision, Judgment
+from .guard import may_approve, money_out, CHECKS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,13 +79,54 @@ def _saved(dispute_id: str):
         return None
     raw = json.loads(f.read_text())
     return Decision(action=raw["action"], reasons=raw["reasons"], judgment=Judgment(**raw["judgment"]),
-                    overridden=raw["overridden"]), raw.get("sent")
+                    overridden=raw["overridden"], stops=raw.get("stops", [])), raw.get("sent")
 
 
-def _save(dispute_id: str, d: Decision, sent=None, seen=None) -> None:
+def _saved_by(dispute_id: str) -> dict:
+    """Who sent the answer and when, as saved with it (empty before teams existed, or for a solo seller)."""
+    try:
+        raw = json.loads((REVIEWS / f"{dispute_id}.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return {"by": raw.get("by"), "at": raw.get("at")}
+
+
+def _save(dispute_id: str, d: Decision, sent=None, seen=None, by=None, at=None) -> None:
     REVIEWS.mkdir(parents=True, exist_ok=True)
-    (REVIEWS / f"{dispute_id}.json").write_text(json.dumps({**asdict(d), "sent": sent, "seen": seen},
-                                                           ensure_ascii=False))
+    (REVIEWS / f"{dispute_id}.json").write_text(json.dumps({**asdict(d), "sent": sent, "seen": seen,
+                                                            "by": by, "at": at}, ensure_ascii=False))
+
+
+# ---------- the team ----------
+# The demo shop carries its own team (demo/shop.json); the live shop's lives in policy.json "team".
+# Neither present = a team of one, and nothing about teams shows on screen.
+
+def team_for(dispute_id: str | None) -> dict:
+    if is_demo(dispute_id):
+        return team_mod.of(DemoPayPal().shop.get("team"))
+    if dispute_id and (ROOT / "cases" / f"{dispute_id}.json").exists():
+        return team_mod.of(None)  # practice cases: always a team of one
+    return team_mod.of(_policy().get("team"))
+
+
+def team_for_src(src: str) -> dict:
+    return team_for("DEMO-" if src == "demo" else None) if src != "practice" else team_mod.of(None)
+
+
+def assignments_for(dispute_id: str | None) -> team_mod.Assignments:
+    if is_demo(dispute_id):
+        return team_mod.Assignments(ROOT / ".tmp" / "assignments-demo.json", seed=DemoPayPal().raw.get("assignments"))
+    return team_mod.Assignments(ROOT / "records" / "assignments.json")
+
+
+def take(did: str, by: str | None) -> tuple[int, str]:
+    t = team_for(did)
+    who = team_mod.person(t, by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+    # The case becomes theirs; a colleague's handoff note on it stays (it carries the draft to send).
+    assignments_for(did).update(did, lambda a: {**a, "to": who["id"]})
+    return 200, f"{who['name']} took this case."
 
 
 # ---------- the seller's rules ----------
@@ -968,22 +1009,68 @@ def run_review(did: str) -> Decision:
     return dec
 
 
-def approve(did: str, chosen: str, message: str | None, rule: str = "") -> tuple[int, str]:
-    """Send the answer the seller chose. Returns (HTTP status, what happened)."""
+# Why the guard held an answer back, in the words the person reads when they try to send it anyway.
+STOP_SAYS = {
+    "injection": "hidden instructions in the buyer's message",
+    "inconsistent": "evidence that doesn't add up",
+    "confidence": "low confidence",
+    "repeat_buyer": "a buyer who disputes far more than usual",
+    "paypal_allowed": "PayPal doesn't allow it at this stage",
+    "unknown_action": "an answer Second Look doesn't recognise",
+    "partial_amount": "an amount it couldn't read",
+}
+
+
+def _refused(stops) -> str:
+    trust = [STOP_SAYS.get(s, s) for s in stops if s not in SIZE_STOPS]
+    if trust:
+        return (f"This answer was held back for trust: {', '.join(trust)}. "
+                "It can't be sent from here, by anyone. Decide in PayPal.")
+    return "This answer changed since you saw it, or it can't be sent as it is. Look again."
+
+
+def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None) -> tuple[int, str]:
+    """Send the answer a person chose. Returns (HTTP status, what happened).
+    200 sent · 202 passed to a colleague (nothing sent) · 400 nobody named · 409 changed or not allowed."""
     from .__main__ import execute
+    t = team_for(did)
+    who = team_mod.person(t, by)
+    if not who:
+        return 400, "Say who is approving: a person in this shop's team."
     saved = _saved(did)
     if saved and saved[1]:
         return 200, saved[1]  # already sent: a second approval sends nothing
-    if not saved or not may_approve(saved[0].action, chosen, saved[0].judgment.action):
-        return 409, "This answer changed since you saw it, or it can't be sent as it is. Look again."
+    if not saved or not may_approve(saved[0].action, chosen, saved[0].judgment.action, saved[0].stops):
+        return 409, _refused(saved[0].stops if saved else [])
     dec = saved[0]
-    recommended = dec.action
-    dec.action = chosen  # on "your call" the seller may send the drafted question
-    if message is not None:
-        dec.judgment.draft_message = message
     case = _case(did)
     if _changes(did, case):
         return 409, "Something changed since this review. Take a fresh look."
+    cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
+    amount = money_out(chosen, dec.judgment, case["dispute"])
+    # A case the limits held back for being big ("always_ask") needs someone who covers the whole dispute,
+    # even to defend it: the shop asked for a person with that authority, whatever the answer moves.
+    whole = float(case["dispute"]["dispute_amount"]["value"]) if "always_ask" in dec.stops else 0.0
+    required = max(amount, whole)
+    now = datetime.now()
+    if required and not team_mod.covers(t, who["id"], required):
+        # Over this person's limit: nothing goes to PayPal. The case passes to a colleague who may send it.
+        to = team_mod.handoff_to(t, required, exclude=who["id"])
+        if not to:
+            return 409, f"Nobody in the team may approve {required:.2f} {cur} from here. Decide in PayPal."
+        handoff = {"from": who["id"], "from_name": who["name"], "action": chosen, "amount": required,
+                   "message": message, "at": now.isoformat(timespec="minutes")}
+        assignments_for(did).update(did, lambda a: {"to": to["id"], "handoff": handoff})
+        notify("case.handed_off", {"dispute_id": did, "action": chosen, "amount": required,
+                                   "from": who["name"], "to": to["name"]})
+        cap = team_mod.limit(t, who["id"]) or 0.0
+        what = (f"{ACTION.get(chosen, chosen).lower()} of {amount:.2f} {cur}" if amount >= required
+                else f"{ACTION.get(chosen, chosen).lower()} on a {required:.2f} {cur} dispute")
+        return 202, f"Passed to {to['name']}: {what} is over your {cap:.2f} {cur} limit. Nothing was sent."
+    recommended = dec.action
+    dec.action = chosen  # "your call": a question, or the answer held back only for its size
+    if message is not None:
+        dec.judgment.draft_message = message
     seen = json.loads((REVIEWS / f"{did}.json").read_text()).get("seen")
     result = execute(_client(did), dec, case["dispute"], case["seller_records"])
     sent = {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
@@ -991,6 +1078,8 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "") -> tuple
             "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
             "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
             "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
+    if not t.get("solo"):
+        sent += f" Sent by {who['name']}, {now:%H:%M}."
     if is_demo(did):
         sent += " (Demo shop: logged, not sent to PayPal.)"
     elif isinstance(_client(did), MockPayPal):
@@ -998,8 +1087,12 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "") -> tuple
     if suggest_rule(rule or "", did):
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
-    _save(did, dec, sent, seen)
-    notify("answer.sent", {"dispute_id": did, "action": chosen, "what_happened": sent})
+    by_name = None if t.get("solo") else who["name"]
+    _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"))
+    if not t.get("solo"):
+        # Sent by them: the case is theirs, and any handoff waiting on it is done.
+        assignments_for(did).update(did, lambda a: {"to": who["id"], "handoff": None})
+    notify("answer.sent", {"dispute_id": did, "action": chosen, "what_happened": sent, "by": by_name})
     return 200, sent
 
 
@@ -1016,9 +1109,12 @@ def api_case(did: str) -> dict:
     if saved:
         dec, sent = saved
         out["review"] = {"recommended": dec.action, "ai_said": dec.judgment.action, "confidence": dec.judgment.confidence,
-                         "limits_notes": dec.reasons, "reasoning": dec.judgment.reasoning,
+                         "limits_notes": dec.reasons, "held_back_for": dec.stops, "reasoning": dec.judgment.reasoning,
                          "draft_reply": dec.judgment.draft_message, "checks": dec.judgment.checks,
-                         "sent": sent, "out_of_date": _changes(did, case)}
+                         "sent": sent, "by": _saved_by(did).get("by"), "out_of_date": _changes(did, case)}
+    if not team_for(did).get("solo"):
+        a = assignments_for(did).get(did)
+        out["assigned_to"], out["handoff"] = a["to"], a["handoff"]
     return out
 
 
@@ -1038,9 +1134,12 @@ def api_open(src: str) -> list:
     out = []
     for d in items:
         saved = _saved(d["dispute_id"])
-        out.append({"dispute_id": d["dispute_id"], "reason": d.get("reason"), "status": d.get("status"),
-                    "amount": d.get("dispute_amount"), "buyer": ledger.buyer_of(d),
-                    "recommended": saved[0].action if saved else None, "sent": saved[1] if saved else None})
+        row = {"dispute_id": d["dispute_id"], "reason": d.get("reason"), "status": d.get("status"),
+               "amount": d.get("dispute_amount"), "buyer": ledger.buyer_of(d),
+               "recommended": saved[0].action if saved else None, "sent": saved[1] if saved else None}
+        if not team_for(d["dispute_id"]).get("solo"):
+            row["assigned_to"] = assignments_for(d["dispute_id"]).get(d["dispute_id"])["to"]
+        out.append(row)
     return out
 
 
