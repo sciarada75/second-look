@@ -76,6 +76,42 @@ def test_all_returns_every_case_in_the_same_shape_as_get():
                                             "D2": {"to": None, "handoff": None}}
 
 
+def test_a_malformed_team_file_never_crashes_and_never_sends_money():
+    shapes = [{"roles": {"A": {"refund_up_to": 30.0}}, "people": ["marta"]},
+              {"roles": {"A": 30}, "people": [{"id": "marta", "role": "A"}]},
+              {"roles": ["A"], "people": [{"id": "marta", "role": "A"}]},
+              {"roles": {"A": {"refund_up_to": 30.0}}, "people": {"marta": {"role": "A"}}},
+              {"roles": {"A": {"refund_up_to": 30.0}}, "people": [{"id": "marta", "role": ["A"]}]}]
+    for t in shapes:
+        assert not team.covers(t, "marta", 1) and team.handoff_to(t, 1, exclude=None) is None, t
+
+
+def test_an_unreadable_store_is_never_overwritten():
+    import os
+    path = Path(tempfile.mkdtemp()) / "a.json"
+    path.write_text('{"D1": {"to": "marta"}}')
+    os.chmod(path, 0)
+    try:
+        store = team.Assignments(path)
+        try:
+            store.assign("D2", "giulia")
+        except OSError:
+            pass
+        else:
+            raise AssertionError("wrote over a store it could not read")
+    finally:
+        os.chmod(path, 0o600)
+    assert path.read_text() == '{"D1": {"to": "marta"}}'
+
+
+def test_update_changes_one_case_from_its_current_state():
+    store = team.Assignments(Path(tempfile.mkdtemp()) / "a.json", seed={"D1": {"to": "marta"}})
+    store.update("D1", lambda a: {**a, "handoff": {"from": a["to"], "amount": 89.0}})
+    assert store.get("D1") == {"to": "marta", "handoff": {"from": "marta", "amount": 89.0}}
+    store.update("D9", lambda a: {**a, "to": "nico"})
+    assert store.get("D9") == {"to": "nico", "handoff": None}
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
