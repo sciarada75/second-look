@@ -475,7 +475,11 @@ const Trust: React.FC = () => {
 // "ClaudiaOnClaude", as on the footers of Claudia's client sites: thin (Inter 300, loaded for this
 // only), widely spaced, faint, centred at the bottom of every screen but the end card (which carries
 // claudiaonclaude.com). Paper on the dark scenes, ink elsewhere; over the app captures a very soft
-// paper gradient at the bottom keeps it clear of busy page text, with nothing boxed.
+// paper gradient at the bottom keeps it clear of busy page text, with nothing boxed. Draft 9: on the app
+// captures the faint ink letters carry a tight, solid paper halo (faintness in the colour's alpha, so the
+// halo stays solid), or the signature vanished behind DEMO-031's dark "PayPal history" tag. Tried and
+// dropped: a stronger gradient (a pale band across every app screen), a halo under element opacity (too
+// weak), a blurred paper haze (a glowing patch), paper letters (invisible on undimmed pages).
 const inter = loadInter('normal', {weights: ['300'], subsets: ['latin']});
 const Signature: React.FC = () => {
   const frame = useCurrentFrame();
@@ -488,8 +492,10 @@ const Signature: React.FC = () => {
     <>
       {app ? <div style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: 60, opacity: o,
         background: 'linear-gradient(to bottom, rgba(245,246,242,0), rgba(245,246,242,0.15))'}} /> : null}
-      <div style={{position: 'absolute', left: 0, right: 0, bottom: 28, textAlign: 'center', opacity: 0.45 * o,
-        font: `300 18px ${inter.fontFamily}, ${theme.sans}`, letterSpacing: '0.15em', color: dark ? theme.paper : theme.ink}}>
+      <div style={{position: 'absolute', left: 0, right: 0, bottom: 28, textAlign: 'center', opacity: (app ? 1 : 0.45) * o,
+        font: `300 18px ${inter.fontFamily}, ${theme.sans}`, letterSpacing: '0.15em',
+        color: dark ? theme.paper : app ? 'rgba(30,41,53,0.6)' : theme.ink,
+        textShadow: app ? '0 0 2px rgb(245,246,242), 0 0 4px rgb(245,246,242), 0 0 6px rgb(245,246,242)' : undefined}}>
         ClaudiaOnClaude
       </div>
     </>

@@ -1,6 +1,10 @@
 {
-  "_comment": "Applied ONLY to what the voice is given, never to what appears on screen. Whole-word, case-insensitive. Add an entry when a word is actually heard wrong, not on suspicion.",
-  "_comment_zoe": "Draft 8, voice Zoe (Premium) at 165: every line heard back with local whisper (24/10). Zoe says PayPal, Dario, Pablo and Giulia right on her own, so Jamie's respellings and pauses are gone. [[slnc N]] is say's embedded silence in ms.",
-  "while": "whyle",
-  "recommends. Limits": "recommends. [[slnc 250]] Limits"
+  "_comment": "Applied ONLY to what the voice is given, never to what appears on screen. Whole-word, case-insensitive. One table per engine: an entry is a fix for one voice, not a fact about the word. Add an entry when a word is actually heard wrong, not on suspicion.",
+  "_comment_kokoro": "Draft 9, Kokoro af_heart: every line heard back with local whisper (24/10), nothing misheard, so the table is empty.",
+  "kokoro": {},
+  "_comment_say": "Draft 8, macOS say, Zoe (Premium) at 165. [[slnc N]] is say's embedded silence in ms; Kokoro would read it aloud.",
+  "say": {
+    "while": "whyle",
+    "recommends. Limits": "recommends. [[slnc 250]] Limits"
+  }
 }

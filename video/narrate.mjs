@@ -10,17 +10,23 @@
 //   node narrate.mjs s3a s3b    regenerate only those blocks
 
 import {execFileSync} from 'node:child_process';
+import {homedir} from 'node:os';
 import {readFileSync, writeFileSync, existsSync, mkdirSync, rmSync} from 'node:fs';
 
-const VOICE = process.env.VOICE ?? 'Zoe (Premium)'; // since draft 8 (Claudia's choice, 24/10); Jamie (Premium) before
-const RATE = process.env.RATE ?? '165'; // 165 with Zoe (draft 8); 160 with Jamie (drafts 4-7)
+// Since draft 9 the voice is Kokoro af_heart (Claudia, 24/10: every macOS voice sounded robotic); see
+// kokoro.py. ENGINE=say brings back macOS say: Zoe (Premium) at 165 in draft 8, Jamie (Premium) at 160
+// in drafts 4-7.
+const ENGINE = process.env.ENGINE ?? 'kokoro';
+const VOICE = process.env.VOICE ?? 'Zoe (Premium)'; // say only
+const RATE = process.env.RATE ?? '165'; // say only
+const KOKORO_HOME = process.env.KOKORO_HOME ?? `${homedir()}/.local/share/kokoro`;
 const AUDIO = new URL('./public/audio/', import.meta.url).pathname;
 const lines = JSON.parse(readFileSync(new URL('./src/lines.json', import.meta.url), 'utf8'));
 
 // Words the voice gets wrong are respelled here, and ONLY here: lines.json stays
 // the text that appears on screen. Without this split, fixing a pronunciation
 // would corrupt the subtitle.
-const dict = JSON.parse(readFileSync(new URL('./src/pronounce.json', import.meta.url), 'utf8'));
+const dict = JSON.parse(readFileSync(new URL('./src/pronounce.json', import.meta.url), 'utf8'))[ENGINE];
 const speakable = (text) =>
   Object.entries(dict)
     .filter(([k]) => !k.startsWith('_'))
@@ -39,15 +45,23 @@ const durations = existsSync(new URL('./src/narration.json', import.meta.url))
   ? JSON.parse(readFileSync(new URL('./src/narration.json', import.meta.url), 'utf8'))
   : {};
 
+for (const key of keys) if (!lines[key]) throw new Error(`no line called ${key} in src/lines.json`);
+
+// The raw voice file per line: Kokoro loads its model once for all of them, say runs per line.
+const raw = (key) => `${AUDIO}${key}.${ENGINE === 'say' ? 'aiff' : 'raw.wav'}`;
+if (ENGINE === 'kokoro') {
+  execFileSync(`${KOKORO_HOME}/venv/bin/python`, ['-I', new URL('./kokoro.py', import.meta.url).pathname], {
+    input: JSON.stringify(keys.map((key) => ({text: speakable(lines[key]), out: raw(key)}))),
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
+} else if (ENGINE !== 'say') throw new Error(`unknown ENGINE ${ENGINE}: kokoro or say`);
+
 for (const key of keys) {
   const text = lines[key];
-  if (!text) throw new Error(`no line called ${key} in src/lines.json`);
-
-  const aiff = `${AUDIO}${key}.aiff`;
   const wav = `${AUDIO}${key}.wav`;
-  execFileSync('say', ['-v', VOICE, '-r', RATE, '-o', aiff, speakable(text)]);
-  execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@48000', '-c', '1', aiff, wav]);
-  rmSync(aiff);
+  if (ENGINE === 'say') execFileSync('say', ['-v', VOICE, '-r', RATE, '-o', raw(key), speakable(text)]);
+  execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16@48000', '-c', '1', raw(key), wav]);
+  rmSync(raw(key));
 
   const info = execFileSync('afinfo', [wav], {encoding: 'utf8'});
   const seconds = Number(/estimated duration:\s*([0-9.]+)/.exec(info)[1].trim());
