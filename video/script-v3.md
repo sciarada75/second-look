@@ -1,12 +1,12 @@
-# Film draft 8 — script (23–24/10, written by Claude; Claudia: "you do all"; drafts 4–8 change it after her verdicts)
+# Film draft 9 (final) — script (23–24/10, written by Claude; Claudia: "you do all"; drafts 4–9 change it after her verdicts; draft 9 is final, Claudia 24/10)
 
-Voice: **Zoe (Premium)**, en_US, `say -r 165` (Claudia's choice, draft 8; Jamie (Premium) at 160 in drafts 3–7).
+Voice: **Kokoro `af_heart`** (neural TTS, local; Claudia's choice, draft 9). Before: macOS `say`, Zoe (Premium) at 165 in draft 8, Jamie (Premium) at 160 in drafts 3–7. Subtitles burned in since draft 9; the .srt is the same cues.
 
 Target under 3:00 (draft 4: about 2:45), about 410 spoken words at rate 160. **The rule for every scene:** it answers one question the
 previous scene raised, the voice names that question or its answer, and the screen shows only what the
 voice names (it lights up, the rest dims). A visible cursor makes every click. A small label in the top
-corner says where we are. People are introduced before they act. No caption bar: subtitles go to
-YouTube as a closed-caption file. No music. Claude is named in the Devpost text, not in the film.
+corner says where we are. People are introduced before they act. No fixed caption bar: subtitles appear cue by cue
+in the picture (draft 9). No music. Claude is named in the Devpost text, not in the film.
 
 Spec: `docs/specs/2026-10-23-teams-helpdesk-film3-design.md` §4. Draft 2's verdict: `HANDOVER.md`.
 
