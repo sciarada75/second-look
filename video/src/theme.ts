@@ -23,8 +23,8 @@ export const theme = {
 export const FPS = 30;
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
-// Draft 3: the picture is the whole frame. No caption band: subtitles go to YouTube as a closed-caption
-// file (srt.mjs), so the words on screen are only ever the product's own or the figure being named.
+// Draft 3: the picture is the whole frame. No caption band: subtitles are ordinary burned-in cues
+// (Subtitles.tsx), one at a time over the picture, and the same cues go to YouTube as an .srt (srt.mjs).
 export const PICTURE_H = HEIGHT;
 export const BAND_H = 0;
 

@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-// Writes out/second-look-<draft>.srt: the film's spoken lines as closed captions for YouTube.
-// Draft 3 has no caption band on screen (the picture shows only what the voice names); viewers who
-// watch muted turn these on instead.
+// The film's subtitles, cut once and used twice:
+//   - src/cues.json: the subtitles burned into the picture (src/Subtitles.tsx draws them);
+//   - out/second-look-<draft>.srt: the same cues as a closed-caption file for YouTube.
+// One cut, one timing: what the viewer reads on screen and in the .srt is the same text at the same frames.
 //
 // Timings are the film's own: the same measured narration (src/narration.json), the same beats and
-// gaps (src/beats.json) and the same arithmetic as src/timeline.ts. Re-run after `node narrate.mjs`.
+// gaps (src/beats.json) and the same arithmetic as src/timeline.ts. Each line is cut into cues of at
+// most two rows of 42 characters (sentence, then comma, then word breaks), timed by word count.
+//
+// Re-run after `node narrate.mjs`, and after any edit to src/lines.json or src/beats.json: the film
+// refuses to render with stale cues (Subtitles.tsx checks them against the timeline and the lines).
 //
 //   node srt.mjs        (draft 4: out/second-look-v4.srt)
 //   node srt.mjs v3
@@ -86,19 +91,36 @@ const stamp = (frame) => {
 };
 
 const words = (s) => s.split(/\s+/).length;
-const blocks = [];
+const all = []; // {key, from, to, lines}: frames, end exclusive
 for (const t of timed) {
   const cs = cues(lines[t.key]);
   const total = cs.reduce((n, c) => n + words(c), 0);
   let acc = 0;
   for (const c of cs) {
-    const start = t.from + Math.round(((t.to - t.from) * acc) / total);
+    const from = t.from + Math.round(((t.to - t.from) * acc) / total);
     acc += words(c);
-    const end = t.from + Math.round(((t.to - t.from) * acc) / total);
-    blocks.push(`${blocks.length + 1}\n${stamp(start)} --> ${stamp(end)}\n${wrap(c).join('\n')}\n`);
+    const to = t.from + Math.round(((t.to - t.from) * acc) / total);
+    all.push({key: t.key, from, to, lines: wrap(c)});
   }
 }
 
+const blocks = all.map((c, i) => `${i + 1}\n${stamp(c.from)} --> ${stamp(c.to)}\n${c.lines.join('\n')}\n`);
 mkdirSync(new URL('./out/', import.meta.url), {recursive: true});
 writeFileSync(new URL(`./out/second-look-${DRAFT}.srt`, import.meta.url), blocks.join('\n'));
-console.log(`out/second-look-${DRAFT}.srt: ${blocks.length} cues, ${timed.length} lines, first at frame ${timed[0].from}, last ends at frame ${timed[timed.length - 1].to}`);
+
+// The line timings go in too, so the film can tell when narration.json or beats.json moved under the cues.
+const json = {
+  _: 'Written by srt.mjs: do not edit. Re-run node srt.mjs after node narrate.mjs.',
+  lines: Object.fromEntries(timed.map((t) => [t.key, {from: t.from, to: t.to}])),
+  cues: all,
+};
+// One cue per row, so a diff of cues.json reads like a diff of the subtitles.
+const rows = (entries, open, close) => `${open}\n${entries.map((e) => `  ${e}`).join(',\n')}\n ${close}`;
+writeFileSync(new URL('./src/cues.json', import.meta.url), `{
+ "_": ${JSON.stringify(json._)},
+ "lines": ${rows(Object.entries(json.lines).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v)}`), '{', '}')},
+ "cues": ${rows(json.cues.map((c) => JSON.stringify(c)), '[', ']')}
+}
+`);
+
+console.log(`out/second-look-${DRAFT}.srt and src/cues.json: ${all.length} cues, ${timed.length} lines, first at frame ${timed[0].from}, last ends at frame ${timed[timed.length - 1].to}`);
