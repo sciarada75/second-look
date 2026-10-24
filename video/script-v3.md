@@ -1,4 +1,6 @@
-# Film draft 6 — script (23/10, written by Claude; Claudia: "you do all"; drafts 4–6 change it after her verdicts)
+# Film draft 8 — script (23–24/10, written by Claude; Claudia: "you do all"; drafts 4–8 change it after her verdicts)
+
+Voice: **Zoe (Premium)**, en_US, `say -r 165` (Claudia's choice, draft 8; Jamie (Premium) at 160 in drafts 3–7).
 
 Target under 3:00 (draft 4: about 2:45), about 410 spoken words at rate 160. **The rule for every scene:** it answers one question the
 previous scene raised, the voice names that question or its answer, and the screen shows only what the
@@ -51,7 +53,7 @@ they are named: Giulia (Customer care manager), Marta, Luca, Sara (Customer care
 
 ## 4. Where does the case reach the team?
 [**Ticketbook › Inbox** → cursor opens Dario's email → **Ticketbook › Ticket #2001**, the Second Look panel lights up.]
-- Marta opens her helpdesk, a made-up one, for this film.
+- Marta opens her helpdesk.
 - Dario has written. Next to his email, Second Look shows his PayPal dispute, already reviewed. Its answer: defend with evidence.
 
 ## 5. How does she know? (1:10–1:35)
@@ -104,7 +106,7 @@ Then the end card, over a darkened, blurred clip of a seller with parcels: **Sec
 | big merchants give up on almost half of card chargebacks, win one in five of those they fight | Mastercard/Datos 2025 via Chargeback Gurus: 46% accepted; merchants won 20% of those fought; survey of 840 midsize and large merchants. Said as *card chargebacks* |
 | made-up shop, about 2,000 orders a month | demo/shop.json: 6,003 orders in 90 days; "made-up data" label on every page |
 | Marta can give back up to 30 EUR; Giulia manages | demo team: agent `refund_up_to` 30.0; manager no role cap |
-| a made-up helpdesk | Ticketbook header and footer: "a made-up helpdesk, not a real product" |
+| (not said since draft 8; on screen) a made-up helpdesk | Ticketbook header and footer: "a made-up helpdesk, not a real product"; the where-label says "a made-up helpdesk" |
 | already reviewed; answer: defend with evidence | .tmp/reviews/DEMO-031.json: DEFEND, 85% |
 | delivered three days after it shipped, to the address on his PayPal account | DEMO-031 tracking: shipped 10 Oct, delivered 13 Oct, `delivered_to_paypal_address: true` |
 | disputed four of five orders, took two to a claim | evidence: "4 disputes in 5 orders … Took 2 of 3 earlier disputes … to a PayPal claim" |

@@ -218,13 +218,13 @@ const MARK = (size: number) => (
 const Enter: React.FC = () => {
   const frame = useCurrentFrame();
   const from = beat('s2h').from, to = beat('s2h').next;
-  // Where the voice says each word, as a share of the line (whisper word timestamps on s2h.wav, draft 6):
-  // "It's" 0.155, "reads" 0.230, "runs" 0.511, "drafts" 0.726, "Nothing" 0.820.
-  const w2 = at('s2h', 0.155), w3 = at('s2h', 0.82);
+  // Where the voice says each word, as a share of the line (whisper word timestamps on s2h.wav, draft 8,
+  // Zoe): "It's" 0.143, "reads" 0.234, "runs" 0.533, "drafts" 0.734, "Nothing" 0.838.
+  const w2 = at('s2h', 0.143), w3 = at('s2h', 0.838);
   const items = [
-    {on: at('s2h', 0.23), text: 'Reads the dispute and PayPal’s evidence'},
-    {on: at('s2h', 0.511), text: 'Runs a specialist’s ten checks'},
-    {on: at('s2h', 0.726), text: 'Drafts the answer'},
+    {on: at('s2h', 0.234), text: 'Reads the dispute and PayPal’s evidence'},
+    {on: at('s2h', 0.533), text: 'Runs a specialist’s ten checks'},
+    {on: at('s2h', 0.734), text: 'Drafts the answer'},
   ];
   const head = fadeIn(frame, from + 2, 14);
   const person = fadeIn(frame, w3, 12);
@@ -302,11 +302,11 @@ const Helpdesk: React.FC = () => {
   const from = beat('s4a').from, to = cut45();
   const a = beat('s4a'), b = beat('s4b');
   const [b1, b2, b3] = sentenceStarts('s4b');
-  const clickRow = a.to - 4;
+  const clickRow = a.to + 10; // in the silence after "Marta opens her helpdesk." (short since draft 8)
   const panelCam = camOn(box('tb-2001', 'panel'), 1.6);
   const shots: ShotSpec[] = [
     {id: 'tb-inbox', from, to: clickRow + CUT, cams: [{at: from, cam: camTop()}],
-      cursor: [{at: at('s4a', 0.45), pos: {x: 1560, y: 820}}, {at: clickRow, box: box('tb-inbox', 'row-dario'), ax: 0.4, click: true, move: 34}],
+      cursor: [{at: at('s4a', 0.3), pos: {x: 1560, y: 820}}, {at: clickRow, box: box('tb-inbox', 'row-dario'), ax: 0.4, click: true, move: 34}],
       spots: [{at: clickRow - 16, box: box('tb-inbox', 'row-dario')}],
       where: {text: 'Ticketbook › Inbox', ...MARTA_TB}, labelIn: true},
     {id: 'tb-2001', from: clickRow + CUT, to,
@@ -341,7 +341,7 @@ const TheCase: React.FC = () => {
 // ---------- 6. What happens when she approves? ----------
 const Approve: React.FC = () => {
   const from = beat('s6a').from, to = beat('s6a').next;
-  const records = at('s6a', 0.76); // "and the ticket records who sent it" (whisper: "ticket" at 0.81)
+  const records = at('s6a', 0.74); // "and the ticket records who sent it" (whisper, Zoe: "ticket" at 0.785)
   const sent = 'tb-2001-sent';
   const shots: ShotSpec[] = [
     {id: 'tb-2001', from, to: cut6(), cams: [{at: from, cam: camOn(box('tb-2001', 'panel'), 1.6)}],
@@ -364,7 +364,7 @@ const OverLimit: React.FC = () => {
   const id = 'tb-2004', after = 'tb-2004-passed';
   const passBlock = union(box(id, 'pass'), box(id, 'pass-says'));
   const aiCall = union(box(id, 'your-call'), box(id, 'ai-says'));
-  const clickPass = b2 + Math.round((beat('s7b').to - b2) * 0.35); // "goes to Giulia"
+  const clickPass = at('s7b', 0.7); // "goes to Giulia" (whisper, Zoe: "Giulia" at 0.713)
   const shots: ShotSpec[] = [
     {id, from, to: clickPass + CUT,
       cams: [{at: from, cam: camOn(aiCall, 1.6)}, {at: a2 - 6, cam: camTop(), dur: 26},
