@@ -138,6 +138,12 @@ def _same(a: str | None, b: str | None) -> bool:
     return (a or "").strip().lower() == (b or "").strip().lower() and bool(a)
 
 
+def _of_dispute(cases: dict, dispute_id: str) -> dict | None:
+    """The case holding this PayPal dispute: an open one first (a closed case is history), else any."""
+    held = [c for c in cases.values() if c.get("dispute_id") == dispute_id]
+    return next((c for c in held if c["status"] == "open"), held[0] if held else None)
+
+
 class CaseStore(JsonFile):
     """Every case of one shop: {"next": n, "cases": {id: case}, "sources": {source id: case id}}.
     `prefix` makes the ids: "DEMO-" for the demo shop (DEMO-C001), "" for the live shop (C001)."""
@@ -158,7 +164,7 @@ class CaseStore(JsonFile):
         return _shape(self.snapshot())["sources"].get(source_id)
 
     def by_dispute(self, dispute_id: str) -> dict | None:
-        return next((c for c in self.all() if c.get("dispute_id") == dispute_id), None)
+        return _of_dispute(_shape(self.snapshot())["cases"], dispute_id)
 
     # ---------- writing ----------
 
@@ -178,13 +184,17 @@ class CaseStore(JsonFile):
                         **{"from": {"name": sender.get("name"), "email": sender.get("email")}},
                         sorted={"by": sorting.get("by"), "how": sorting.get("how")})
             customer = sorting.get("customer") or {"name": sender.get("name"), "email": sender.get("email")}
-            target = None
-            if dispute:
-                target = next((c for c in data["cases"].values() if c.get("dispute_id") == dispute["dispute_id"]), None)
+            target = _of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
             if target is None and sorting.get("settled"):
                 target = next((c for c in data["cases"].values() if c["status"] == "open" and c["sorted"]["by"]
                                and _same(c["customer"].get("email"), customer.get("email"))
                                and c.get("order_no") == sorting.get("order_no")), None)
+            if target is None and sorting.get("settled") and not sorting.get("order_no"):
+                # "Any news?" (a settled request about no order) from someone whose one open case is still
+                # waiting for a person to pick its order: it is about that case
+                waiting = [c for c in data["cases"].values() if c["status"] == "open" and not c["sorted"]["by"]
+                           and _same(c["customer"].get("email"), customer.get("email"))]
+                target = waiting[0] if len(waiting) == 1 else None
             if target is not None:
                 target["timeline"].append(got)
                 if dispute and not target.get("dispute_id"):
@@ -228,6 +238,8 @@ class CaseStore(JsonFile):
 
         def changes(data) -> list:
             out = []
+            # a dispute already on a case is never linked to a second one
+            taken = {c.get("dispute_id") for c in _shape(data)["cases"].values() if c.get("dispute_id")}
             for c in _shape(data)["cases"].values():
                 if c["status"] != "open":
                     continue
@@ -237,8 +249,9 @@ class CaseStore(JsonFile):
                         out.append((c["id"], d))
                     continue
                 tx = (orders.get(c.get("order_no")) or {}).get("transaction_id")
-                if tx and by_tx.get(tx):
+                if tx and by_tx.get(tx) and by_tx[tx]["dispute_id"] not in taken:
                     out.append((c["id"], by_tx[tx]))
+                    taken.add(by_tx[tx]["dispute_id"])
             return out
         if not changes(self.snapshot()):
             return 0
@@ -264,9 +277,7 @@ class CaseStore(JsonFile):
                 c["problem"]["kind"], c["order_no"] = "question", None
                 return cid
             customer = {"name": order.get("name"), "email": order.get("email")}
-            target = None
-            if dispute:
-                target = next((x for x in data["cases"].values() if x.get("dispute_id") == dispute["dispute_id"]), None)
+            target = _of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
             if target is None:
                 target = next((x for x in data["cases"].values() if x["id"] != cid and x["status"] == "open"
                                and x["sorted"]["by"] and _same(x["customer"].get("email"), customer["email"])

@@ -105,6 +105,40 @@ def test_case_ids_are_told_apart_from_paypal_s():
     assert cases.is_case_id("DEMO-C001") and cases.is_case_id("C014")
     assert not cases.is_case_id("DEMO-034") and not cases.is_case_id("PP-D-001") and not cases.is_case_id(None)
 
+# ---------- review fixes (25/10) ----------
+
+def test_a_follow_up_joins_the_customer_s_one_unsorted_case():
+    s = store()
+    ada = {"name": "Ada Rossi", "email": "ada.r@example.com"}
+    loose = {"settled": False, "by": None, "customer": ada, "order_no": None, "kind": "not_as_described",
+             "summary": "x", "how": "Ada Rossi has 3 orders and the message doesn't say which one."}
+    first, _ = s.file(request("Something arrived damaged.", email="ada.r@example.com"), loose)
+    news = {"settled": True, "by": "rules", "customer": ada, "order_no": None, "kind": "question", "summary": "Any news?",
+            "how": "Sorted by Second Look's rules: the sender's address is Ada Rossi's; a question, so no order is needed."}
+    again, how = s.file(request("Any news?", email=" Ada.R@example.com", time="2026-10-19T12:00:00Z"), news)
+    assert how == "joined" and again["id"] == first["id"] and len(s.all()) == 1
+    assert s.get(first["id"])["sorted"]["by"] is None                        # still a person's call
+    s.file(request("Another thing broke.", email="ada.r@example.com", time="2026-10-19T13:00:00Z"), loose)
+    _, how = s.file(request("Any news?", email="ada.r@example.com", time="2026-10-19T14:00:00Z"), news)
+    assert how == "opened"                                                    # two unsorted cases: which one is unclear
+
+
+def test_a_dispute_already_on_a_case_is_never_linked_to_another_and_open_cases_come_first():
+    s = store()
+    pablo = {**SORTED, "order_no": "DEMOTX01828", "customer": {"name": "Pablo", "email": "pablo.m576@example.com"}}
+    a, _ = s.file(request("No refund.", email="pablo.m576@example.com"), pablo, dispute=DISPUTE)
+    b, _ = s.file(request("No refund, from my other address.", email="p.martin@example.com",
+                          time="2026-10-19T09:00:00Z"),
+                  {**pablo, "customer": {"name": "Pablo", "email": "p.martin@example.com"}})
+    orders = {"DEMOTX01828": {"order_no": "DEMOTX01828", "transaction_id": "DEMOTX01828"}}
+    assert s.link_disputes([DISPUTE], orders) == 0 and s.get(b["id"])["dispute_id"] is None
+    s.update(a["id"], lambda c: c.update(status="closed"))
+    s.update(b["id"], lambda c: c.update(dispute_id="DEMO-034", stage="paypal_dispute"))
+    c, how = s.file(request("Still nothing.", email="pablo.m576@example.com", time="2026-10-19T15:00:00Z"), pablo,
+                    dispute=DISPUTE)
+    assert how == "joined" and c["id"] == b["id"]                            # the open case, not the closed one
+    assert s.by_dispute("DEMO-034")["id"] == b["id"]
+
 
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
