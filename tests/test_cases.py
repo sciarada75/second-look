@@ -83,8 +83,14 @@ def test_an_unsorted_request_never_joins_and_a_person_picks_its_order():
     q, _ = s.file(request("Do you ship to Norway?", email="nobody@example.com", time="2026-10-19T11:00:00Z"), loose)
     assert s.pick_order(q["id"], None, by="Marta") == q["id"] and s.get(q["id"])["problem"]["kind"] == "question"
     try:
-        s.pick_order(q["id"], order, by="Marta")
-        assert False, "a sorted case is not picked again"
+        s.pick_order(q["id"], None, by="Marta")
+        assert False, "a question is not marked a question again"
+    except ValueError:
+        pass
+    assert s.pick_order(q["id"], order, by="Marta") == known["id"]   # it was about her order after all (review 25/10)
+    try:
+        s.pick_order(known["id"], order, by="Marta")
+        assert False, "a case settled on an order is not picked again"
     except ValueError:
         pass
 

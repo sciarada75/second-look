@@ -356,6 +356,69 @@ def receive(src: str, body) -> tuple:
                                                           "page": f"/c/{c['id']}"}
 
 
+def case_view(cid: str) -> dict | None:
+    """Everything the case page and the API show about one case, read once. None: no such case in its shop."""
+    src = shop_of_case(cid)
+    store = case_store(src)
+    if store.get(cid) is None:
+        return None
+    orders, disputes = shop_orders(src), shop_disputes(src)
+    by_no = {sort_mod.order_no(o): sort_mod.order_view(o) for o in orders}
+    store.link_disputes(disputes, by_no)          # a PayPal dispute opened since on this order joins the case
+    c = store.get(cid)
+    d = next((x for x in disputes if x["dispute_id"] == c.get("dispute_id")), None)
+    order = by_no.get(c.get("order_no"))
+    decision = c.get("dispute_id") or cid          # whose review and whose assignment this case uses
+    t = team_for(decision)
+    a = None if t.get("solo") else assignments_for(decision).get(decision)
+    holder = team_mod.person(t, a["to"]) if a and a["to"] else None
+    at_stake = float(d["dispute_amount"]["value"]) if d else float((order or {}).get("amount") or 0)
+    return {"case": c, "dispute": d, "order": order, "src": src, "decision_id": decision, "team": t,
+            "timeline": cases_mod.timeline(c, d), "channels": cases_mod.channels(c, d),
+            "costs": cases_mod.costs_so_far(c, d, _policy()), "at_stake": at_stake, "currency": "EUR",
+            "assigned_to": {"id": holder["id"], "name": holder.get("name"), "role": holder.get("role")} if holder else None}
+
+
+def pick_order(cid: str, order_no: str, by: str | None) -> tuple:
+    """A person says which order an unsorted case is about ("none": a general question). Returns (status, text or case id)."""
+    src = shop_of_case(cid)
+    store = case_store(src)
+    c = store.get(cid)
+    if c is None:
+        return 404, "No such case."
+    none = (order_no or "").strip().lower() == "none"
+    if c["sorted"]["by"] and (c.get("order_no") or none):
+        return 409, ("This case is already a general question." if none and not c.get("order_no")
+                     else "This case is already sorted.")
+    t = team_for(cid)
+    who = team_mod.person(t, by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+    if none:
+        return 200, store.pick_order(cid, None, who["name"])
+    orders = shop_orders(src)
+    o = next((x for x in orders if (sort_mod.order_no(x) or "").lower() == (order_no or "").strip().lower()), None)
+    if o is None:
+        return 400, f"No order {order_no!r} in this shop."
+    tx = o.get("transaction_id")
+    d = next((x for x in shop_disputes(src) if x.get("status") != "RESOLVED" and tx and _tx_of(x) == tx), None)
+    return 200, store.pick_order(cid, sort_mod.order_view(o), who["name"], dispute=d)
+
+
+def api_case_of(cid: str) -> dict | None:
+    """Other systems -> Second Look: one case as data, what its page shows."""
+    v = case_view(cid)
+    if v is None:
+        return None
+    c = v["case"]
+    return {"case_id": c["id"], "stage": c["stage"], "stage_label": cases_mod.STAGE_LABEL[c["stage"]],
+            "status": c["status"], "outcome": c["outcome"], "problem": c["problem"],
+            "customer": {**c["customer"], "role": "customer"}, "order": v["order"], "sorted": c["sorted"],
+            "at_stake": {"value": v["at_stake"], "currency_code": v["currency"]}, "channels": v["channels"],
+            "dispute_id": c.get("dispute_id"), "assigned_to": v["assigned_to"], "timeline": v["timeline"],
+            "costs_so_far": v["costs"], "page": f"/c/{c['id']}"}
+
+
 # ---------- the seller's rules ----------
 # Preferences are plain sentences the judge follows in every review (policy.json "seller_preferences").
 # This is how Second Look learns: from rules the seller writes and can read, never silently from past cases.
@@ -445,6 +508,9 @@ def rules_page(flash: str = "", demo: bool = False, me: str | None = None) -> st
         limits.append(f'Refunds come back to you when a buyer disputes {rb["times_shop_rate"]:g} times more often than '
                       f'your shop usually sees, with at least {rb["min_earlier_disputes"]} earlier disputes. '
                       f'Compared only once your shop has {rb["min_shop_orders"]} orders in 90 days.')
+    st = cases_mod.staff_time(pol)
+    limits.append(f'A case\'s staff time is estimated at {st["hourly_cost"]:g} {cur} an hour; each written answer counts '
+                  f'{st["reply_minutes"]:g} minutes, a call its own length.')
     rows = "".join(f'<li><span>{e(r)}</span><form method="post" action="/rules/remove">'
                    f'<input type="hidden" name="i" value="{i}"><button class="quiet">Remove</button></form></li>'
                    for i, r in enumerate(pol.get("seller_preferences", [])))
@@ -808,6 +874,10 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 table.waiting{{width:100%;border-collapse:collapse;margin-top:8px}}
 .waiting th,.waiting td{{text-align:left;padding:10px 14px 10px 0;border-top:1px solid var(--rule);font-size:16px;vertical-align:top}}
 .waiting th{{font-size:14px;color:var(--soft);font-weight:500}}
+.pill.shop{{background:var(--kraft-bg);color:#6E4F27}} .chan{{display:inline-block;min-width:24px}}
+.ai-tag{{display:inline-block;margin-left:8px;padding:0 6px;font-size:12px;font-weight:500;border:1px solid var(--kraft);color:#6E4F27;background:#fff}}
+.talk .t-sub{{display:block}} .pick input{{width:100%;font:400 16px "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff}}
+.pick label{{display:block;font-weight:700;margin:12px 0 6px}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
 @media (max-width:1100px){{.ov-grid{{grid-template-columns:1fr}} .barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
@@ -1006,7 +1076,8 @@ def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
                'q.addEventListener("input",()=>rows.forEach(r=>r.hidden=!!q.value&&!r.textContent.toLowerCase().includes(q.value.toLowerCase())))});</script>'
                if len(rows) > 3 else "")
             + (f'<ul class="inbox">{"".join(rows)}</ul>' if rows else
-               '<p class="empty">No open disputes. When a buyer opens one, it appears here.</p>'))
+               '<p class="empty">No open disputes. When a buyer opens one, it appears here.</p>')
+            + requests_block(src, me, view, t))
     return page("Second Look", "Practice cases" if practice else "PayPal sandbox", body, demo, me=me)
 
 
@@ -1185,6 +1256,151 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
 def customer_json(key: str, src: str) -> dict | None:
     _, disputes, orders, today = _shop(src)
     return ledger.customer(key, disputes, orders, today)
+
+
+# ---------- the case page: one customer, one order, one problem, every channel ----------
+
+def _role_of(t: dict, name: str | None, customer: str | None) -> str:
+    """Every name carries its role: the customer's, a colleague's from the team, or none for PayPal and the shop."""
+    if name and name == customer:
+        return "customer"
+    p = next((x for x in team_mod.people(t) if x.get("name") == name), None)
+    return str(p.get("role") or "") if p else ""
+
+
+def _when(at: str) -> str:
+    t = _t(at)
+    return f"{t:%d %b, %H:%M}" if t else ""
+
+
+def timeline_block(v: dict) -> str:
+    """Every contact in time order: channel, in or out, who (with their role), and whether Second Look's AI wrote it."""
+    c, t = v["case"], v["team"]
+    rows = []
+    for x in v["timeline"]:
+        icon = cases_mod.CHANNEL_ICON.get(x["channel"], x["channel"])
+        what = {"in": "in", "out": "out", "note": ""}[x["direction"]]
+        role = _role_of(t, x.get("by"), c["customer"].get("name"))
+        who = e(str(x.get("by") or "")) + (f", <i>{e(role)}</i>" if role else "")
+        ai = '<span class="ai-tag">Second Look\'s AI</span>' if x.get("ai") else ""
+        head = (f'<b><span class="chan" title="{e(cases_mod.CHANNEL_LABEL.get(x["channel"], x["channel"]))}">{e(icon)}</span> '
+                f'{e(cases_mod.CHANNEL_LABEL.get(x["channel"], x["channel"]).capitalize())} {e(what)} · {who} · {e(_when(x["at"]))}{ai}</b>')
+        subject = f'<span class="t-sub">{e(x["subject"])}</span>' if x.get("subject") else ""
+        body = f'<q>{e(x.get("text") or "")}</q>' if x["direction"] != "note" else f'<span>{e(x.get("text") or "")}</span>'
+        srt = x.get("sorted") or {}
+        sort_line = (f'<span class="t-sub">{e(srt["how"])}'
+                     + ('<span class="ai-tag">Second Look\'s AI</span>' if srt.get("by") == "ai" else "") + '</span>'
+                     if srt.get("how") else "")
+        cls = {"in": "buyer", "out": "you", "note": "proof"}[x["direction"]]
+        rows.append(f'<li class="{cls}">{head}{subject}{body}{sort_line}</li>')
+    return f'<h2>Everything said, every channel</h2><ol class="talk">{"".join(rows)}</ol>'
+
+
+def case_costs_block(v: dict) -> str:
+    k, cur = v["costs"], v["currency"]
+    m = lambda x: f"{x:,.2f} {cur}"  # noqa: E731
+    by = {}
+    for x in v["timeline"]:
+        if x["direction"] in ("in", "out"):
+            by[x["channel"]] = by.get(x["channel"], 0) + 1
+    split = ", ".join(f"{n} by {cases_mod.CHANNEL_LABEL.get(ch, ch)}" for ch, n in by.items())
+    how = (f"{k['replies']} written answer{'s' if k['replies'] != 1 else ''} × {k['reply_minutes']:g} minutes"
+           + (f", calls {k['minutes'] - k['replies'] * k['reply_minutes']:g} minutes" if k["calls"] else "")
+           + f", at {k['hourly_cost']:g} {cur} an hour (your rules)")
+    rows = [("Contacts", f"{k['contacts']}" + (f" ({split})" if split else "")),
+            ("Staff time", f"{k['minutes']:g} minutes, about {m(k['staff_cost'])}. Estimated: {how}."),
+            ("Fees", m(k["fees"])), ("Money moved", m(k["money_moved"]))]
+    trs = "".join(f'<tr><th scope="row">{e(a)}</th><td>{e(b)}</td></tr>' for a, b in rows)
+    return f'<section class="costs"><h2>Cost so far <span class="t-sub">estimated</span></h2><table>{trs}</table></section>'
+
+
+def case_summary(c: dict) -> str:
+    """The case's one line, as plain text. Written by Second Look's AI (it sorted the case): shown as its reading
+    of the customer's message, never as something the shop says. Otherwise the customer's own subject or words."""
+    line = c["problem"]["summary"] or cases_mod.KIND_LABEL[c["problem"]["kind"]]
+    return f"Second Look's AI reads this as: {line}" if c["sorted"].get("by") == "ai" else line
+
+
+def _pick_form(cid: str, me: str | None, how: str, question: bool = False) -> str:
+    """Which order an unsorted case is about; for a case sorted as a question (no order), the order it turns out
+    to be about after all."""
+    by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+    none = ("" if question else
+            '<button class="quiet" name="order" value="none">A general question: no order</button>')
+    return (f'<form class="pick" method="post" action="/c/{e(cid)}/order">'
+            f'<h2>{"Is it about an order?" if question else "Which order is it about?"}</h2>'
+            f'<p class="who">{e(how)}</p>{by}<label for="order">Order number</label>'
+            '<input id="order" name="order" maxlength="60" placeholder="For example LP-90001">'
+            f'<div class="approve"><button>This order</button>{none}</div></form>')
+
+
+def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
+    v = case_view(cid)
+    demo = v is not None and v["src"] == "demo"
+    if v is None:
+        return page("No such case | Second Look", "", '<h1 class="page">No case with that id in this shop.</h1>', is_demo(cid), me=me)
+    c, d, o = v["case"], v["dispute"], v["order"]
+    cur = v["currency"]
+    stage = f'<span class="pill {"shop" if c["stage"] == "inquiry" else "onclaim" if c["stage"] == "paypal_claim" else "paypal"}">' \
+            f'{e(cases_mod.STAGE_LABEL[c["stage"]])}</span>'
+    if c["status"] != "open":
+        stage += f'<span class="pill buyer">Closed: {e(str(c["outcome"] or ""))}</span>'
+    cust = c["customer"]
+    items = ", ".join(f'{i["name"]} × {i["qty"]}' + (f' (size {i["size"]})' if i.get("size") else "") for i in (o or {}).get("items", []))
+    paid = {"paypal": "PayPal", "card": "card", "bank": "bank transfer"}.get((o or {}).get("paid_with"), (o or {}).get("paid_with"))
+    order_line = (f'Order {e(o["order_no"])}: {e(items)}, {o["amount"]:.2f} {e(cur)}, paid by {e(str(paid))}.' if o else
+                  "No order: a general question." if c["sorted"]["by"] else "Order not known yet.")
+    came = " · ".join(f'{e(cases_mod.CHANNEL_ICON[ch])} {e(cases_mod.CHANNEL_LABEL[ch])}' for ch in v["channels"])
+    holder = v["assigned_to"]
+    owner = ("" if v["team"].get("solo") else
+             f'<p class="owner-line">{e(holder["name"])}, <i>{e(holder["role"] or "")}</i>, has this case.</p>' if holder
+             else '<p class="owner-line">Nobody has this case yet.</p>')
+    left = (f'<a class="back" href="/{"?shop=demo" if demo else ""}">All disputes and requests</a>{stage}'
+            f'<p class="claim{"" if c["sorted"].get("by") == "ai" else " quote"}">{e(case_summary(c))}</p>'
+            f'<p class="who">{e(cust.get("name") or cust.get("email") or "")}, <i>customer</i> · {e(cust.get("email") or "")}<br>'
+            f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{owner}'
+            f'{timeline_block(v)}')
+    if d:
+        saved = _saved(d["dispute_id"])
+        said = (f'Second Look recommends: <b>{e(ACTION.get(saved[0].action, saved[0].action))}</b>.' if saved
+                else "Not reviewed yet.")
+        right = (f'<div class="judged"><b>This case is a PayPal dispute now: {e(d["dispute_id"])}.</b>{said} PayPal\'s rules '
+                 f'apply, and the answer goes to PayPal. <a href="/d/{e(d["dispute_id"])}">Open the dispute to answer it</a>.</div>')
+    elif not c["sorted"]["by"]:
+        right = _pick_form(cid, me, c["sorted"]["how"] or "")
+    else:
+        right = ('<div class="judged"><b>Second Look doesn\'t review shop inquiries yet.</b> Answer from your helpdesk; '
+                 'everything said on every channel is here.</div>')
+        if not c.get("order_no"):
+            right += _pick_form(cid, me, "Sorted as a question with no order. If it is about one, say which.", question=True)
+    body = (f'<div class="case"><section>{flash}{left}</section><section class="look">{right}{case_costs_block(v)}'
+            f'<p class="cardlink"><a href="/api/cases/{e(cid)}">This case as data (API)</a></p></section></div>')
+    return page(f"{e(c['problem']['summary'][:40])} | Second Look", "PayPal sandbox", body, demo, me=me)
+
+
+def requests_block(src: str, me: str | None, view: str, t: dict) -> str:
+    """The open cases that came in by email or web form and have no PayPal dispute, under the disputes list."""
+    if src == "practice":
+        return ""
+    store = case_store(src)
+    rows = []
+    for c in store.all():
+        if c["status"] != "open" or c.get("dispute_id"):
+            continue
+        a = None if t.get("solo") else assignments_for(c["id"]).get(c["id"])
+        if a is not None and not in_view(view, a, me):
+            continue
+        icons = " ".join(cases_mod.CHANNEL_ICON[x["channel"]] for x in c["timeline"] if x["direction"] == "in")
+        owner = f' <span class="owner case-owner">{e(owner_tag(t, a))}</span>' if a is not None else ""
+        sorted_ = "" if c["sorted"]["by"] else " · Unsorted: pick the order"
+        rows.append(f'<li><a href="/c/{e(c["id"])}"><blockquote>{e(case_summary(c))}</blockquote>'
+                    f'<span class="meta"><span class="pill shop">Shop inquiry</span> {e(icons)} '
+                    f'{e(c["customer"].get("name") or c["customer"].get("email") or "")}, customer · '
+                    f'{e(cases_mod.KIND_LABEL[c["problem"]["kind"]])}{e(sorted_)}{owner}</span></a></li>')
+    if not rows:
+        return ""
+    return (f'<h2 style="margin-top:40px">Requests by email and web form <span class="t-sub">{len(rows)} open</span></h2>'
+            f'<ul class="inbox">{"".join(rows)}</ul>')
 
 
 EVIDENCE_KIND = {"PROOF_OF_FULFILLMENT": "proof of shipment or delivery", "PROOF_OF_REFUND": "proof of refund",
@@ -1389,6 +1605,15 @@ def judged_note(did: str, judged: str | None, sent: bool) -> str:
     return ""
 
 
+def part_of_case(did: str) -> str:
+    """On a dispute's page: the case it belongs to when another channel joined it (Pablo's email + DEMO-034)."""
+    c = None if did.startswith("PP-D-") else find_case_of_dispute(did)
+    if not c:
+        return ""
+    came = " + ".join(cases_mod.CHANNEL_LABEL[ch] for ch in cases_mod.channels(c, {"dispute_id": did, "messages": []}))
+    return f'<p class="owner-line">One case, every channel: <a href="/c/{e(c["id"])}">{e(c["id"])}</a> ({e(came)}).</p>'
+
+
 def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     case = _case(dispute_id)
     d, r = case["dispute"], case["seller_records"]
@@ -1432,7 +1657,7 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
             if buyer and not practice else "")
     nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
     left = (f'<a class="back" href="/{"?practice=1" if practice else q}">All disputes</a>'
-            f'{pill_for(d)}<p class="claim quote">{e(msg)}</p>'
+            f'{pill_for(d)}{part_of_case(dispute_id)}<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
             f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
             f'{conversation(d, signed)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
@@ -1838,7 +2063,7 @@ class Handler(BaseHTTPRequestHandler):
             jar = self._jar()
             shop = asked if asked in ("demo", "live") else jar.get("sl_shop", "demo")
             src = "practice" if "practice" in qs else shop
-            if u.path.startswith("/d/"):
+            if u.path.startswith(("/d/", "/c/")):
                 src = src_of_case(u.path[3:].strip("/"), src)  # a case's people are its own shop's
             me = self._who(qs, src)
             self._film = "film" in qs  # the demo film loads pages live: no fade-ins half-way through a frame
@@ -1853,6 +2078,11 @@ class Handler(BaseHTTPRequestHandler):
             if u.path.startswith("/api/disputes/"):
                 return self._json(api_case(unquote(u.path[len("/api/disputes/"):].strip("/")),
                                            as_person=(qs.get("as") or [None])[0]))
+            if u.path.startswith("/api/cases/"):
+                cv = api_case_of(unquote(u.path[len("/api/cases/"):].strip("/")))
+                return self._json(cv if cv else {"error": "unknown case"}, 200 if cv else 404)
+            if u.path.startswith("/c/"):
+                return self._send(case_file_page(u.path[3:].strip("/"), me=me))
             if u.path.startswith("/api/customers/"):
                 # the integration: a CRM or helpdesk asks for a customer's record by email or PayPal payer id
                 cu = customer_json(unquote(u.path[len("/api/customers/"):].strip("/")), src)
@@ -1904,6 +2134,13 @@ class Handler(BaseHTTPRequestHandler):
             me = None
             if parts == ["api", "requests"]:
                 return self._request()
+            if len(parts) == 3 and parts[0] == "c" and parts[2] == "order":
+                ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
+                if not ok:
+                    return self._send("Choose who you are at the top of the page.", 400)
+                code, out = pick_order(parts[1], form.get("order", [""])[0], me)
+                # the answer repeats what was typed: as text, never as page code
+                return self._redirect(f"/c/{out}") if code == 200 else self._send(e(out), code)
             if len(parts) == 3 and parts[0] == "d" and parts[2] in ("approve", "take"):
                 # The form says who it was shown to; it must be a real person of the case's own team.
                 ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])

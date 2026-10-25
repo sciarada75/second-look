@@ -264,13 +264,14 @@ class CaseStore(JsonFile):
         return self.transact(do)
 
     def pick_order(self, cid: str, order: dict | None, by: str, dispute: dict | None = None) -> str:
-        """A person says which order an unsorted case is about (None: a general question, no order).
-        If that customer already has an open case on that order, this case's entries move into it and this
-        case is removed. Returns the id of the case the request now lives in."""
+        """A person says which order an unsorted case is about (None: a general question, no order), or which
+        order a case sorted as a question turns out to be about. A case settled on an order is never picked
+        again. If that customer already has an open case on that order, this case's entries move into it and
+        this case is removed. Returns the id of the case the request now lives in."""
         def do(data):
             data = _shape(data)
             c = data["cases"][cid]
-            if c["sorted"]["by"]:
+            if c["sorted"]["by"] and (c.get("order_no") or order is None):
                 raise ValueError(f"{cid} is already sorted.")
             if order is None:
                 c["sorted"] = {"by": "person", "how": f"{by} marked it a general question: no order."}

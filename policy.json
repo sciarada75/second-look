@@ -10,6 +10,11 @@
     "min_earlier_disputes": 2,
     "min_shop_orders": 20
   },
+  "staff_time": {
+    "_comment": "Estimates for a case's cost so far: what an hour of customer care costs the shop, and the minutes a written answer counts. A call counts its own length.",
+    "hourly_cost": 25.0,
+    "reply_minutes": 6
+  },
   "injection_markers": [
     "ignore your",
     "system:",
