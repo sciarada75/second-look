@@ -65,7 +65,8 @@ EVIDENCE_LABEL = {
     "listing_text": "Your listing", "fulfilment_status": "Status", "planned_ship_date": "Planned shipping",
     "packing_slip_qty": "Packing slip says", "shipment_weight_g": "Parcel weighed (g)",
     "unit_weight_g": "One item weighs (g)", "envelope_weight_g": "Empty envelope weighs (g)",
-    "buyer_history": "This buyer", "already_refunded": "Already refunded", "return": "Return",
+    "buyer_history": "This buyer", "already_refunded": "Already refunded", "already_replaced": "Already replaced",
+    "return": "Return",
     "exchange_counts": "Toward your limit",
 }
 
@@ -362,6 +363,16 @@ def refunds_on_order(src: str, order_no: str | None) -> list:
     return [r for r in (_logged_refund(c) for c in cases_mod.CaseStore(path).all() if c.get("order_no") == order_no) if r]
 
 
+def replacements_on_order(src: str, order_no: str | None, c: dict | None = None) -> list:
+    """Every replacement or exchange logged on this order, from every case on it ({case_id, amount}): goods that
+    went out, counted with the refunds against the order's value. No order: the case's own."""
+    path = CASE_FILES[src]
+    cases = ([x for x in cases_mod.CaseStore(path).all() if x.get("order_no") == order_no]
+             if order_no and path.exists() else [c] if c else [])
+    return [{"case_id": x["id"], "amount": _num(m.get("amount")) or 0.0, "at": m.get("at"), "by": m.get("by")}
+            for x in cases for m in x.get("money", []) if m.get("kind") == "replace"]
+
+
 def _money_cases_for(did: str, dispute_of) -> list:
     """The cases that logged a refund on a PayPal dispute's order: the case it joined, and every case on its order
     (the dispute's transaction is the order's transaction id), whether or not anything has linked them yet: the
@@ -378,10 +389,12 @@ def _money_cases_for(did: str, dispute_of) -> list:
     joined = [c for c in paid if c.get("dispute_id") == did]
     tx = _tx_of(dispute_of() or {})
     on = []
-    if tx:
+    # a PayPal order's number is its transaction id: only a case on that number can be this dispute's, and only
+    # then are the shop's orders read (on the live shop, a Transaction Search) to check it is that transaction
+    if tx and any(c.get("order_no") == tx for c in paid if c not in joined):
         # only a case whose order IS that PayPal transaction: a card or bank order's number never matches one
         by_no = {sort_mod.order_no(o): o for o in shop_orders(src)}
-        on = [c for c in paid if c not in joined and c.get("order_no")
+        on = [c for c in paid if c not in joined and c.get("order_no") == tx
               and (by_no.get(c["order_no"]) or {}).get("transaction_id") == tx]
     return joined + on
 
@@ -546,7 +559,9 @@ def inquiry_case(cid: str) -> dict:
     back = refunds_on_order(v["src"], c.get("order_no")) if c.get("order_no") else \
         [r for r in (_logged_refund(c),) if r]
     refunded = round(sum(r["amount"] for r in back), 2)
-    left = max(0.0, round(v["at_stake"] - refunded, 2))
+    goods = replacements_on_order(v["src"], c.get("order_no"), c)
+    replaced = round(sum(g["amount"] for g in goods), 2)
+    left = max(0.0, round(v["at_stake"] - refunded - replaced, 2))
     # The case's real stage: once PayPal has it, the inquiry's review is out of date (and refused: see _inquiry_refusal)
     stage = "SHOP_INQUIRY" if c["stage"] == "inquiry" else c["stage"].upper()
     dispute = {"dispute_id": cid, "reason": "SHOP_INQUIRY", "status": "WAITING_FOR_SELLER_RESPONSE",
@@ -566,15 +581,21 @@ def inquiry_case(cid: str) -> dict:
     evidence_mod.add_shop_terms(records, sources, DemoPayPal().shop if v["src"] == "demo" else _live_shop())
     # Decision 8: an exchange counts the new parcel's postage once the returned item is back at the shop (the
     # courier's record of the return, or the shop's own); until then, and with no postage on record, full price.
+    # Only for this case's own exchange (review 25/10): a wrong size, a return tied to this case (recorded against
+    # it, or sent or received from the day it opened), delivered to the shop, and not yet used by a replacement.
     ret = (o.get("return") or {}) if o else {}
-    returned = ret.get("status") == "DELIVERED" or bool(ret.get("received_at_shop"))
+    to_shop = not ret.get("delivered_to") or "shop" in str(ret["delivered_to"]).lower()
+    returned = (ret.get("status") == "DELIVERED" and to_shop) or bool(ret.get("received_at_shop"))
+    when = str(ret.get("shipped_date") or ret.get("received_at_shop") or ret.get("last_update") or "")[:10]
+    tied = (ret.get("case_id") == cid or ret.get("source_id") in {x.get("source_id") for x in c["timeline"] if x.get("source_id")}
+            or bool(when) and when >= str(c["opened"])[:10])
     shop = DemoPayPal().shop if v["src"] == "demo" else _live_shop()
     postage = _num((shop.get("costs") or {}).get("postage"))
     if ret:
         records["return"] = (f'{ret.get("carrier") or "Courier"} {ret.get("tracking_number") or ""}'.strip()
                              + (", back at the shop" if returned else f', {str(ret.get("status") or "on its way").lower()}'))
         sources["return"] = "Courier tracking"
-    if returned and postage is not None:
+    if returned and tied and not goods and c["problem"]["kind"] == "wrong_size" and postage is not None:
         dispute["exchange_cost"] = min(postage, left)
         records["exchange_counts"] = (f'An exchange counts {min(postage, left):.2f} {v["currency"]}, the postage of the '
                                       "new parcel: the returned item is back at the shop. A refund counts in full.")
@@ -582,6 +603,12 @@ def inquiry_case(cid: str) -> dict:
     # the shop's own order amount: only inquiries carry it, so the guard's rule 9 never touches a PayPal dispute
     records["order_amount"] = _num(o.get("amount")) if o else None     # unreadable: no order with an amount
     records["refunded_so_far"] = refunded
+    records["replaced_so_far"] = replaced
+    if goods:
+        records["already_replaced"] = "; ".join(
+            f'{g["amount"]:.2f} {v["currency"]} in goods' + (f' by {g["by"]}' if g.get("by") else "")
+            + ("" if g["case_id"] == cid else f', on case {g["case_id"]}') for g in goods)
+        sources["already_replaced"] = "Your case record"
     if back:
         each = "; ".join(_said(r, v["currency"]) + ("" if r["case_id"] == cid else f', on case {r["case_id"]}')
                          for r in back)
@@ -610,6 +637,9 @@ def _inquiry_refusal(cid: str) -> str | None:
     c = v["case"]
     if not c["sorted"]["by"]:
         return "Pick the order first: an unsorted request has no evidence to check."
+    if c["status"] != "open":
+        return (f"This case is closed: {cases_mod.outcome_says(c, CLOSE_OUTCOMES)}. "
+                "A new message from the customer opens a new case.")
     if c.get("dispute_id"):
         return f"This case is a PayPal dispute now: answer it on {c['dispute_id']}."
     return None
@@ -665,7 +695,8 @@ class Outbox:
         return self._out("partial_refund", note, {"kind": "partial_refund", "amount": float(amount)})
 
     def replace(self, did, note):
-        return self._out("replace", note)
+        # goods going out: their value (what is left of the order) is logged, so a second one is seen (rule 9)
+        return self._out("replace", note, {"kind": "replace", "amount": self.amount})
 
     def defend(self, did, note, tracking=None):
         raise RuntimeError("An inquiry has no PayPal evidence to submit: nothing was sent.")
@@ -711,6 +742,13 @@ def close_case(cid: str, outcome: str, by: str | None) -> tuple:
     who = team_mod.person(team_for(cid), by)
     if not who:
         return 400, "Say who you are: a person in this shop's team."
+    with _case_lock(cid):   # never between an approval's read and its send: closing waits for it
+        return _close(store, cid, outcome, who)
+
+
+def _close(store, cid: str, outcome: str, who: dict) -> tuple:
+    if (store.get(cid) or {}).get("status") != "open":
+        return 409, "This case is closed already."
 
     def close(x):
         x["status"], x["outcome"] = "closed", outcome
@@ -2241,6 +2279,7 @@ STOP_SAYS = {
     "partial_amount": "an amount it couldn't read",
     "no_order": "there is no order with an amount on this case",
     "already_refunded": "the order is already refunded in full",
+    "already_replaced": "the order's value already went out as a replacement",
     "refund_logged_on_case": "a refund already logged on this order's case",
 }
 
@@ -2381,6 +2420,9 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
     by_name = None if t.get("solo") else who["name"]
+    if inquiry and seen and chosen == "REPLACE":
+        # an exchange: what is left of the order went out as goods, and its return is used (no postage count now)
+        seen = {**seen, "amount": "0.00", "return": None}
     if inquiry and seen and chosen in ("REFUND", "PARTIAL_REFUND"):   # what was sent (dec.action is the recommendation again)
         # What this approval itself logged (a refund lowers what is left) is part of what the review saw; only
         # something new (the customer writing again) makes it out of date. Only this send's own change is added:

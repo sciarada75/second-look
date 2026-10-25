@@ -708,6 +708,82 @@ def test_a_return_the_shop_recorded_itself_counts_like_the_courier_s():
         assert o["outcome"] == "send" and o["amount"] == 4.9                    # the shop's own record: Marta's
 
 
+# ---------- quality review 5 (25/10): an exchange's postage is its own case's, once ----------
+
+def test_a_damaged_item_on_an_order_with_an_earlier_return_counts_full_price():
+    claude = lambda c: Judgment("REPLACE", 0.9, "Faked.", draft_message="We'll send a new one.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        assert web.close_case("DEMO-C002", "solved", "giulia")[0] == 200       # Lena's size case: settled otherwise
+        _, o = _ask("lena.vogel@example.com", "Order LP-90002: the new shirt arrived torn and a button came off.", "qa:1")
+        cid = o["case_id"]
+        assert cid != "DEMO-C002" and web.case_store("demo").get(cid)["problem"]["kind"] == "not_as_described"
+        dec = web.run_review(cid)
+        assert dec.action == "ASK_SELLER" and dec.stops == ["cap"]               # 89 EUR of goods: full price
+        o = web.page_offer(cid, "marta")
+        assert o["outcome"] == "pass" and o["to"] == "Giulia"
+        assert "Toward your limit" not in web.case_file_page(cid, me="marta")
+
+
+def test_an_exchange_is_logged_as_goods_and_a_second_replacement_is_held():
+    claude = lambda c: Judgment("REPLACE", 0.9, "Faked.", draft_message="We'll send an L.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        assert web.run_review("DEMO-C002").stops == []
+        assert web.approve("DEMO-C002", "REPLACE", "We'll send an L.", by="marta")[0] == 200
+        c = web.case_store("demo").get("DEMO-C002")
+        assert [(m["kind"], m["amount"]) for m in c["money"]] == [("replace", 89.0)]
+        assert web._changes("DEMO-C002", web._case("DEMO-C002")) == []          # your own exchange: done, not stale
+        _ask("lena.vogel@example.com", "Could you send another L for my sister?", "qa:2")
+        dec = web.run_review("DEMO-C002")
+        assert dec.action == "ASK_SELLER" and "already_replaced" in dec.stops
+        code, text = web.approve("DEMO-C002", "REPLACE", "Another one.", by="giulia")
+        assert code == 409 and "already went out as a replacement" in text
+        assert len(web.case_store("demo").get("DEMO-C002")["money"]) == 1
+
+
+def test_a_return_counts_only_when_it_is_this_case_s_and_reached_the_shop():
+    for change in ({"shipped_date": "2026-10-10"},                              # sent before the case: another one
+                   {"delivered_to": "a neighbour (Bianchi)"}):                  # delivered, but not to the shop
+        with morning():
+            web.case_store("demo")
+            web.shop_orders = lena_s_return("DELIVERED", **change)
+            dec = web.run_review("DEMO-C002")
+            assert dec.action == "ASK_SELLER" and dec.stops == ["cap"], change
+    with morning():                                                            # Lena's own: still Marta's
+        web.run_review("DEMO-C002")
+        assert web.page_offer("DEMO-C002", "marta")["outcome"] == "send"
+
+
+def test_a_closed_inquiry_is_never_reviewed_or_answered_again():
+    claude = lambda c: (_ for _ in ()).throw(AssertionError("no review runs on a closed case"))  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        web.has_ai_key = lambda: False
+        web.run_review("DEMO-C001")                                           # Marta's tab: reviewed, open
+        assert web.close_case("DEMO-C001", "solved", "giulia")[0] == 200       # Giulia closes it meanwhile
+        code, text = web.approve("DEMO-C001", "MESSAGE", "It was left at no. 12.", by="marta")
+        assert code == 409 and text.startswith("This case is closed")
+        web.has_ai_key = lambda: True
+        _ask("sophie.durand@example.com", "Any news?", "qb:1")              # (a new case: the closed one stays shut)
+        try:
+            web.review_inquiry("DEMO-C001", "claude")
+            assert False, "a closed case is never reviewed"
+        except ValueError as err:
+            assert str(err).startswith("This case is closed")
+    import inspect
+    assert "_case_lock(cid)" in inspect.getsource(web.close_case)              # closing waits for an approval
+
+
+def test_a_dispute_page_reads_the_shop_s_orders_only_for_a_refund_on_its_own_transaction():
+    claude = lambda c: Judgment("PARTIAL_REFUND", 0.95, "Faked.", draft_message="5 back", partial_amount="5 EUR")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        web.run_review("DEMO-C001")
+        assert web.approve("DEMO-C001", "PARTIAL_REFUND", "5 back", by="marta")[0] == 200   # a refund, on LP-90001
+        reads = []
+        real = web.shop_orders
+        web.shop_orders = lambda src: (reads.append(src), real(src))[1]
+        assert web._money_cases_for("DEMO-031", lambda: DemoPayPal().get_dispute("DEMO-031")) == []
+        assert reads == []                                                     # another transaction: no order read
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

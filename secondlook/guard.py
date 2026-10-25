@@ -252,6 +252,11 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
                          "Nothing more goes out from here.")
             action = "ASK_SELLER"
             stops.append("already_refunded")
+        elif back + (records.get("replaced_so_far") or 0) >= total - 0.005:
+            notes.append(f"This order's value already went out as a replacement: {records.get('already_replaced') or ''}. "
+                         "Nothing more goes out from here.")
+            action = "ASK_SELLER"
+            stops.append("already_replaced")
 
     # Rule 10: a PayPal dispute on an order whose case already logged a refund (the shop answered the customer's
     # email before they went to PayPal). Nothing more goes out unseen, and a defence would contradict the reply
