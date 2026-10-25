@@ -531,6 +531,17 @@ def test_an_answer_sent_by_email_lands_on_the_ticket():
     assert not hd.add_event({"event": "answer.sent"})              # about no case and no dispute: ignored
 
 
+def test_every_agent_s_name_carries_their_role():
+    roles = {**TICKETS, "agents": [{"id": "marta", "name": "Marta", "role": "Customer care assistant"},
+                                   {"id": "giulia", "name": "Giulia", "role": "Head of customer care"}]}
+    html = bench(FakeSL(), roles).inbox_page("marta")
+    assert "Signed in as <b>Marta</b>, Customer care assistant" in html and "Giulia <small>Head of customer care</small>" in html
+    shop = json.loads((Path(__file__).resolve().parent.parent / "demo" / "shop.json").read_text())
+    team = {p["id"]: p["role"] for p in shop["shop"]["team"]["people"]}
+    tickets = json.loads((Path(__file__).resolve().parent.parent / "helpdesk" / "tickets.json").read_text())
+    assert {a["id"]: a["role"] for a in tickets["agents"]} == team       # Ticketbook names the team as the shop does
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

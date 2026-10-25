@@ -305,7 +305,7 @@ def test_the_list_filters_mine_unassigned_everyone():
     rows = [("D1", "x"), ("D2", "y"), ("D3", "z")]
     keep = lambda view: [d for d, _ in rows if web.in_view(view, store.get(d), "marta")]  # noqa: E731
     assert keep("mine") == ["D1"] and keep("unassigned") == ["D3"] and keep("all") == ["D1", "D2", "D3"]
-    assert web.owner_tag(TEAM, store.get("D2")) == "Giulia · passed by Marta"
+    assert web.owner_tag(TEAM, store.get("D2")) == "Giulia, Head of customer care · passed by Marta"
     assert web.owner_tag(TEAM, store.get("D3")) == "Unassigned"
 
 
@@ -381,7 +381,7 @@ def test_the_case_page_shows_whose_case_and_a_waiting_handoff_to_the_right_perso
         assert "Marta suggests" in marta and 'action="/d/X/approve"' not in marta and "Waiting for Giulia" in marta
         web.approve("X", "REFUND", None, by="giulia")
         sent = look("giulia")
-        assert "Sent by Giulia" in sent and "Marta suggests" not in sent and "Giulia's case." in sent
+        assert "Sent by Giulia" in sent and "Marta suggests" not in sent and "Giulia's case (Head of customer care)." in sent
     with approval_bench(the_team=None):
         solo = look()
         assert "Take it" not in solo and "case.</p>" not in solo and "Sends exactly this to PayPal" in solo

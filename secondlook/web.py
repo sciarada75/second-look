@@ -1396,7 +1396,7 @@ def owner_tag(t: dict, a: dict) -> str:
     if not a["to"]:
         return "Unassigned"
     who = team_mod.person(t, a["to"])
-    name = who["name"] if who else a["to"]
+    name = (who["name"] + (f', {who["role"]}' if who.get("role") else "")) if who else a["to"]
     hand = a.get("handoff")
     return name + (f' · passed by {hand.get("from_name")}' if isinstance(hand, dict) and hand.get("from_name") else "")
 
@@ -2175,7 +2175,8 @@ def review_column(did: str, case: dict, me: str | None, flash: str = "", plain_o
             owner = (f'<div class="guard"><b>{e(frm)} suggests: {e(what)}{e(much)}.</b> Over {e(frm)}\'s limit, '
                      f'so it waits for {e(holder_name)}. Nothing has been sent.</div>')
         elif a["to"]:
-            owner = f'<p class="owner-line">{e(holder_name)}\'s case.</p>' if plain_owner else ""
+            role = f' ({holder["role"]})' if holder and holder.get("role") else ""
+            owner = f'<p class="owner-line">{e(holder_name)}\'s case{e(role)}.</p>' if plain_owner else ""
         else:
             by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
             owner = (f'<form class="owner-line" method="post" action="/d/{e(did)}/take">'

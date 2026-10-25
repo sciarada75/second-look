@@ -3,19 +3,23 @@
  "agents": [
   {
    "id": "marta",
-   "name": "Marta"
+   "name": "Marta",
+   "role": "Customer care assistant"
   },
   {
    "id": "luca",
-   "name": "Luca"
+   "name": "Luca",
+   "role": "Customer care assistant"
   },
   {
    "id": "sara",
-   "name": "Sara"
+   "name": "Sara",
+   "role": "Customer care assistant"
   },
   {
    "id": "giulia",
-   "name": "Giulia"
+   "name": "Giulia",
+   "role": "Head of customer care"
   }
  ],
  "tickets": [

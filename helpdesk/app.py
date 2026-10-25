@@ -325,7 +325,9 @@ class Helpdesk:
     def _page(self, title: str, crumb: str, me: dict, body: str, here: str = "inbox") -> str:
         data = self.tickets()
         open_n = sum(1 for t in data.get("tickets", []) if t.get("status") == "open")
-        menu = "".join(f'<a href="?as={e(quote(a["id"]))}"{" class=on" if a["id"] == me["id"] else ""}>{e(a["name"])}</a>'
+        role = f', {e(str(me["role"]))}' if me.get("role") else ""          # every name carries its role
+        menu = "".join(f'<a href="?as={e(quote(a["id"]))}"{" class=on" if a["id"] == me["id"] else ""}>{e(a["name"])}'
+                       + (f' <small>{e(str(a["role"]))}</small>' if a.get("role") else "") + '</a>'
                        for a in data.get("agents", []))
         return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{e(title)}</title>
@@ -336,7 +338,7 @@ class Helpdesk:
 <nav aria-label="Views"><a href="/"{" class=on" if here == "inbox" else ""}>Inbox <span>{open_n} open</span></a></nav>
 <p class="foot">Ticketbook — a made-up helpdesk, not a real product. It shows Second Look inside another tool.</p></aside>
 <div class="shell"><div class="top"><div class="crumb">{crumb}</div>
-<details class="who"><summary>Signed in as <b>{e(me["name"])}</b> ▾</summary><div class="menu">{menu}</div></details></div>
+<details class="who"><summary>Signed in as <b>{e(me["name"])}</b>{role} ▾</summary><div class="menu">{menu}</div></details></div>
 <main>{body}</main></div></body></html>"""
 
     def inbox_page(self, agent_id: str | None) -> str:
