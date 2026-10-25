@@ -258,6 +258,83 @@ def test_what_a_customer_or_the_ai_wrote_shows_as_text_and_says_whose_words_it_i
     assert "Second Look's AI reads this as: Sum &lt;script&gt;" in html_                 # never as the customer's words
 
 
+# ---------- review (26/10): one problem once, per-order totals, both sides, currencies, UTC, the PayPal chip ----------
+
+def test_an_inquiry_and_the_dispute_on_its_order_are_one_problem_before_anything_links_them():
+    orders = [{"date": "2026-10-10", "transaction_id": "TX7", "amount": 40.0},
+              {"date": "2026-10-10", "order_no": "LP-1", "amount": 30.0, "paid_with": "card"}]
+    cases = [case("C7", ("2026-10-19T09:00", "email", "in"), order_no="TX7"),
+             case("C8", ("2026-10-19T09:30", "email", "in"), order_no="LP-1")]
+    disputes = [dispute("D7", "2026-10-19T10:00:00Z", tx="TX7"), dispute("D8", "2026-10-19T11:00:00Z", tx="LP-1")]
+    s = today.came_in(cases, disputes, orders, TODAY)
+    assert sorted(r["link"] for r in s["rows"]) == ["/c/C7", "/c/C8", "/d/D8"]   # C7 and D7: one row
+    c7 = next(r for r in s["rows"] if r["link"] == "/c/C7")
+    assert (c7["decision_id"], c7["dispute_id"], c7["channels"]) == ("D7", "D7", ["email", "paypal"])
+    assert sorted(i["id"] for i in today.open_items(cases, disputes, orders)) == ["C8", "D7", "D8"]
+    k = today.month(cases, disputes, orders, TODAY, None)
+    assert k["requests"] == 3 and k["open_inquiries_most"] == 30.0       # C7 is a PayPal dispute now: counted once
+
+
+def test_what_an_open_inquiry_could_still_cost_is_what_is_left_of_its_order():
+    cases = [case("C1", ("2026-10-02T09:00", "email", "in"), status="closed", order_no="O1", closed_at="2026-10-03T09:00",
+                  money=[{"kind": "refund", "amount": 20.0, "at": "2026-10-02T10:00"}]),
+             case("C2", ("2026-10-19T09:00", "email", "in"), order_no="O1")]
+    k = today.month(cases, [], [{"date": "2026-10-01", "order_no": "O1", "amount": 64.0}], TODAY, None)
+    assert k["open_inquiries_most"] == 44.0                              # 64, less the 20 the closed case gave back
+
+
+def test_an_order_given_back_on_both_sides_is_flagged_not_silently_added():
+    cases = [case("C1", ("2026-10-02T09:00", "email", "in"), status="closed", order_no="TX9", closed_at="2026-10-03T09:00",
+                  money=[{"kind": "refund", "amount": 40.0, "at": "2026-10-02T10:00"}])]
+    disputes = [dispute("D9", "2026-10-04T10:00:00Z", status="RESOLVED", tx="TX9",
+                        outcome=("RESOLVED_BUYER_FAVOUR", "ITEM_NOT_RECEIVED"), refunded="40.00")]
+    k = today.month(cases, disputes, [{"date": "2026-10-01", "transaction_id": "TX9", "amount": 40.0}], TODAY, None)
+    assert k["back"] == 80.0 and k["both_sides"] == ["TX9"]
+    assert "1 order counted on both sides: check it was paid once" in web.month_block(k, TODAY)
+    k = today.month(cases, [], [{"date": "2026-10-01", "transaction_id": "TX9", "amount": 40.0}], TODAY, None)
+    assert k["both_sides"] == [] and "both sides" not in web.month_block(k, TODAY)
+
+
+def test_rows_carry_their_own_currency():
+    orders = [{"date": "2026-10-10", "order_no": "UK-1", "amount": 30.0, "currency": "GBP"}]
+    cases = [case("C9", ("2026-10-19T09:00", "email", "in"), order_no="UK-1")]
+    s = today.came_in(cases, [dispute("D1", "2026-10-19T10:00:00Z")], orders, TODAY)
+    assert {r["link"]: r["currency"] for r in s["rows"]} == {"/c/C9": "GBP", "/d/D1": "EUR"}
+    html_ = web.see_block(s, "")
+    assert "30.00 GBP" in html_ and "40.00 EUR" in html_
+    items = today.open_items(cases, [], orders)
+    assert items[0]["currency"] == "GBP"
+
+
+def test_an_answer_sent_just_after_local_midnight_on_the_1st_is_last_month_in_utc():
+    import os
+    import time
+    kept_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "Europe/Rome"
+    time.tzset()
+    try:
+        with morning():
+            web.REVIEWS.mkdir(parents=True, exist_ok=True)
+            (web.REVIEWS / "DEMO-035.json").write_text(json.dumps({"sent": "Sent.", "at": "2026-10-01T01:00"}))
+            assert web.sent_answers("demo") == ["2026-09-30T23:00"]           # Rome is UTC+2 in October
+    finally:
+        if kept_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = kept_tz
+        time.tzset()
+
+
+def test_the_paypal_chip_says_when_it_counts_new_messages_too():
+    old = dispute("D4", "2026-10-10T09:00:00Z")
+    old["messages"].append({"posted_by": "BUYER", "content": "Still nothing.", "time_posted": "2026-10-19T12:00:00Z"})
+    s = today.came_in([], [old, dispute("D2", "2026-10-20T17:50:00Z")], [], TODAY)
+    assert s["counts"]["paypal"] == 2 and s["paypal_messages"] == 1
+    assert "2 PayPal disputes or new PayPal messages" in web.see_block(s, "")
+    s = today.came_in([], [dispute("D2", "2026-10-20T17:50:00Z")], [], TODAY)
+    assert s["paypal_messages"] == 0 and "1 PayPal dispute<" in web.see_block(s, "")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

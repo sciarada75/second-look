@@ -25,7 +25,7 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from datetime import timedelta
+from datetime import timedelta, timezone
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from . import cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
@@ -1691,8 +1691,18 @@ def sent_answers(src: str) -> list:
             continue
         raw = _raw(did) or {}
         if raw.get("sent") and raw.get("at"):
-            out.append(cases_mod.minute(raw["at"]))
+            out.append(_utc_minute(raw["at"]))
     return out
+
+
+def _utc_minute(at) -> str:
+    """A review's `at` (an approval's local time, as it is shown: "Sent by Giulia, 11:47") in UTC, as every other
+    time here is ("2026-10-19T08:52"); one with its own offset is converted from it."""
+    try:
+        t = datetime.fromisoformat(str(at)[:25])
+    except ValueError:
+        return cases_mod.minute(at)
+    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M")
 
 
 def today_view(src: str) -> dict:
@@ -1747,8 +1757,12 @@ def month_block(k: dict, today) -> str:
              f'refunded in full ({m(k["open_inquiries_most"])})')]
     trs = "".join(f'<div class="know-row"><dt>{e(a)}</dt><dd><b>{e(b)}</b><span class="t-sub">{e(x)}</span></dd></div>'
                   for a, b, x in rows)
+    both = k.get("both_sides") or []
+    flag = (f'<p class="check-sender">{len(both)} order{"s" if len(both) != 1 else ""} counted on both sides: check '
+            f'{"it was" if len(both) == 1 else "they were"} paid once ({e(", ".join(both))}): a refund logged on a case, '
+            'and PayPal\'s.</p>' if both else "")
     return (f'<h2>I know</h2><p class="t-sub">This month ({today:%B %Y}), every channel</p>'
-            f'<dl class="know">{trs}</dl>')
+            f'<dl class="know">{trs}</dl>{flag}')
 
 
 def _rec(r: dict | None) -> str:
@@ -1762,6 +1776,8 @@ def _rec(r: dict | None) -> str:
 def see_block(s: dict, q: str) -> str:
     chips = [f'<span class="chip ord">🛒 {s["orders"]:,} new order{"s" if s["orders"] != 1 else ""}</span>']
     for ch, word, n in today_mod.channel_words(s["counts"]):
+        if ch == "paypal" and s.get("paypal_messages"):
+            word = "PayPal disputes or new PayPal messages"     # it counts a buyer's new message on an older one too
         if ch == "call":
             chips.append('<span class="chip off">📞 Phone: not connected yet</span>')
             continue
@@ -1779,7 +1795,7 @@ def see_block(s: dict, q: str) -> str:
                     # the customer's own words, or Second Look's AI's reading of them: never one for the other
                     + (f'Second Look\'s AI reads this as: {e(r["summary"])}' if r.get("summary_by") == "ai"
                        else f'they wrote: “{e(r["summary"])}”')
-                    + f' · {r["amount"]:.2f} EUR{order}{" · closed" if r["status"] != "open" else ""}'
+                    + f' · {r["amount"]:.2f} {e(r.get("currency") or "EUR")}{order}{" · closed" if r["status"] != "open" else ""}'
                     f'{_rec(r["review"])}</span>{due}</a></li>')
     listing = (f'<ol class="see">{"".join(rows)}</ol>' if rows else
                '<p class="empty">Nothing new since yesterday.</p>')
@@ -1801,7 +1817,8 @@ def manage_block(mg: dict, q: str) -> str:
                     f'<dd><b>{n} open case{"s" if n != 1 else ""}</b><span class="t-sub">{e(extra.lstrip(" ·"))}</span></dd></div>')
     rows.append(f'<div class="know-row"><dt><b>Unassigned</b></dt><dd><b>{len(mg["unassigned"])}</b>'
                 f'<span class="t-sub">nobody has these yet: open one and take it</span></dd></div>')
-    hands = "".join(f'<li><a href="{e(h["link"])}{q}"><b>{e(h["who"] or "")}</b>, <i>customer</i> · {h["amount"]:.2f} EUR: '
+    hands = "".join(f'<li><a href="{e(h["link"])}{q}"><b>{e(h["who"] or "")}</b>, <i>customer</i> · '
+                    f'{h["amount"]:.2f} {e(h.get("currency") or "EUR")}: '
                     f'passed by {e(h["from_name"])}' + (f', <i>{e(h["from_role"])}</i>' if h["from_role"] else "")
                     + f', to {e(h["to_name"])}, <i>{e(h["to_role"])}</i></a></li>' for h in mg["handoffs"])
     waits = (f'<h3 class="bl-h">Waiting after a handoff</h3><ul class="see">{hands}</ul>' if hands else

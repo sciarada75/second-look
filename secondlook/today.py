@@ -79,20 +79,43 @@ def _amounts(orders: list) -> dict:
     return {(o.get("order_no") or o.get("transaction_id")): _num(o.get("amount")) for o in orders}
 
 
+def _currencies(orders: list) -> dict:
+    """Order number -> its currency (EUR when the order doesn't say)."""
+    return {(o.get("order_no") or o.get("transaction_id")): o.get("currency") or "EUR" for o in orders}
+
+
+def links(cases: list, disputes: list, orders: list) -> dict:
+    """Dispute id -> the case it belongs to: the case holding it (the open one first), or an open case nothing has
+    linked yet whose order IS that dispute's PayPal transaction (CaseStore.link_disputes links it on the next case
+    view; here it is only read, so the morning screen never writes). A card or bank order never matches."""
+    held = _dispute_of_case(cases)
+    tx_of = {(o.get("order_no") or o.get("transaction_id")): o.get("transaction_id") for o in orders}
+    taken = {id(c) for c in held.values()}
+    for d in disputes:
+        tx = _tx(d)
+        if d["dispute_id"] in held or d.get("status") == "RESOLVED" or not tx:
+            continue
+        c = next((c for c in cases if c.get("status") == "open" and not c.get("dispute_id") and id(c) not in taken
+                  and c.get("order_no") and tx_of.get(c["order_no"]) == tx), None)
+        if c is not None:
+            held[d["dispute_id"]] = c
+            taken.add(id(c))
+    return held
+
+
 def came_in(cases: list, disputes: list, orders: list, today: date, review_of=lambda did: None) -> dict:
     """I see: every problem something came in on since yesterday, one row each (a case and its PayPal dispute are
     one row), nearest PayPal deadline first, then the shop's own inquiries in the order they came in.
     `review_of(decision id)`: one line on what Second Look recommends there, or None."""
     start = since(today)
     by_id = {d["dispute_id"]: d for d in disputes}
-    held = _dispute_of_case(cases)
-    amount_of = _amounts(orders)
-    rows, counts = [], {ch: 0 for ch in CHANNEL_ORDER}
+    held = links(cases, disputes, orders)
+    of_case = {id(c): by_id[did] for did, c in held.items() if did in by_id}   # a dispute's row is its case's
+    amount_of, currency_of = _amounts(orders), _currencies(orders)
+    rows, counts, messages = [], {ch: 0 for ch in CHANNEL_ORDER}, 0
     for c in cases:
         ins = [x for x in c.get("timeline", []) if x.get("direction") == "in" and (x.get("at") or "") >= start]
-        d = by_id.get(c.get("dispute_id"))
-        if d is not None and held.get(d["dispute_id"]) is not c:
-            d = None                                   # the dispute's row is its open case's, not this old one's
+        d = of_case.get(id(c))
         new_dispute = d is not None and _at(d.get("create_time")) >= start
         wrote = _buyer_since(d, start) if d is not None and not new_dispute else []
         if not ins and not new_dispute and not wrote:
@@ -102,14 +125,17 @@ def came_in(cases: list, disputes: list, orders: list, today: date, review_of=la
         chans = [ch for ch in CHANNEL_ORDER if any(x["channel"] == ch for x in ins)]
         if d is not None and "paypal" not in chans:
             chans.append("paypal")
-        decision = c.get("dispute_id") if d is not None else c["id"]
-        rows.append({"case_id": c["id"], "dispute_id": c.get("dispute_id"), "link": f"/c/{c['id']}",
+        decision = d["dispute_id"] if d is not None else c["id"]
+        rows.append({"case_id": c["id"], "dispute_id": d["dispute_id"] if d is not None else c.get("dispute_id"),
+                     "link": f"/c/{c['id']}",
                      "decision_id": decision, "channels": chans, "who": c["customer"].get("name") or c["customer"].get("email"),
                      "summary": c["problem"].get("summary") or KIND_LABEL.get(c["problem"].get("kind"), ""),
                      # whose words the summary is: Second Look's AI's reading, or the customer's own
                      "summary_by": "ai" if (c.get("sorted") or {}).get("by") == "ai" else "customer",
                      "order_no": c.get("order_no"),
                      "amount": _num(d["dispute_amount"]["value"]) if d else amount_of.get(c.get("order_no"), 0.0),
+                     "currency": (d["dispute_amount"].get("currency_code") if d else currency_of.get(c.get("order_no")))
+                     or "EUR",
                      "status": c.get("status"),
                      "first": min([x["at"] for x in ins] + ([_at(d.get("create_time"))] if new_dispute else []) + wrote),
                      "days_left": ledger.days_left(d, today) if d is not None and d.get("status") != "RESOLVED" else None,
@@ -120,17 +146,19 @@ def came_in(cases: list, disputes: list, orders: list, today: date, review_of=la
         if opened < start and not wrote:
             continue
         counts["paypal"] += 1 if opened >= start else len(wrote)   # a dispute opened, or a buyer's new message
+        messages += len(wrote)
         if d["dispute_id"] in held:
             continue
         rows.append({"case_id": None, "dispute_id": d["dispute_id"], "link": f"/d/{d['dispute_id']}",
                      "decision_id": d["dispute_id"], "channels": ["paypal"], "who": _buyer_name(d),
                      "summary": _first_message(d), "summary_by": "customer",
                      "order_no": _tx(d), "amount": _num(d["dispute_amount"]["value"]),
+                     "currency": d["dispute_amount"].get("currency_code") or "EUR",
                      "status": "open" if d.get("status") != "RESOLVED" else "closed", "first": wrote[0] if wrote else opened,
                      "days_left": ledger.days_left(d, today) if d.get("status") != "RESOLVED" else None,
                      "review": review_of(d["dispute_id"])})
     rows.sort(key=lambda r: (r["days_left"] is None, r["days_left"] if r["days_left"] is not None else 0, r["first"]))
-    return {"since": start, "rows": rows, "counts": counts,
+    return {"since": start, "rows": rows, "counts": counts, "paypal_messages": messages,
             "orders": sum(1 for o in orders if (o.get("date") or "") >= start[:10])}
 
 
@@ -144,8 +172,9 @@ def channel_words(counts: dict) -> list:
 def open_items(cases: list, disputes: list, orders: list) -> list:
     """Everything still open, once each: every open PayPal dispute (a case holding one is answered on it), and every
     open shop inquiry. Each with its decision id (whose assignment it is), who it is about and what is at stake."""
-    held = _dispute_of_case(cases)
-    amount_of = _amounts(orders)
+    held = links(cases, disputes, orders)
+    linked = {id(c) for c in held.values()}
+    amount_of, currency_of = _amounts(orders), _currencies(orders)
     out = []
     for d in disputes:
         if d.get("status") == "RESOLVED":
@@ -154,11 +183,12 @@ def open_items(cases: list, disputes: list, orders: list) -> list:
         out.append({"id": d["dispute_id"], "link": f"/c/{c['id']}" if c else f"/d/{d['dispute_id']}",
                     "who": (c or {}).get("customer", {}).get("name") or _buyer_name(d),
                     "summary": (c or {}).get("problem", {}).get("summary") or _first_message(d),
-                    "amount": _num(d["dispute_amount"]["value"])})
+                    "amount": _num(d["dispute_amount"]["value"]), "currency": d["dispute_amount"].get("currency_code") or "EUR"})
     for c in cases:
-        if c.get("status") == "open" and not c.get("dispute_id"):
+        if c.get("status") == "open" and not c.get("dispute_id") and id(c) not in linked:
             out.append({"id": c["id"], "link": f"/c/{c['id']}", "who": c["customer"].get("name") or c["customer"].get("email"),
-                        "summary": c["problem"].get("summary") or "", "amount": amount_of.get(c.get("order_no"), 0.0)})
+                        "summary": c["problem"].get("summary") or "", "amount": amount_of.get(c.get("order_no"), 0.0),
+                        "currency": currency_of.get(c.get("order_no")) or "EUR"})
     return out
 
 
@@ -201,7 +231,9 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
     (an inquiry's answers are on its case already). Staff time is an estimate (cases.staff_time); dispute fees are
     estimated from PayPal's fee table, as the Overview's."""
     m = month_start(today)
-    held = {c.get("dispute_id") for c in cases if c.get("dispute_id")}
+    held_by = links(cases, disputes, orders)
+    held = set(held_by)
+    linked = {id(c) for c in held_by.values()}
     ordered = sum(1 for o in orders if (o.get("date") or "") >= m[:10])
     new_cases = [c for c in cases if (c.get("opened") or "") >= m]
     new_disputes = [d for d in disputes if _at(d.get("create_time")) >= m and d["dispute_id"] not in held]
@@ -216,6 +248,10 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
     back_cases = round(sum(_num(x.get("amount")) for x in money if x.get("kind") in BACK), 2)
     resolved = [d for d in disputes if d.get("status") == "RESOLVED" and _at(d.get("update_time") or d.get("create_time")) >= m]
     back_paypal = round(sum(ledger.refunded(d) for d in resolved), 2)
+    # the same order given back on both sides (a refund logged on a case, and PayPal's): flagged, not hidden in a sum
+    on_cases = {c.get("order_no") for c in cases for x in c.get("money", [])
+                if c.get("order_no") and x.get("kind") in BACK and (x.get("at") or "") >= m}
+    both_sides = sorted(on_cases & {_tx(d) for d in resolved if ledger.refunded(d) > 0})
     hv = ledger.overview(disputes, orders, today, currency)["high_volume"]
     standard, hv_fee = DISPUTE_FEE.get(currency, (0.0, 0.0))
     fees = sum(hv_fee if hv["high_volume"] else standard if ledger.outcome(d) in ("lost_claim", "lost_no_reply") else 0
@@ -223,9 +259,15 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
     fees = round(fees + sum(_num(x.get("amount")) for x in money if x.get("kind") == "fee"), 2)
     ex = ledger.exposure(disputes, today, hv["high_volume"], currency)
     amount_of = _amounts(orders)
-    open_inq = [c for c in cases if c.get("status") == "open" and not c.get("dispute_id") and c.get("order_no")]
-    inq_stake = round(sum(max(0.0, amount_of.get(c["order_no"], 0.0)
-                              - sum(_num(x.get("amount")) for x in c.get("money", []) if x.get("kind") in BACK + ("replace",)))
+    open_inq = [c for c in cases if c.get("status") == "open" and not c.get("dispute_id") and c.get("order_no")
+                and id(c) not in linked]
+    # what already went back on each order, from every case on it (closed ones too): refunds and goods
+    given = {}
+    for c in cases:
+        for x in c.get("money", []):
+            if c.get("order_no") and x.get("kind") in BACK + ("replace",):
+                given[c["order_no"]] = given.get(c["order_no"], 0.0) + _num(x.get("amount"))
+    inq_stake = round(sum(max(0.0, amount_of.get(c["order_no"], 0.0) - given.get(c["order_no"], 0.0))
                           for c in open_inq), 2)
     return {"from": m, "orders": ordered, "requests": len(new_cases) + len(new_disputes),
             "requests_by_channel": _first_channels(new_cases, len(new_disputes)),
@@ -233,6 +275,7 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
             "hourly_cost": st["hourly_cost"], "reply_minutes": st["reply_minutes"],
             "staff_cost": round(minutes / 60 * st["hourly_cost"], 2),
             "back_cases": back_cases, "back_paypal": back_paypal, "back": round(back_cases + back_paypal, 2),
+            "both_sides": both_sides,
             "fees": fees, "open_disputes_most": ex["all_lost"], "open_inquiries_most": inq_stake,
             "could_still_cost": round(ex["all_lost"] + inq_stake, 2), "high_volume": hv, "currency": currency}
 
