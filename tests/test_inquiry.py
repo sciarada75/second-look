@@ -9,7 +9,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from secondlook import judge, sort as sort_mod, team as team_mod, web  # noqa: E402
+from secondlook import demo as demo_mod, judge, sort as sort_mod, team as team_mod, web  # noqa: E402
 from secondlook.demo import DemoPayPal  # noqa: E402
 from secondlook.guard import CHECKS, Judgment, apply_policy  # noqa: E402
 
@@ -64,7 +64,7 @@ def morning(ai_key=False, claude=None):
     fail the test if they are called."""
     tmp = Path(tempfile.mkdtemp())
     kept = (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
-            sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"])
+            sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], demo_mod.ACTION_LOG, judge.BACKENDS["claude"])
     store = team_mod.Assignments(tmp / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
     events = []
 
@@ -74,15 +74,17 @@ def morning(ai_key=False, claude=None):
         web.CASE_FILES = {"demo": tmp / "cases-demo.json", "live": tmp / "cases-live.json"}
         web.OUTBOX_LOGS = {"demo": tmp / "actions-demo.jsonl", "live": tmp / "actions-live.jsonl"}
         web.REVIEWS, web.SUGGESTED = tmp / "reviews", tmp / "suggested.json"
+        demo_mod.ACTION_LOG = tmp / "demo-paypal-actions.jsonl"   # the demo PayPal's own log: never the real .tmp/
         web.assignments_for = lambda did: store
         web.has_ai_key = lambda: ai_key
         web.notify = lambda event, payload: events.append((event, payload))
         sort_mod.read_with_ai = no_paid_call
         judge.INQUIRY_BACKENDS["claude"] = claude or no_paid_call
+        judge.BACKENDS["claude"] = no_paid_call                    # a PayPal dispute's review: never the real Claude
         yield type("Bench", (), {"tmp": tmp, "events": events, "store": store})
     finally:
         (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
-         sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"]) = kept
+         sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], demo_mod.ACTION_LOG, judge.BACKENDS["claude"]) = kept
 
 
 def test_an_inquiry_is_reviewed_by_the_rules_without_a_key_and_the_guard_holds_lena_s_exchange():
@@ -341,6 +343,77 @@ def test_the_small_things_currency_wording_logs_and_whose_review_it_is():
     assert "PayPal's own records" not in sophie and "Your orders" in sophie           # no PayPal record on this case
     with morning():
         assert "PayPal's own records" in web.case_page("DEMO-031", me="marta")       # a dispute's legend as before
+
+
+# ---------- re-review (25/10): a refund logged on the case is seen by its PayPal dispute ----------
+
+def test_a_refund_logged_on_the_case_is_held_against_the_paypal_dispute_that_opens_later():
+    clara = next(o for o in DemoPayPal().orders() if o["transaction_id"] == "DEMOTX01969")
+    claude = lambda c: Judgment("REFUND", 0.95, "Faked.", draft_message="We refund you 29 EUR.")  # noqa: E731
+    with morning(ai_key=True, claude=claude) as b:
+        real = web.shop_disputes
+        web.shop_disputes = lambda src: [d for d in real(src) if d["dispute_id"] != "DEMO-039"]
+        try:
+            _, o = _ask(clara["email"], "My order DEMOTX01969 never arrived.", "n1:1")
+            cid = o["case_id"]
+            web.run_review(cid)
+            assert web.approve(cid, "REFUND", "We refund you 29 EUR.", by="giulia")[1].startswith("Refund of 29.00 EUR logged")
+        finally:
+            web.shop_disputes = real
+        assert web.case_view(cid)["case"]["dispute_id"] == "DEMO-039"            # PayPal has the case now
+        rec = web._case("DEMO-039")["seller_records"]
+        assert rec["refund_logged_on_case"] == cid and rec["refunded_so_far"] == 29.0
+        assert rec["already_refunded"].startswith("29.00 EUR on ") and rec["already_refunded"].endswith(f"by Giulia, on case {cid}")
+        assert "a refund was logged on this order's case" in web._changes("DEMO-039", web._case("DEMO-039"))
+        code, text = web.approve("DEMO-039", "REFUND", "Refunded.", by="giulia")
+        assert code == 409                                                           # the shipped review is out of date
+        web.has_ai_key = lambda: False                                              # the dispute's fresh look: rules
+        dec = web.run_review("DEMO-039")
+        assert dec.action == "ASK_SELLER" and "refund_logged_on_case" in dec.stops
+        code, text = web.approve("DEMO-039", dec.judgment.action, "Refunded.", by="giulia")
+        assert code == 409 and "already logged on this order's case" in text
+        page = web.case_page("DEMO-039", me="giulia")
+        assert f'A refund of 29.00 EUR was already logged on case <a href="/c/{cid}">{cid}</a> on ' in page
+        assert "by Giulia. Check it before you answer PayPal" in page and "Already refunded" in page
+        assert not (b.tmp / "demo-paypal-actions.jsonl").exists()                   # nothing reached PayPal's log
+    shaped = {"dispute_id": "DEMO-035", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+              "dispute_life_cycle_stage": "INQUIRY", "dispute_amount": {"value": "20.00", "currency_code": "EUR"},
+              "messages": []}
+    logged = {"refund_logged_on_case": "DEMO-C004", "refunded_so_far": 20.0, "already_refunded": "20.00 EUR on 25 Oct 2026"}
+    for action in ("DEFEND", "REFUND", "PARTIAL_REFUND", "REPLACE"):
+        held = apply_policy(Judgment(action, 0.95, "x", partial_amount="5 EUR"), POLICY, shaped, logged)
+        assert held.action == "ASK_SELLER" and "refund_logged_on_case" in held.stops, action
+    assert apply_policy(Judgment("MESSAGE", 0.9, "x"), POLICY, shaped, logged).action == "MESSAGE"
+
+
+def test_an_order_amount_that_is_not_a_number_is_no_order_never_a_crash():
+    odd = [{"transaction_id": "T7", "email": "kim@example.com", "name": "Kim", "time": "2026-10-01T10:00:00Z",
+            "amount": "n/a", "items": [{"item_name": "Art print", "item_quantity": "1"}]}]
+    claude = lambda c: Judgment("REFUND", 0.95, "Faked.", draft_message="We refund you.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        web.case_store("demo")
+        kept = web.shop_orders
+        web.shop_orders = lambda src: odd
+        try:
+            _, o = _ask("kim@example.com", "My art print is broken.", "m1:1")
+            assert web.case_view(o["case_id"])["at_stake"] == 0.0
+            assert "amount not on record" in web.case_file_page(o["case_id"], me="giulia")
+            assert "no_order" in web.run_review(o["case_id"]).stops
+        finally:
+            web.shop_orders = kept
+
+
+def test_your_own_refund_shows_as_done_and_only_a_new_message_makes_the_review_stale():
+    with morning():
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", "m3:1")
+        cid = o["case_id"]
+        web.run_review(cid)
+        assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        assert web._changes(cid, web._case(cid)) == []
+        page = web.case_file_page(cid, me="giulia")
+        assert "Refund of 20.00 EUR logged" in page and "out of date" not in page
+        _ask("sami.l918@example.com", "Thanks, but I still have no refund.", "m3:2")
+        assert web._changes(cid, web._case(cid)) == ["the customer wrote again"]
 
 
 if __name__ == "__main__":

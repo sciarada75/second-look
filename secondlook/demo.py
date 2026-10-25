@@ -46,9 +46,13 @@ def _read(data: Path) -> dict:
     return raw
 
 
+# Where the demo's actions are logged. A setting, not a default argument, so a test can point it elsewhere.
+ACTION_LOG = ROOT / ".tmp" / "actions-demo.jsonl"
+
+
 class DemoPayPal(MockPayPal):
-    def __init__(self, data: Path = DATA, log: Path = ROOT / ".tmp" / "actions-demo.jsonl"):
-        super().__init__(data.parent, log)
+    def __init__(self, data: Path = DATA, log: Path | None = None):
+        super().__init__(data.parent, log or ACTION_LOG)
         self.raw = _read(Path(data))
         self.today = date.fromisoformat(self.raw["today"])
         self.shop = self.raw["shop"]

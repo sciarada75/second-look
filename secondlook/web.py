@@ -87,7 +87,7 @@ def _case(dispute_id: str) -> dict:
     if cases_mod.is_case_id(dispute_id):
         return inquiry_case(dispute_id)
     from .__main__ import load_case  # same loader as the CLI
-    return load_case(_client(dispute_id), dispute_id)
+    return _with_case_refund(dispute_id, load_case(_client(dispute_id), dispute_id))
 
 
 def _review_file(dispute_id: str) -> Path | None:
@@ -325,6 +325,40 @@ def case_store(src: str) -> cases_mod.CaseStore:
     return store
 
 
+def _num(x) -> float | None:
+    """An amount from the shop's records as a number, or None when it isn't one ("n/a", "", missing)."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if v == v and v not in (float("inf"), float("-inf")) else None
+
+
+def _logged_refund(c: dict | None) -> dict | None:
+    """The refunds a case has logged (an inquiry's answer), summed, with the last one's date and who: None if none."""
+    back = [m for m in (c or {}).get("money", []) if m.get("kind") in ("refund", "partial_refund")]
+    if not back:
+        return None
+    when = _t(back[-1].get("at"))
+    return {"case_id": c["id"], "amount": round(sum(_num(m.get("amount")) or 0 for m in back), 2),
+            "on": f"{when:%d %b %Y}" if when else "", "by": back[-1].get("by") or ""}
+
+
+def _with_case_refund(did: str, case: dict) -> dict:
+    """A PayPal dispute whose case already logged a refund (the shop answered the inquiry before PayPal had it):
+    its records say so, for the judge, the page and the guard's rule 10. A dispute whose case logged no money
+    is returned exactly as it was."""
+    r = _logged_refund(find_case_of_dispute(did))
+    if not r:
+        return case
+    cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
+    said = f'{r["amount"]:.2f} {cur}' + (f' on {r["on"]}' if r["on"] else "") + (f' by {r["by"]}' if r["by"] else "")
+    records = {**case["seller_records"], "refund_logged_on_case": r["case_id"], "refunded_so_far": r["amount"],
+               "already_refunded": f'{said}, on case {r["case_id"]}',
+               "sources": {**case["seller_records"].get("sources", {}), "already_refunded": "Your case record"}}
+    return {**case, "seller_records": records}
+
+
 def find_case_of_dispute(did: str) -> dict | None:
     """The case a PayPal dispute belongs to, if another channel joined it. Reads only: never starts a case file."""
     path = CASE_FILES[shop_of_case(did)]
@@ -376,7 +410,7 @@ def case_view(cid: str) -> dict | None:
     t = team_for(decision)
     a = None if t.get("solo") else assignments_for(decision).get(decision)
     holder = team_mod.person(t, a["to"]) if a and a["to"] else None
-    at_stake = float(d["dispute_amount"]["value"]) if d else float((order or {}).get("amount") or 0)
+    at_stake = float(d["dispute_amount"]["value"]) if d else (_num((order or {}).get("amount")) or 0.0)
     return {"case": c, "dispute": d, "order": order, "src": src, "decision_id": decision, "team": t,
             "timeline": cases_mod.timeline(c, d), "channels": cases_mod.channels(c, d),
             "costs": cases_mod.costs_so_far(c, d, _policy()), "at_stake": at_stake,
@@ -485,7 +519,7 @@ def inquiry_case(cid: str) -> dict:
         sources["tracking"] = "Courier tracking" if o.get("tracking") else "Courier tracking (none on record)"
     evidence_mod.add_shop_terms(records, sources, DemoPayPal().shop if v["src"] == "demo" else _live_shop())
     # the shop's own order amount: only inquiries carry it, so the guard's rule 9 never touches a PayPal dispute
-    records["order_amount"] = float(o["amount"]) if o and o.get("amount") else None
+    records["order_amount"] = _num(o.get("amount")) if o else None     # unreadable: no order with an amount
     records["refunded_so_far"] = refunded
     if back:
         when = _t(back[-1].get("at"))
@@ -574,6 +608,15 @@ class Outbox:
 
     def defend(self, did, note, tracking=None):
         raise RuntimeError("An inquiry has no PayPal evidence to submit: nothing was sent.")
+
+
+def review_with_case_refund(did: str, judge: str) -> Decision:
+    """A PayPal dispute whose case already logged a refund: the same review, reading the records that say so."""
+    case = _case(did)
+    policy = _policy()
+    case["seller_preferences"] = policy.get("seller_preferences", [])
+    j = judge_mod.BACKENDS[judge](case)
+    return apply_policy(j, policy, case["dispute"], case["seller_records"])
 
 
 def _about(did: str) -> dict:
@@ -712,7 +755,8 @@ def rules_page(flash: str = "", demo: bool = False, me: str | None = None) -> st
 # the seller must never approve an answer to a situation that no longer exists.
 CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the case to another stage",
            "amount": "the amount in dispute changed", "tracking": "tracking was added or changed",
-           "ship_to": "PayPal now shows the buyer's address"}
+           "ship_to": "PayPal now shows the buyer's address",
+           "case_refund": "a refund was logged on this order's case"}
 
 
 # The same, for a shop inquiry, in its own words; "who" is whose case it is (customer, order, first request).
@@ -729,6 +773,8 @@ def _seen(case: dict) -> dict:
             "tracking": (r.get("tracking") or {}).get("tracking_number"), "ship_to": bool(r.get("ship_to"))}
     if case.get("inquiry"):
         seen["who"] = case["inquiry"].get("identity")
+    if r.get("refund_logged_on_case"):   # only then: a dispute whose case logged no money sees exactly what it saw
+        seen["case_refund"] = r.get("refunded_so_far")
     return seen
 
 
@@ -1555,7 +1601,9 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     cust = c["customer"]
     items = ", ".join(f'{i["name"]} × {i["qty"]}' + (f' (size {i["size"]})' if i.get("size") else "") for i in (o or {}).get("items", []))
     paid = {"paypal": "PayPal", "card": "card", "bank": "bank transfer"}.get((o or {}).get("paid_with"), (o or {}).get("paid_with"))
-    order_line = (f'Order {e(o["order_no"])}: {e(items)}, {o["amount"]:.2f} {e(cur)}, paid by {e(str(paid))}.' if o else
+    amt = _num(o.get("amount")) if o else None
+    order_line = (f'Order {e(o["order_no"])}: {e(items)}, '
+                  f'{f"{amt:.2f} {e(cur)}" if amt is not None else "amount not on record"}, paid by {e(str(paid))}.' if o else
                   "No order: a general question." if c["sorted"]["by"] else "Order not known yet.")
     came = " · ".join(_channel(ch) for ch in v["channels"])
     holder = v["assigned_to"]
@@ -1863,6 +1911,17 @@ def judged_note(did: str, judged: str | None, sent: bool) -> str:
     return ""
 
 
+def case_refund_note(r: dict) -> str:
+    """On a PayPal dispute's page: a refund the shop already logged on this order's case, before PayPal had it."""
+    if not r.get("refund_logged_on_case"):
+        return ""
+    said, _, cid = r["already_refunded"].rpartition(", on case ")
+    amount, _, rest = said.partition(" on ")
+    return (f'<p class="check-sender">A refund of {e(amount)} was already logged on case '
+            f'<a href="/c/{e(cid)}">{e(cid)}</a>{" on " + e(rest) if rest else ""}. '
+            'Check it before you answer PayPal: paying twice, or defending a refund you promised, is never right.</p>')
+
+
 def part_of_case(did: str) -> str:
     """On a dispute's page: the case it belongs to when another channel joined it (Pablo's email + DEMO-034)."""
     c = None if did.startswith("PP-D-") else find_case_of_dispute(did)
@@ -1893,7 +1952,7 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
             if buyer and not practice else "")
     nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
     left = (f'<a class="back" href="/{"?practice=1" if practice else q}">All disputes</a>'
-            f'{pill_for(d)}{part_of_case(dispute_id)}<p class="claim quote">{e(msg)}</p>'
+            f'{pill_for(d)}{part_of_case(dispute_id)}{case_refund_note(r)}<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
             f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
             f'{conversation(d, signed)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
@@ -2032,7 +2091,12 @@ def run_review(did: str) -> Decision:
         return saved[0]  # answered, and nothing new since: keep the record (and don't pay for a review)
     # No key: the rules baseline instead of an error page. Saved as "rules", and labelled so on every screen.
     judge = "claude" if has_ai_key() else "rules"
-    dec = review_inquiry(did, judge) if cases_mod.is_case_id(did) else review(_client(did), did, judge)
+    if cases_mod.is_case_id(did):
+        dec = review_inquiry(did, judge)
+    elif _logged_refund(find_case_of_dispute(did)):
+        dec = review_with_case_refund(did, judge)
+    else:
+        dec = review(_client(did), did, judge)       # every other dispute: exactly as before
     with _case_lock(did):  # never between an approval's read and its save
         case, saved = _case(did), _saved(did)
         if saved and saved[1] and not _changes(did, case):
@@ -2059,6 +2123,7 @@ STOP_SAYS = {
     "partial_amount": "an amount it couldn't read",
     "no_order": "there is no order with an amount on this case",
     "already_refunded": "the order is already refunded in full",
+    "refund_logged_on_case": "a refund already logged on this order's case",
 }
 
 
@@ -2198,6 +2263,10 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
     by_name = None if t.get("solo") else who["name"]
+    if inquiry:
+        # What this approval itself logged (a refund lowers what is left) is part of what the review saw; only
+        # something new (the customer writing again) makes it out of date.
+        seen = _seen(_case(did))
     _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged)
     if not t.get("solo"):
         # Sent by them: the case is theirs, and any handoff waiting on it is done.

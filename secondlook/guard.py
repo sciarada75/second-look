@@ -246,6 +246,15 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             action = "ASK_SELLER"
             stops.append("already_refunded")
 
+    # Rule 10: a PayPal dispute on an order whose case already logged a refund (the shop answered the customer's
+    # email before they went to PayPal). Nothing more goes out unseen, and a defence would contradict the reply
+    # already sent: a person checks first. Only when the records say so; every other dispute is untouched.
+    if records.get("refund_logged_on_case") and (_subject() in MONEY or _subject() == "DEFEND"):
+        notes.append(f"A refund was already logged on this order's case {records['refund_logged_on_case']}: "
+                     f"{records.get('already_refunded') or ''}. Check it before anything more is sent or defended.")
+        action = "ASK_SELLER"
+        stops.append("refund_logged_on_case")
+
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 
