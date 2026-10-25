@@ -295,6 +295,9 @@ def test_an_order_given_back_on_both_sides_is_flagged_not_silently_added():
     assert "1 order counted on both sides: check it was paid once" in web.month_block(k, TODAY)
     k = today.month(cases, [], [{"date": "2026-10-01", "transaction_id": "TX9", "amount": 40.0}], TODAY, None)
     assert k["both_sides"] == [] and "both sides" not in web.month_block(k, TODAY)
+    cases[0]["money"][0]["status"] = "cancelled"                         # a refund a person cancelled never went out
+    k = today.month(cases, disputes, [{"date": "2026-10-01", "transaction_id": "TX9", "amount": 40.0}], TODAY, None)
+    assert k["both_sides"] == [] and k["back"] == 40.0
 
 
 def test_rows_carry_their_own_currency():

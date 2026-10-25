@@ -118,6 +118,29 @@ def test_a_paypal_paid_order_is_refunded_through_paypal_s_refund_api_and_a_card_
         assert len((tmp / "demo-paypal-actions.jsonl").read_text().splitlines()) == 1   # a reply moves no money
 
 
+def test_a_refund_marked_cancelled_lifts_the_hold_and_one_marked_paid_keeps_it():
+    with morning():
+        cid = _refunded_paypal_order("b2:1")
+        assert web.reconcile(cid, 0, "paid", None, "marta")[0] == 400           # paid how?
+        assert web.reconcile(cid, 5, "paid", "card", "marta")[0] == 400         # no such refund
+        assert web.reconcile(cid, 0, "lost", "card", "marta")[0] == 400
+        assert web.reconcile(cid, 0, "cancelled", None, None)[0] == 400         # nobody named
+        assert web.reconcile(cid, 0, "cancelled", None, "marta") == (
+            200, "Marked cancelled: it no longer counts as money that went back.")
+        assert web.reconcile(cid, 0, "paid", "paypal", "marta")[0] == 409       # once: the books were told
+        c = web.case_store("demo").get(cid)
+        assert c["money"][0]["status"] == "cancelled" and c["timeline"][-1]["text"].startswith("Refund of 20.00 marked cancelled")
+        _ask("sami.l918@example.com", "Still no refund?", "b2:2")
+        assert "already_refunded" not in web.run_review(cid).stops                # the cancelled refund counts nowhere
+        assert web.case_view(cid)["costs"]["money_moved"] == 0
+    with morning():
+        cid = _refunded_paypal_order("b3:1")
+        assert web.reconcile(cid, 0, "paid", "paypal", "giulia")[0] == 200
+        _ask("sami.l918@example.com", "Did it go out?", "b3:2")
+        assert "already_refunded" in web.run_review(cid).stops                    # paid: it went back, once
+        assert web.case_view(cid)["costs"]["money_moved"] == 20.0
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

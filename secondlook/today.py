@@ -251,13 +251,15 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
     written += sum(1 for a in answers if (a or "") >= m)
     call_min = sum(_num(x.get("minutes")) for x in entries if x.get("channel") == "call" and x.get("direction") in ("in", "out"))
     minutes = written * st["reply_minutes"] + call_min
-    money = [x for c in cases for x in c.get("money", []) if (x.get("at") or "") >= m]
+    # a refund a person cancelled moved no money
+    money = [x for c in cases for x in c.get("money", []) if (x.get("at") or "") >= m and x.get("status") != "cancelled"]
     back_cases = round(sum(_num(x.get("amount")) for x in money if x.get("kind") in BACK), 2)
     resolved = [d for d in disputes if d.get("status") == "RESOLVED" and _at(d.get("update_time") or d.get("create_time")) >= m]
     back_paypal = round(sum(ledger.refunded(d) for d in resolved), 2)
     # the same order given back on both sides (a refund logged on a case, and PayPal's): flagged, not hidden in a sum
     on_cases = {c.get("order_no") for c in cases for x in c.get("money", [])
-                if c.get("order_no") and x.get("kind") in BACK and (x.get("at") or "") >= m}
+                if c.get("order_no") and x.get("kind") in BACK and (x.get("at") or "") >= m
+                and x.get("status") != "cancelled"}
     both_sides = sorted(on_cases & {_tx(d) for d in resolved if ledger.refunded(d) > 0})
     hv = ledger.overview(disputes, orders, today, currency)["high_volume"]
     standard, hv_fee = DISPUTE_FEE.get(currency, (0.0, 0.0))
@@ -272,7 +274,7 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
     given = {}
     for c in cases:
         for x in c.get("money", []):
-            if c.get("order_no") and x.get("kind") in BACK + ("replace",):
+            if c.get("order_no") and x.get("kind") in BACK + ("replace",) and x.get("status") != "cancelled":
                 given[c["order_no"]] = given.get(c["order_no"], 0.0) + _num(x.get("amount"))
     inq_stake = round(sum(max(0.0, amount_of.get(c["order_no"], 0.0) - given.get(c["order_no"], 0.0))
                           for c in open_inq), 2)

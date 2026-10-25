@@ -137,7 +137,8 @@ def costs_so_far(case: dict, dispute: dict | None, policy: dict | None) -> dict:
             "hourly_cost": st["hourly_cost"], "reply_minutes": st["reply_minutes"],
             "staff_cost": round(minutes / 60 * st["hourly_cost"], 2),
             "fees": round(sum(m["amount"] for m in money if m.get("kind") == "fee"), 2),
-            "money_moved": round(sum(m["amount"] for m in money if m.get("kind") in ("refund", "partial_refund")), 2),
+            "money_moved": round(sum(m["amount"] for m in money if m.get("kind") in ("refund", "partial_refund")
+                                     and m.get("status") != "cancelled"), 2),
             "estimated": True}
 
 

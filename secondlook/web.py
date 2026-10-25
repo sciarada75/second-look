@@ -29,7 +29,7 @@ from pathlib import Path
 from datetime import timedelta, timezone
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
-from . import calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
+from . import books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
 from .guard import apply_policy, may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
@@ -453,7 +453,8 @@ def _num(x) -> float | None:
 
 def _logged_refund(c: dict | None) -> dict | None:
     """The refunds a case has logged (an inquiry's answer), summed, with the last one's date and who: None if none."""
-    back = [m for m in (c or {}).get("money", []) if m.get("kind") in ("refund", "partial_refund")]
+    back = [m for m in (c or {}).get("money", []) if m.get("kind") in ("refund", "partial_refund")
+            and m.get("status") != "cancelled"]       # a refund a person cancelled never went out
     if not back:
         return None
     when = _t(back[-1].get("at"))
@@ -1857,6 +1858,54 @@ def own_customer(key: str, src: str) -> dict | None:
             "paid_with": sorted({str(o.get("paid_with") or "card") for o in mine}), "disputes": [], "escalated": 0,
             "refunded": 0.0, "dispute_rate": None, "shop_dispute_rate": None, "times_shop_rate": None,
             "escalations": "No PayPal disputes: paid the shop directly."}
+
+
+# ---------- the books: every money event, live to the shop's bookkeeping and as a monthly CSV (secondlook/books.py) ----------
+
+RECONCILE = {"paid": "paid", "cancelled": "cancelled"}
+PAID_WITH = {"card": "by card", "bank": "by bank transfer", "paypal": "through PayPal"}
+
+
+def reconcile(cid: str, index, outcome: str, paid_with: str | None, by: str | None) -> tuple:
+    """A person says what became of a refund logged on a case: paid (by card, bank or PayPal), or cancelled (it never
+    went out). Paid: the money holds stay (it went back), and a later PayPal dispute on the order may be defended
+    with the refund as proof. Cancelled: it counts nowhere any more, so the order's money holds lift by that amount.
+    Once per refund: what the books were told is never rewritten. Returns (HTTP status, what happened)."""
+    if not cases_mod.is_case_id(cid):
+        return 404, "No such case."
+    store = case_store(shop_of_case(cid))
+    c = store.get(cid)
+    if c is None:
+        return 404, "No such case."
+    try:
+        i = int(index)
+    except (TypeError, ValueError):
+        return 400, "Which refund: its number on the case."
+    money = c.get("money", [])
+    if not 0 <= i < len(money) or money[i].get("kind") not in ("refund", "partial_refund"):
+        return 400, "Only a refund logged on this case can be marked paid or cancelled."
+    if outcome not in RECONCILE:
+        return 400, "Mark it paid or cancelled."
+    if outcome == "paid" and paid_with not in PAID_WITH:
+        return 400, f"Paid how: {', '.join(PAID_WITH)}."
+    who = team_mod.person(team_for(cid), by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+    with _case_lock(cid):
+        def mark(x):
+            m = x["money"][i]
+            if m.get("status") in ("paid", "cancelled"):
+                raise ValueError(m["status"])
+            m.update(status=outcome, reconciled_by=who["name"], reconciled_at=cases_mod.minute(None),
+                     **({"paid_with": paid_with} if outcome == "paid" else {}))
+            words = (f"paid {PAID_WITH[paid_with]}" if outcome == "paid" else "cancelled: it never went out")
+            x["timeline"].append(cases_mod.entry(None, reply_channel(x), "note",
+                                                 f"Refund of {float(m['amount']):.2f} marked {words} by {who['name']}.", who["name"]))
+        try:
+            store.update(cid, mark)
+        except ValueError as err:
+            return 409, f"This refund is marked {err} already."
+    return 200, ("Marked paid." if outcome == "paid" else "Marked cancelled: it no longer counts as money that went back.")
 
 
 # ---------- the morning screen: "I see, I manage, I know" (secondlook/today.py does the counting) ----------
