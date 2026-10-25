@@ -133,9 +133,9 @@ as the screen.
 | | |
 |---|---|
 | `GET /api/disputes` | the open cases, with the recommended answer once reviewed |
-| `GET /api/disputes/<id>` | one case: what was said, the evidence and its sources, the review, the drafted reply, the ten checks, whether the review is out of date |
+| `GET /api/disputes/<id>` | one case: what was said, the evidence and its sources, the review, the drafted reply, the ten checks, whether the review is out of date, and who wrote the review (`judge`: `claude`, or `rules` for the baseline) |
 | `GET /api/disputes/<id>?as=<person id>` | the same, plus `for_person`: what the case page offers that person, its own decision (`page_offer`): `outcome` (`send`, `pass` with `to` the colleague who decides, `refused`, `sent`, `out_of_date`, `nothing_to_send`, `waiting` with `to` who has the case, `not_reviewed`, or `unknown_person`), the `action` and `amount` the button would send, the page's own sentence (`says`) and the reply it would send (`draft`). Each check in `review.checks` carries the page's `group` and plain `label` |
-| `POST /api/disputes/<id>/review` | ask for a review (the AI runs; a few cents) |
+| `POST /api/disputes/<id>/review` | ask for a review (Claude runs; a few cents). Without `ANTHROPIC_API_KEY` the rules baseline runs instead, and the review says `"judge": "rules"` |
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
 
@@ -224,27 +224,95 @@ PayPal Disputes API ──► judge (Claude) ──► guard (code, seller's pol
 
 ## Try it
 
+Everything up to step 4 needs only Python 3.9 or newer: no packages, no keys, no PayPal account.
+Nothing in steps 1 to 3 reaches PayPal: the demo shop and the practice cases log what they would
+have sent, in `.tmp/`. To start over at any point, stop Second Look and delete `.tmp/`.
+
 ```bash
-python3 -m secondlook serve             # the seller's screen: http://127.0.0.1:8765
-                                        #   demo shop: /?shop=demo   overview: /overview?shop=demo
-python3 demo/make_demo.py              # rebuilds the demo shop (made-up data)
-python3 cases/make_cases.py            # writes the 15 test disputes
-python3 -m secondlook list             # disputes waiting for the seller
-python3 -m secondlook review PP-D-014  # judgment + guard, nothing executed
-python3 -m secondlook approve PP-D-014 # executes the recommended action (mock: logs to .tmp/)
-python3 -m secondlook eval --judge rules
-python3 -m secondlook eval --judge claude   # needs ANTHROPIC_API_KEY
+git clone https://github.com/sciarada75/second-look.git && cd second-look
 ```
 
-Against the real sandbox: copy `.env.example` to `.env` and add your sandbox app's client ID and
-secret (and an Anthropic API key for the model judge). The program reads `.env` itself; don't
-export the keys in your shell. Put the seller's records for a dispute in `records/<dispute_id>.json`.
-Open test disputes by logging into the sandbox **buyer** account's Resolution Center (creating
-them through the API needs a permission only PayPal can grant).
+**1. The demo shop.** Start Second Look and open the demo shop:
+
+```bash
+python3 -m secondlook serve        # http://127.0.0.1:8765 (Ctrl-C stops it)
+```
+
+Open http://127.0.0.1:8765/?shop=demo. This is "Linen & Paper", a made-up shop with a customer care
+team of four. Its open cases come with the reviews Claude made of them, shipped in `demo/reviews/`,
+so they show without an AI key; the page says so. A shipped review goes out of date like any other
+the moment its case changes.
+
+- **Pick who you are**, at the top of the page: *Giulia*, the manager, may send any amount the
+  limits hand to a person; *Marta*, an agent, sends refunds up to 30 EUR.
+- **DEMO-031**, "Never received the apron" (http://127.0.0.1:8765/d/DEMO-031?shop=demo). The
+  courier's tracking shows delivery to the buyer's PayPal address, so Second Look recommends
+  *Defend with evidence*: the ten checks, what each way out costs, and a reply ready to send.
+  No money moves, so Giulia and Marta both get *Approve: defend with evidence*.
+- **DEMO-034**, a returned shirt that was never refunded, 89 EUR
+  (http://127.0.0.1:8765/d/DEMO-034?shop=demo&as=marta). Claude says the buyer is right: refund in
+  full. That is over the shop's 50 EUR auto-refund cap, so a person decides, and over Marta's 30 EUR
+  limit, so her button reads *Pass to Giulia*. Passing it sends nothing: the case waits for Giulia
+  with Marta's note. Switch to Giulia (`&as=giulia`) and she sends it.
+- **The overview** (http://127.0.0.1:8765/overview?shop=demo): the last 90 days, money kept and given
+  back, dispute fees, and every open case with the days left and what PayPal does if nobody answers.
+
+Approving in the demo shop sends nothing to anyone: it is logged in `.tmp/actions-demo.jsonl`, and
+the page says "Demo shop: logged, not sent to PayPal."
+
+Without an AI key, *Take a second look* (on a case with no review yet, or one gone out of date) runs
+the rules baseline instead of Claude: the simple rules the eval compares Claude with. The page says
+so in plain words and doesn't call it the AI. Your limits still run after it, as they do after Claude.
+
+**2. Inside a helpdesk: Ticketbook.** Stop Second Look (Ctrl-C) and start it again with Ticketbook's
+notification address, then start Ticketbook in a second terminal:
+
+```bash
+SECONDLOOK_NOTIFY_URL=http://127.0.0.1:8766/hooks/secondlook python3 -m secondlook serve   # terminal 1
+python3 -m helpdesk serve                                                                   # terminal 2
+```
+
+Open http://127.0.0.1:8766: made-up emails from the demo shop's buyers. You are Marta (switch with
+`?as=giulia`). Open *Where is my apron?* (http://127.0.0.1:8766/t/2001): the side panel shows Dario's
+PayPal dispute (DEMO-031) as Second Look sees it, with the recommendation, the checks that matter, the
+costs and the drafted reply. Approve from the ticket: Second Look's `answer.sent` notification lands
+in the ticket's history. *Refund for my returned shirt?* (http://127.0.0.1:8766/t/2004) shows Marta
+*Pass to Giulia*, as on Second Look's own page. If you already sent these in step 1, the panel says so:
+delete `.tmp/` and start both again to see them new.
+
+**3. Practice cases and the eval.** `cases/` holds 16 test disputes with known answers. In the browser
+they are at http://127.0.0.1:8765/?practice=1 (no review yet: *Take a second look* runs the rules
+baseline). From the command line:
+
+```bash
+python3 -m secondlook list                               # the 16 practice disputes (no PayPal keys)
+python3 -m secondlook review PP-D-014                    # rules baseline + your limits; nothing executed
+python3 -m secondlook approve PP-D-014 --action DEFEND   # practice: logged in .tmp/actions.jsonl, never sent
+python3 -m secondlook eval --judge rules                 # scores the rules baseline on all 16 cases
+for f in tests/test_*.py; do python3 $f | tail -1; done  # the tests: plain scripts, no packages
+python3 cases/make_cases.py                              # rewrites the 16 test disputes
+python3 demo/make_demo.py                                # rebuilds the demo shop (made-up data, fixed seed)
+```
+
+**4. The live PayPal sandbox, with Claude (your own keys).**
+
+1. Create a sandbox app at developer.paypal.com (*Apps & Credentials*, *Sandbox*) and an Anthropic API
+   key at console.anthropic.com.
+2. `cp .env.example .env` and fill in `PAYPAL_CLIENT_ID`, `PAYPAL_SECRET` and `ANTHROPIC_API_KEY`.
+   Second Look reads `.env` itself: don't export the keys in your shell.
+3. `pip install anthropic`: the one package, for the model judge only.
+4. Open test disputes by logging into the sandbox **buyer** account's Resolution Center (creating
+   them through the API needs a permission only PayPal can grant). Put the seller's records for a
+   dispute in `records/<dispute_id>.json`.
+5. `python3 -m secondlook serve` and open http://127.0.0.1:8765/?shop=live. *Take a second look* now
+   runs Claude (one model call, about $0.05), and a review the rules baseline made earlier offers
+   *Take a second look with Claude*. Approving here acts on your sandbox account: PayPal receives the
+   evidence, the refund or the message.
+6. `python3 -m secondlook eval --judge claude` runs Claude on the 16 practice cases (about $0.80).
 
 ## The eval: measured, not claimed
 
-`cases/` holds 15 disputes in the shape of PayPal's Disputes API, each with the seller's records
+`cases/` holds 16 disputes in the shape of PayPal's Disputes API, each with the seller's records
 and a ground-truth action, decided from PayPal's Seller Protection rules (delivery to the buyer's
 PayPal address defends "not received"; no tracking loses). They include a lost parcel, buyer's
 remorse dressed as "not as described", a counterfeit claim with a distributor invoice, a return
@@ -293,7 +361,8 @@ EUR 10 of a EUR 42 dispute.
   Search, tracking), registering tracking, sending a reply and submitting evidence all work: on
   2026-10-17 a real sandbox dispute received the seller's DHL tracking as proof of fulfilment and
   moved to "waiting for the buyer".
-- The model judge needs an Anthropic API key; without one, the rules baseline runs.
+- The model judge needs an Anthropic API key; without one, the rules baseline runs, labelled as
+  such. The demo shop's open cases show the reviews Claude made of them, shipped in `demo/reviews/`.
 - The demo shop's orders, buyers and outcomes are made up (labelled on every page); the outcome
   codes and reasons are PayPal's own. Dispute fees on the overview are estimated from PayPal's fee
   table: the dispute object doesn't carry them.
