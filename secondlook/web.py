@@ -1266,11 +1266,22 @@ table.waiting{{width:100%;border-collapse:collapse;margin-top:8px}}
 .ai-tag{{display:inline-block;margin-left:8px;padding:0 6px;font-size:12px;font-weight:500;border:1px solid var(--kraft);color:#6E4F27;background:#fff}}
 .talk .t-sub{{display:block}} .pick input{{width:100%;font:400 16px "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff}}
 .pick label{{display:block;font-weight:700;margin:12px 0 6px}}
+.blocks{{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start;margin-top:18px}}
+.block{{background:#fff;border:1px solid var(--rule);padding:18px 20px}} .block.wide{{max-width:1100px;margin:0 0 30px}}
+.block h2{{margin:0 0 2px}} .block > .t-sub{{display:block;margin:0 0 12px}}
+.chips{{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}} .chip{{font-size:14px;padding:3px 10px;border-radius:14px;background:#EEF2F4}}
+.chip.ord{{background:#E8F0EA}} .chip.off{{color:var(--soft);background:transparent;border:1px dashed var(--rule)}}
+ol.see,ul.see{{list-style:none;padding:0;margin:0}} .see li a{{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:9px 0;border-top:1px solid var(--rule);text-decoration:none;font-size:15px}}
+.see .rec{{display:block;color:var(--soft)}} .due{{color:var(--incon);font-weight:700;white-space:nowrap}} .due.soft{{color:var(--soft);font-weight:400}}
+.ai-tag.rules{{border-color:var(--unclear);color:var(--soft)}}
+dl.know{{margin:0}} .know-row{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:12px;padding:8px 0;border-top:1px solid var(--rule)}}
+.know-row dt{{color:var(--ink)}} .know-row dd{{margin:0}} .know-row dd b{{display:block}}
+@media (max-width:1100px){{.blocks{{grid-template-columns:1fr}}}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
 @media (max-width:1100px){{.ov-grid{{grid-template-columns:1fr}} .barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
 </style></head><body>
-<header class="top {context}"><div class="who-am-i"><a class="brand" href="/">{mark}Second Look<small>Sell without fear.</small></a>{shop}</div>{nav}</header>
+<header class="top {context}"><div class="who-am-i"><a class="brand" href="/today">{mark}Second Look<small>Sell without fear.</small></a>{shop}</div>{nav}</header>
 <main>{body}</main></body></html>"""
 
 
@@ -1360,7 +1371,7 @@ def _shop_currency(t: dict, demo: bool) -> str:
 
 
 def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = None, here: str = "disputes") -> str:
-    """`here`: the section the page belongs to ("disputes", "overview" or "rules"), said by the page itself.
+    """`here`: the section the page belongs to ("today", "disputes", "overview" or "rules"), said by the page itself.
     It used to be guessed from the title and the body's first characters, and a list page whose intro says
     "customer care" was marked Overview."""
     q = "?shop=demo" if demo else ""
@@ -1368,7 +1379,8 @@ def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = 
     rules = f'Your rules<span class="count">{waiting} to review</span>' if waiting else "Your rules"
     context = "demo" if demo else "practice" if mode.startswith("Practice") else "live"
     cur = lambda k: ' aria-current="page"' if here == k else ""  # noqa: E731
-    nav = (f'<nav><a href="/{q}"{cur("disputes")}>Disputes</a><a href="/overview"{cur("overview")}>Overview</a>'
+    nav = (f'<nav><a href="/today{q}"{cur("today")}>Today</a><a href="/{q}"{cur("disputes")}>Disputes</a>'
+           f'<a href="/overview"{cur("overview")}>Overview</a>'
            f'<a href="/rules"{cur("rules")}>{rules}</a>'
            f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
     t = team_for("DEMO-" if demo else None) if context != "practice" else team_mod.of(None)
@@ -1547,16 +1559,10 @@ def overview_page(src: str, me: str | None = None) -> str:
                    for a, b, x in tiles)
     stayed = [(ledger.OUTCOME_LABEL[k], c[k]) for k in ("won", "withdrew", "closed") if c[k]]
     back = [(ledger.OUTCOME_LABEL[k], c[k]) for k in ("settled_offer", "refunded", "covered", "lost_claim", "lost_no_reply") if c[k]]
-    meter_w = min(100, 100 * hv["ratio"] / 0.02) if hv["sales"] else 0
-    meter = (f'<section class="meter-box"><h2>PayPal\'s high-volume line</h2>'
-             f'<p class="who">Claims and card chargebacks against sales, {ov["quarter"][0]:%b}–'
-             f'{(ov["quarter"][1] - timedelta(days=1)):%b %Y} (PayPal counts the three previous full months). '
-             f'At 1.5% with more than 100 sales, every claim costs {m(28)}, even the ones you win.</p>'
-             f'<div class="meter" role="img" aria-label="{hv["ratio"]:.2%} of sales, line at 1.5%">'
-             f'<span class="m-fill" style="width:{meter_w:.1f}%"></span><span class="m-line" style="left:75%"><i>1.5%</i></span></div>'
-             f'<p><b>{hv["claims"]} claims in {hv["sales"]:,} sales: {hv["ratio"]:.2%}.</b> '
-             + ("Above the line." if hv["high_volume"] else f'{hv["claims_to_threshold"]} more claims this quarter and you cross it.')
-             + '</p></section>')
+    meter = claim_line_box(hv, today, cur)      # the same box as the morning screen's
+    # every channel this month, as the morning screen counts it: one function, one set of numbers, two places
+    month = month_block(today_mod.month(shop_cases(src), disputes, shop_orders(src), today, _policy(),
+                                        sent_answers(src), cur), today)
     ex = ledger.exposure(disputes, today, hv["high_volume"], cur)
     top = max(ex["all_lost"], 1)
     bars = [("If you win them all", ex["all_won"], "pass",
@@ -1598,6 +1604,9 @@ def overview_page(src: str, me: str | None = None) -> str:
             + ('' if ov["handled"] else '<p class="demo-note">No closed cases in this shop yet: the history fills in as cases '
                  'close. To see an overview with a history, <a href="/overview?shop=demo">open the demo shop</a>.</p>')
             + overview_whatnow(ov)
+            + f'<section class="block wide">{month}<p class="cost-note">The figures above are every channel, this month; '
+              f'<a href="/today{q}">the morning screen</a> shows them with what came in since yesterday. Below: PayPal '
+              f'disputes only, over the last {ov["window_days"]} days.</p></section>'
             + f'<div class="kpis">{kpis}</div>'
             f'<div class="ov-grid"><section><h2>How they ended</h2>'
             f'<h3 class="bl-h">The money stayed with you</h3>{bar_list(stayed, ov["handled"])}'
@@ -1697,6 +1706,121 @@ def today_view(src: str) -> dict:
             "see": today_mod.came_in(cases, disputes, orders, today, review_of=review_line),
             "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
             "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src))}
+
+
+def _hours(minutes: float) -> str:
+    h, mm = divmod(int(round(minutes)), 60)
+    return f"{h} h {mm} min" if h else f"{mm} min"
+
+
+def claim_line_box(hv: dict, today, cur: str = "EUR") -> str:
+    """PayPal's high-volume line, as the Overview shows it: claims and card chargebacks against sales over PayPal's
+    own window (the three previous full months), with the 1.5% line."""
+    start, end = ledger.quarter_window(today)
+    meter_w = min(100, 100 * hv["ratio"] / 0.02) if hv["sales"] else 0
+    return (f'<section class="meter-box"><h2>PayPal\'s high-volume line</h2>'
+            f'<p class="who">Claims and card chargebacks against sales, {start:%b}–'
+            f'{(end - timedelta(days=1)):%b %Y} (PayPal counts the three previous full months). '
+            f'At 1.5% with more than 100 sales, every claim costs {28:,.0f} {cur}, even the ones you win.</p>'
+            f'<div class="meter" role="img" aria-label="{hv["ratio"]:.2%} of sales, line at 1.5%">'
+            f'<span class="m-fill" style="width:{meter_w:.1f}%"></span><span class="m-line" style="left:75%"><i>1.5%</i></span></div>'
+            f'<p><b>{hv["claims"]} claims in {hv["sales"]:,} sales: {hv["ratio"]:.2%}.</b> '
+            + ("Above the line." if hv["high_volume"] else f'{hv["claims_to_threshold"]} more claims this quarter and you cross it.')
+            + '</p></section>')
+
+
+def month_block(k: dict, today) -> str:
+    """I know: this month, every channel. The same block on the morning screen and on the Overview."""
+    cur = k["currency"]
+    m = lambda v: f"{v:,.2f} {cur}"  # noqa: E731
+    by = ", ".join(f"{n} {word}" for ch, word, n in today_mod.channel_words(k["requests_by_channel"]) if n)
+    rows = [("Requests", f'{k["requests"]}', f'in {k["orders"]:,} orders' + (f' · {by}' if by else "")),
+            ("Solved before any PayPal dispute", f'{k["solved_before_dispute"]}', "shop inquiries closed this month"),
+            ("Staff time", f'{_hours(k["minutes"])}, about {m(k["staff_cost"])}',
+             f'estimated: {k["answers"]} written answer{"s" if k["answers"] != 1 else ""} × {k["reply_minutes"]:g} min '
+             f'at {k["hourly_cost"]:g} {cur} an hour (your rules)'),
+            ("Money given back", m(k["back"]), f'{m(k["back_cases"])} on your own cases (logged), '
+                                               f'{m(k["back_paypal"])} through PayPal'),
+            ("PayPal dispute fees", m(k["fees"]), "estimated from PayPal's fee table"),
+            ("Open cases could still cost", f'at most {m(k["could_still_cost"])}',
+             f'every open PayPal dispute lost at claim ({m(k["open_disputes_most"])}) and every open inquiry '
+             f'refunded in full ({m(k["open_inquiries_most"])})')]
+    trs = "".join(f'<div class="know-row"><dt>{e(a)}</dt><dd><b>{e(b)}</b><span class="t-sub">{e(x)}</span></dd></div>'
+                  for a, b, x in rows)
+    return (f'<h2>I know</h2><p class="t-sub">This month ({today:%B %Y}), every channel</p>'
+            f'<dl class="know">{trs}</dl>')
+
+
+def _rec(r: dict | None) -> str:
+    if not r:
+        return ""
+    tag = ('<span class="ai-tag">Second Look\'s AI</span>' if r["by"] == "ai" else
+           '<span class="ai-tag rules">Rules baseline</span>' if r["by"] == "rules" else "")
+    return f'<span class="rec">{tag} {e(r["text"])}</span>'
+
+
+def see_block(s: dict, q: str) -> str:
+    chips = [f'<span class="chip ord">🛒 {s["orders"]:,} new order{"s" if s["orders"] != 1 else ""}</span>']
+    for ch, word, n in today_mod.channel_words(s["counts"]):
+        if ch == "call":
+            chips.append('<span class="chip off">📞 Phone: not connected yet</span>')
+            continue
+        chips.append(f'<span class="chip">{e(cases_mod.CHANNEL_ICON[ch])} {n} {e(word)}</span>')
+    rows = []
+    for r in s["rows"]:
+        icons = " ".join(cases_mod.CHANNEL_ICON[ch] for ch in r["channels"])
+        left = r["days_left"]
+        when = ("no PayPal deadline" if left is None else "overdue" if left < 0 else "today" if left == 0
+                else f"{left} day{'s' if left != 1 else ''} left")
+        due = f'<span class="due{" soft" if left is None else ""}">{e(when)}</span>'
+        order = f' · order {e(r["order_no"])}' if r["order_no"] else " · no order"
+        rows.append(f'<li><a href="{e(r["link"])}{q}"><span class="chan">{e(icons)}</span>'
+                    f'<span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · “{e(r["summary"])}”'
+                    f' · {r["amount"]:.2f} EUR{order}{" · closed" if r["status"] != "open" else ""}'
+                    f'{_rec(r["review"])}</span>{due}</a></li>')
+    listing = (f'<ol class="see">{"".join(rows)}</ol>' if rows else
+               '<p class="empty">Nothing new since yesterday.</p>')
+    return (f'<h2>I see</h2><p class="t-sub">Everything that came in since yesterday '
+            f'({s["since"][8:10]} {datetime.strptime(s["since"][:10], "%Y-%m-%d"):%b}), from every channel, '
+            f'nearest PayPal deadline first</p><p class="chips">{"".join(chips)}</p>{listing}')
+
+
+def manage_block(mg: dict, q: str) -> str:
+    if mg["solo"]:
+        return (f'<h2>I manage</h2><p class="t-sub">Who has what</p><p>A team of one: all {mg["total"]} open '
+                f'case{"s" if mg["total"] != 1 else ""} are yours.</p>')
+    rows = []
+    for p in mg["people"]:
+        n = len(p["items"])
+        extra = (f' · {p["passed_on"]} passed on' if p["passed_on"] else "") + \
+                (f' · {len(p["waiting"])} waiting for them' if p["waiting"] else "")
+        rows.append(f'<div class="know-row"><dt><b>{e(p["name"])}</b>, <i>{e(p["role"])}</i></dt>'
+                    f'<dd><b>{n} open case{"s" if n != 1 else ""}</b><span class="t-sub">{e(extra.lstrip(" ·"))}</span></dd></div>')
+    rows.append(f'<div class="know-row"><dt><b>Unassigned</b></dt><dd><b>{len(mg["unassigned"])}</b>'
+                f'<span class="t-sub">nobody has these yet: open one and take it</span></dd></div>')
+    hands = "".join(f'<li><a href="{e(h["link"])}{q}"><b>{e(h["who"] or "")}</b>, <i>customer</i> · {h["amount"]:.2f} EUR: '
+                    f'passed by {e(h["from_name"])}' + (f', <i>{e(h["from_role"])}</i>' if h["from_role"] else "")
+                    + f', to {e(h["to_name"])}, <i>{e(h["to_role"])}</i></a></li>' for h in mg["handoffs"])
+    waits = (f'<h3 class="bl-h">Waiting after a handoff</h3><ul class="see">{hands}</ul>' if hands else
+             '<p class="t-sub">No handoff is waiting.</p>')
+    return (f'<h2>I manage</h2><p class="t-sub">Who has what, and what waits for whom</p><dl class="know">{"".join(rows)}</dl>'
+            f'{waits}<p class="t-sub">Nothing goes out until a person approves it, each within their own limit.</p>')
+
+
+def today_page(src: str, me: str | None = None) -> str:
+    demo = src == "demo"
+    v = today_view(src)
+    q = "?shop=demo" if demo else ""
+    name = DemoPayPal().shop["name"] if demo else _live_shop().get("name") or "Your shop"
+    about = f'<p class="demo-note">{e(DemoPayPal().shop["about"])}</p>' if demo else ""
+    body = (f'<h1 class="page">Today at {e(name)}</h1>{about}'
+            f'<p class="who">I see, I manage, I know: every channel, one place. The lists stay where they were: '
+            f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
+            f'<div class="blocks"><section class="block">{see_block(v["see"], q)}</section>'
+            f'<section class="block">{manage_block(v["manage"], q)}</section>'
+            f'<section class="block">{month_block(v["know"], v["today"])}'
+            f'{claim_line_box(v["know"]["high_volume"], v["today"])}</section></div>')
+    return page(f"Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
 
 
 # ---------- the case page: one customer, one order, one problem, every channel ----------
@@ -2696,6 +2820,13 @@ class Handler(BaseHTTPRequestHandler):
             self._film = "film" in qs  # the demo film loads pages live: no fade-ins half-way through a frame
             if u.path == "/":
                 return self._send(inbox_page(src, me, (qs.get("view") or [""])[0]))
+            if u.path == "/today":
+                if src == "practice":
+                    return self._redirect("/?practice=1")    # practice cases are a test bench, not a shop's morning
+                return self._send(today_page(src, me=me))
+            if u.path == "/api/today":
+                v = today_view("live" if src == "live" else "demo")
+                return self._json({"today": v["today"], "see": v["see"], "manage": v["manage"], "know": v["know"]})
             if u.path == "/overview":
                 return self._send(overview_page(src, me=me))
             if u.path.startswith("/customer/"):

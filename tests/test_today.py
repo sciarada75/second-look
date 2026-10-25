@@ -187,6 +187,48 @@ def test_a_buyer_s_new_message_on_an_older_dispute_came_in_too():
     assert c5["channels"] == ["paypal"] and c5["first"] == "2026-10-20T08:00"
 
 
+def test_the_morning_screen_says_whose_names_and_roles_and_labels_every_estimate():
+    with morning():
+        html_ = web.today_page("demo", "giulia")
+        for words in ("I see", "I manage", "I know", "🛒 141 new orders", "✉️ 2 emails", "📝 1 web form",
+                      "PayPal 3 PayPal disputes", "📞 Phone: not connected yet", "<b>Pablo Martin</b>, <i>customer</i>",
+                      "<b>Marta</b>, <i>Customer care assistant</i>", "<b>Giulia</b>, <i>Head of customer care</i>",
+                      "Second Look's AI", "19 days left", "no PayPal deadline", "This month (October 2026)",
+                      "estimated: 23 written answers", "estimated from PayPal&#x27;s fee table", "at most 1,073.00 EUR",
+                      "PayPal's high-volume line", 'href="/?shop=demo">Disputes and requests'):
+            assert words in html_, words
+        assert "Export" not in html_                           # the accounting export comes with step 3, not a dead button
+        nav = html_.split("<nav>")[1].split("</nav>")[0]
+        assert '<a href="/today?shop=demo" aria-current="page">Today</a>' in nav
+        overview = web.overview_page("demo", "giulia")
+        assert "This month (October 2026)" in overview and 'href="/today?shop=demo">the morning screen' in overview
+        assert overview.count("PayPal's high-volume line") == 1
+        assert web.approve("DEMO-034", "REFUND", "You're right: here is your refund.", by="marta")[0] == 202
+        assert "passed by Marta, <i>Customer care assistant</i>, to Giulia, <i>Head of customer care</i>" in \
+            web.today_page("demo", "giulia")
+
+
+def test_the_morning_screen_over_http_and_as_data():
+    with morning():
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+            con.request("GET", "/today?shop=demo&as=marta")
+            r = con.getresponse()
+            assert r.status == 200 and "Today at Linen &amp; Paper" in r.read().decode()
+            con.request("GET", "/api/today?shop=demo")
+            r = con.getresponse()
+            data = json.loads(r.read())
+            assert data["today"] == "2026-10-20" and data["see"]["counts"]["form"] == 1 and data["know"]["requests"] == 64
+            con.request("GET", "/today?practice=1")
+            r = con.getresponse()
+            r.read()
+            assert r.status == 303 and r.getheader("Location") == "/?practice=1"
+        finally:
+            srv.shutdown()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
