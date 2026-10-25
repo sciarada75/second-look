@@ -424,6 +424,29 @@ def test_the_demo_tickets_say_what_the_demo_requests_say():
         assert t.get("source", "email") == r["channel"]
 
 
+def test_tickets_reach_second_look_when_it_starts_after_ticketbook():
+    """Ticketbook usually starts first: it tries again, waiting longer each time, for about ten seconds."""
+    class Waking(FakeSL):
+        def __init__(self, asleep):
+            super().__init__(filed=FILED)
+            self.asleep = asleep
+
+        def file_request(self, ticket):
+            if self.asleep:
+                self.asleep -= 1
+                from helpdesk.secondlook_client import Unavailable
+                raise Unavailable("not listening yet")
+            return super().file_request(ticket)
+    waits = []
+    sl = Waking(asleep=2)
+    assert bench(sl).file_open_when_up(sleep=waits.append) == 1 and ("file", 2041) in sl.calls
+    assert waits == [0.6, 1.2]
+    waits.clear()
+    assert bench(Waking(asleep=99)).file_open_when_up(sleep=waits.append) == 0      # never up: gives up, no crash
+    assert waits == [0.6, 1.2, 2.4, 4.8] and sum(waits) < 10
+    assert "file_open_when_up" in Path(app.__file__).read_text().split("def serve(")[1]   # what serve() starts
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

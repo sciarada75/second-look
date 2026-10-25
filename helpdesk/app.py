@@ -18,6 +18,7 @@ import os
 import re
 import secrets
 import threading
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -389,6 +390,10 @@ class Helpdesk:
     def file_open(self) -> int:
         """Hand Second Look every open ticket, as a connected helpdesk does when mail arrives (here: when
         Ticketbook starts). Second Look files each one once. Returns how many it took; never raises."""
+        return self._file_open()[0]
+
+    def _file_open(self) -> tuple:
+        """(how many Second Look took, whether it answered at all)."""
         n = 0
         for t in self.tickets().get("tickets", []):
             if t.get("status") != "open":
@@ -396,8 +401,18 @@ class Helpdesk:
             try:
                 n += self.sl.file_request(t) is not None
             except Unavailable:
-                return n            # Second Look isn't running yet: each panel files its ticket when it opens
-        return n
+                return n, False     # Second Look isn't running yet: each panel files its ticket when it opens
+        return n, True
+
+    def file_open_when_up(self, attempts: int = 5, first_wait: float = 0.6, sleep=time.sleep) -> int:
+        """file_open, tried again while Second Look isn't listening yet (Ticketbook often starts first):
+        waits 0.6, 1.2, 2.4 and 4.8 seconds between tries, about nine in all. Filing twice is harmless."""
+        for i in range(attempts):
+            n, reached = self._file_open()
+            if reached or i == attempts - 1:
+                return n
+            sleep(first_wait * 2 ** i)
+        return 0
 
     def _case_line(self, t: dict, me: dict) -> str:
         """Which Second Look case this ticket is on: filed (again, harmlessly) when the panel opens."""
@@ -675,6 +690,6 @@ def serve(port: int = 8766, secondlook: str = "http://127.0.0.1:8765") -> None:
     Handler.hd = Helpdesk(ROOT / "helpdesk" / "tickets.json", ROOT / ".tmp" / "helpdesk-events.jsonl",
                           SecondLook(secondlook))
     # Mail "arrives" when Ticketbook starts: every open ticket goes to Second Look, in the background.
-    threading.Thread(target=Handler.hd.file_open, daemon=True).start()
+    threading.Thread(target=Handler.hd.file_open_when_up, daemon=True).start()
     print(f"Ticketbook: http://127.0.0.1:{port}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
