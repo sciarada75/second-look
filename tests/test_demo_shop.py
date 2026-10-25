@@ -156,6 +156,9 @@ def test_the_earlier_cases_are_closed_and_touch_nothing_this_morning_or_paypal_h
     late = {o["email"] for o in pp.orders() if o["date"] >= "2026-10-10"} | {r["from"]["email"] for r in pp.requests()}
     assert not {c["order_no"] for c in h} & disputed and not {c["customer"]["email"] for c in h} & late
     assert len({c["customer"]["email"] for c in h}) == len(h)        # one case per customer
+    tx = {o["transaction_id"]: o["email"] for o in pp.orders()}
+    disputing = {tx.get(d["disputed_transactions"][0]["seller_transaction_id"]) for d in pp.disputes()}
+    assert not {c["customer"]["email"] for c in h} & disputing          # no customer who ever disputed (by email)
 
 
 if __name__ == "__main__":
