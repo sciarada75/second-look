@@ -415,7 +415,8 @@ def api_case_of(cid: str) -> dict | None:
             "status": c["status"], "outcome": c["outcome"], "problem": c["problem"],
             "customer": {**c["customer"], "role": "customer"}, "order": v["order"], "sorted": c["sorted"],
             "at_stake": {"value": v["at_stake"], "currency_code": v["currency"]}, "channels": v["channels"],
-            "dispute_id": c.get("dispute_id"), "assigned_to": v["assigned_to"], "timeline": v["timeline"],
+            "dispute_id": c.get("dispute_id"), "assigned_to": v["assigned_to"],
+            "timeline": [{**x, "by": _who(v["team"], x)[0], "role": _who(v["team"], x)[1]} for x in v["timeline"]],
             "costs_so_far": v["costs"], "page": f"/c/{c['id']}"}
 
 
@@ -1260,12 +1261,30 @@ def customer_json(key: str, src: str) -> dict | None:
 
 # ---------- the case page: one customer, one order, one problem, every channel ----------
 
-def _role_of(t: dict, name: str | None, customer: str | None) -> str:
-    """Every name carries its role: the customer's, a colleague's from the team, or none for PayPal and the shop."""
-    if name and name == customer:
+def _role_of(t: dict, x: dict) -> str:
+    """Every name carries its role. Whoever wrote in is the customer, under any name or address they used
+    (no name, "Sophie" for "Sophie Durand", a second address a person joined to the case); a colleague
+    carries their role from the team; PayPal and "the shop" are names that say what they are."""
+    if x.get("direction") == "in":
         return "customer"
-    p = next((x for x in team_mod.people(t) if x.get("name") == name), None)
+    p = next((y for y in team_mod.people(t) if y.get("name") and y.get("name") == x.get("by")), None)
     return str(p.get("role") or "") if p else ""
+
+
+def _who(t: dict, x: dict) -> tuple:
+    """(name, role) of one timeline entry: unsigned text Second Look's AI wrote is the AI's."""
+    name = str(x.get("by") or "")
+    if not name and x.get("ai"):
+        return "Second Look's AI", ""
+    return name, _role_of(t, x)
+
+
+def _channel(ch: str, capital: bool = False) -> str:
+    """A channel's icon and name, as HTML: "✉️ email"; PayPal, whose icon is its name, said once. Brand
+    names keep their own capitals ("PayPal", never "Paypal")."""
+    icon, label = cases_mod.CHANNEL_ICON.get(ch, ch), cases_mod.CHANNEL_LABEL.get(ch, ch)
+    shown = label[:1].upper() + label[1:] if capital else label
+    return e(icon) if icon.lower() == label.lower() else f"{e(icon)} {e(shown)}"
 
 
 def _when(at: str) -> str:
@@ -1278,13 +1297,15 @@ def timeline_block(v: dict) -> str:
     c, t = v["case"], v["team"]
     rows = []
     for x in v["timeline"]:
-        icon = cases_mod.CHANNEL_ICON.get(x["channel"], x["channel"])
+        icon, label = cases_mod.CHANNEL_ICON.get(x["channel"], x["channel"]), cases_mod.CHANNEL_LABEL.get(x["channel"], x["channel"])
         what = {"in": "in", "out": "out", "note": ""}[x["direction"]]
-        role = _role_of(t, x.get("by"), c["customer"].get("name"))
-        who = e(str(x.get("by") or "")) + (f", <i>{e(role)}</i>" if role else "")
+        name, role = _who(t, x)
+        who = e(name) + (f", <i>{e(role)}</i>" if role else "")
         ai = '<span class="ai-tag">Second Look\'s AI</span>' if x.get("ai") else ""
-        head = (f'<b><span class="chan" title="{e(cases_mod.CHANNEL_LABEL.get(x["channel"], x["channel"]))}">{e(icon)}</span> '
-                f'{e(cases_mod.CHANNEL_LABEL.get(x["channel"], x["channel"]).capitalize())} {e(what)} · {who} · {e(_when(x["at"]))}{ai}</b>')
+        # the channel's name after its icon, unless the icon is the name (PayPal): "✉️ Email in", "PayPal in"
+        said = " ".join(w for w in ("" if icon.lower() == label.lower() else label[:1].upper() + label[1:], what) if w)
+        head = (f'<b><span class="chan" title="{e(label)}">{e(icon)}</span>{" " + e(said) if said else ""} · {who} · '
+                f'{e(_when(x["at"]))}{ai}</b>')
         subject = f'<span class="t-sub">{e(x["subject"])}</span>' if x.get("subject") else ""
         body = f'<q>{e(x.get("text") or "")}</q>' if x["direction"] != "note" else f'<span>{e(x.get("text") or "")}</span>'
         srt = x.get("sorted") or {}
@@ -1350,7 +1371,7 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     paid = {"paypal": "PayPal", "card": "card", "bank": "bank transfer"}.get((o or {}).get("paid_with"), (o or {}).get("paid_with"))
     order_line = (f'Order {e(o["order_no"])}: {e(items)}, {o["amount"]:.2f} {e(cur)}, paid by {e(str(paid))}.' if o else
                   "No order: a general question." if c["sorted"]["by"] else "Order not known yet.")
-    came = " · ".join(f'{e(cases_mod.CHANNEL_ICON[ch])} {e(cases_mod.CHANNEL_LABEL[ch])}' for ch in v["channels"])
+    came = " · ".join(_channel(ch) for ch in v["channels"])
     holder = v["assigned_to"]
     owner = ("" if v["team"].get("solo") else
              f'<p class="owner-line">{e(holder["name"])}, <i>{e(holder["role"] or "")}</i>, has this case.</p>' if holder
@@ -1375,7 +1396,9 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
             right += _pick_form(cid, me, "Sorted as a question with no order. If it is about one, say which.", question=True)
     body = (f'<div class="case"><section>{flash}{left}</section><section class="look">{right}{case_costs_block(v)}'
             f'<p class="cardlink"><a href="/api/cases/{e(cid)}">This case as data (API)</a></p></section></div>')
-    return page(f"{e(c['problem']['summary'][:40])} | Second Look", "PayPal sandbox", body, demo, me=me)
+    # the tab's name: the customer's own words, or the case id when the line is Second Look's AI's reading
+    title = f"Case {c['id']}" if c["sorted"].get("by") == "ai" else c["problem"]["summary"][:40]
+    return page(f"{e(title)} | Second Look", "PayPal sandbox", body, demo, me=me)
 
 
 def requests_block(src: str, me: str | None, view: str, t: dict) -> str:
@@ -2104,10 +2127,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def _same_site(self) -> bool:
         """A browser page elsewhere must not post into Second Look: when a request says where it comes from
-        (Origin), it must be this server. Systems posting from their own server send no Origin."""
-        origin = self.headers.get("Origin")
+        (Origin, else Referer), it must be this server. Systems posting from their own server (Ticketbook,
+        curl) send neither, and still work. The same check as Ticketbook's own forms (helpdesk/app.py)."""
         port = self.server.server_address[1]
-        return not origin or urlparse(origin).netloc in (f"127.0.0.1:{port}", f"localhost:{port}")
+        here = (f"127.0.0.1:{port}", f"localhost:{port}")
+        for name in ("Origin", "Referer"):
+            v = self.headers.get(name)
+            if v and urlparse(v).netloc not in here:
+                return False
+        return True
 
     def _request(self):
         """POST /api/requests: one email or web form from another system (a helpdesk), filed on its case."""
@@ -2126,8 +2154,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")
-        raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        length = self.headers.get("Content-Length", "0").strip()
+        if not length.isdigit():                 # "abc", "-5", "": no way to know where the body ends
+            self.close_connection = True
+            return self._send("Content-Length must be a number of bytes.", 400)
+        raw = self.rfile.read(int(length))
         self._raw = raw
+        # Every post changes something: from a browser, only from Second Look's own pages (see _same_site)
+        if parts != ["api", "requests"] and not self._same_site():
+            return self._send("This can only be sent from Second Look's own pages.", 403)
         # keep_blank_values: an emptied reply box arrives empty, never as "use the AI's draft"
         form = parse_qs(raw.decode(), keep_blank_values=True) if not self.path.startswith("/api/") else {}
         try:

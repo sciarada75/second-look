@@ -9,7 +9,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from secondlook import sort as sort_mod, team as team_mod, web  # noqa: E402
+from secondlook import cases as cases_mod, sort as sort_mod, team as team_mod, web  # noqa: E402
 from secondlook.demo import DemoPayPal  # noqa: E402
 
 
@@ -314,6 +314,145 @@ def test_ticketbook_files_its_tickets_through_the_real_api():
             assert sl.case_of(dario["case_id"])["channels"] == ["email", "paypal"]
         finally:
             srv.shutdown()
+
+
+# ---------- spec review (25/10): roles, the title, PayPal's name, posts from elsewhere, a bad length ----------
+
+def test_every_name_on_the_timeline_carries_its_role():
+    with morning():
+        web.receive("demo", {**email("Any news on the shirt?", "lena.vogel@example.com", channel="form"),
+                             "from": {"name": "", "email": "lena.vogel@example.com"}})
+        web.receive("demo", {**email("Any news on my tablecloth?", "sophie.durand@example.com"),
+                             "from": {"name": "Sophie", "email": "sophie.durand@example.com"}})
+        _, other = web.receive("demo", {**email("The tablecloth: still nothing.", "s.durand@work.example",
+                                               time="2026-10-20T10:00:00Z"),
+                                        "from": {"name": "S. Durand", "email": "s.durand@work.example"}})
+        assert web.pick_order(other["case_id"], "LP-90001", "marta") == (200, "DEMO-C001")
+        store = web.case_store("demo")
+        store.add("DEMO-C001", cases_mod.entry("2026-10-20T11:00", "email", "out", "It was left with Bianchi.", "Marta"))
+        store.add("DEMO-C001", cases_mod.entry("2026-10-20T11:30", "email", "out", "Drafted for you.", "", ai=True))
+        lena, sophie = web.case_file_page("DEMO-C002", me="marta"), web.case_file_page("DEMO-C001", me="marta")
+    assert "lena.vogel@example.com, <i>customer</i>" in lena                  # no name: the address, still the customer
+    assert "Sophie, <i>customer</i>" in sophie                                # another spelling of her name
+    assert "S. Durand, <i>customer</i>" in sophie                             # another address, joined by a person
+    assert "Marta, <i>Customer care agent</i>" in sophie
+    assert "Second Look&#x27;s AI, <i>Second Look&#x27;s AI</i>" not in sophie
+    assert "· Second Look&#x27;s AI ·" in sophie                              # nobody named: the AI says it wrote it
+
+
+def test_the_api_timeline_gives_each_name_its_role():
+    with morning():
+        web.receive("demo", {**email("Any news on the shirt?", "lena.vogel@example.com", channel="form"),
+                             "from": {"name": "", "email": "lena.vogel@example.com"}})
+        tl = web.api_case_of("DEMO-C002")["timeline"]
+    assert [x["role"] for x in tl] == ["customer", "customer"]
+
+
+def test_a_title_never_shows_the_ai_s_words_as_the_shop_s():
+    two = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada", "time": "2026-09-01T10:00:00Z",
+            "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
+           {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada", "time": "2026-10-01T10:00:00Z",
+            "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
+    fake = lambda r: {"order_no": "", "item": "napkins", "problem_kind": "not_as_described",  # noqa: E731
+                      "summary": "Refund agreed"}
+    with morning(ai_key=True, ai=fake):
+        web.case_store("demo")
+        kept = web.shop_orders
+        web.shop_orders = lambda src: two
+        try:
+            _, out = web.receive("demo", email("Something arrived damaged.", "ada@example.com"))
+            page = web.case_file_page(out["case_id"], me="marta")
+        finally:
+            web.shop_orders = kept
+        sophie = web.case_file_page("DEMO-C001", me="marta")
+    assert f"<title>Case {out['case_id']} | Second Look</title>" in page and "<title>Refund" not in page
+    assert "<title>Tablecloth not arrived | Second Look</title>" in sophie    # the customer's own subject
+
+
+def test_paypal_keeps_its_name_and_is_never_said_twice():
+    with morning():
+        pablo = web.case_file_page("DEMO-C003", me="marta")
+    assert "Paypal" not in pablo and "PayPal PayPal" not in pablo
+    assert "Came in by: ✉️ email · PayPal</p>" in pablo
+    assert '<span class="chan" title="PayPal">PayPal</span> in ·' in pablo
+    assert '<span class="chan" title="email">✉️</span> Email in ·' in pablo
+
+
+def _server():
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_a_post_from_another_site_is_refused_and_your_own_pages_and_ticketbook_still_work():
+    from urllib.parse import urlencode
+    from helpdesk.secondlook_client import SecondLook
+    done = []
+    names = ("approve", "take", "run_review", "add_rule", "settle_suggestion", "remove_rule")
+    kept = {n: getattr(web, n) for n in names}
+    for n in names:   # nothing real can happen in this test, whatever the check does
+        setattr(web, n, lambda *a, _n=n, **k: (done.append(_n), (200, "ok"))[1])
+    try:
+        with morning():
+            _, out = web.receive("demo", email("My tablecloth still isn't here.", "s.durand@work.example"))
+            cid = out["case_id"]
+            srv = _server()
+            port = srv.server_address[1]
+
+            def post(path, body, kind, **headers):
+                con = HTTPConnection("127.0.0.1", port, timeout=10)
+                con.request("POST", path, body=body, headers={"Content-Type": kind, **headers})
+                r = con.getresponse()
+                r.read()
+                return r.status
+            form, js = "application/x-www-form-urlencoded", "application/json"
+            posts = [(f"/c/{cid}/order", urlencode({"by": "marta", "order": "LP-90001"}), form),
+                     ("/d/DEMO-034/approve", urlencode({"by": "marta", "action": "ASK_SELLER"}), form),
+                     ("/d/DEMO-034/take", urlencode({"by": "marta"}), form), ("/d/DEMO-034/review", "", form),
+                     ("/rules/add", urlencode({"rule": "x"}), form), ("/rules/accept", "i=0", form),
+                     ("/rules/discard", "i=0", form), ("/rules/remove", "i=0", form),
+                     ("/api/disputes/DEMO-034/approve", json.dumps({"action": "ASK_SELLER", "by": "marta"}), js),
+                     ("/api/disputes/DEMO-034/review", "{}", js), ("/api/requests", json.dumps(email("x", "a@b.c")), js)]
+            try:
+                for path, body, kind in posts:
+                    assert post(path, body, kind, Origin="http://evil.example") == 403, path
+                    assert post(path, body, kind, Referer="http://evil.example/page") == 403, path
+                    assert post(path, body, kind, Origin="null") == 403, path
+                assert done == [] and web.case_store("demo").get(cid)["sorted"]["by"] is None
+                here = f"http://127.0.0.1:{port}"
+                assert post(f"/c/{cid}/order", urlencode({"by": "marta", "order": "LP-90001"}), form,
+                            Origin=here, Referer=f"{here}/c/{cid}") == 303          # your own page: it works
+                assert web.case_store("demo").get(cid) is None                       # joined Sophie's case
+                assert SecondLook(here).approve("DEMO-034", "ASK_SELLER", None, "marta", None)[0] == 200
+                assert done == ["approve"]                                           # Ticketbook: no Origin, it works
+            finally:
+                srv.shutdown()
+                srv.server_close()
+    finally:
+        for n, f in kept.items():
+            setattr(web, n, f)
+
+
+def test_a_body_length_that_is_not_a_number_is_a_400():
+    import socket
+    with morning():
+        srv = _server()
+        try:
+            for length in ("abc", "-5", ""):
+                sock = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=10)
+                sock.sendall(f"POST /api/requests HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+                             f"Content-Length: {length}\r\n\r\n".encode())
+                got = b""
+                while b"bytes." not in got:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    got += chunk
+                sock.close()
+                assert b" 400 " in got.split(b"\r\n")[0] + b" " and b"Content-Length must be a number" in got, (length, got)
+        finally:
+            srv.shutdown()
+            srv.server_close()
 
 
 if __name__ == "__main__":
