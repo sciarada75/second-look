@@ -405,6 +405,7 @@ SHOP["listings"]["Linen tablecloth"] = "Linen tablecloth, 140x200 cm, natural or
 SHOP["costs"]["listings"]["Linen tablecloth"] = 26.0
 other_orders = [
     {"order_no": "LP-90001", "paid_with": "card", "name": "Sophie Durand", "email": "sophie.durand@example.com",
+     "phone": "+39 051 555 0142",
      "address": "Via Saragozza 10, 40123 Bologna, IT", "date": "2026-10-12", "time": "2026-10-12T18:40:00Z",
      "amount": 64.0, "currency": "EUR", "items": [{"item_name": "Linen tablecloth", "item_quantity": "1"}],
      "tracking": {"carrier": "Local courier", "tracking_number": "LC90001IT", "status": "DELIVERED",
@@ -412,6 +413,7 @@ other_orders = [
                   "delivered_to": "left with a neighbour (Bianchi, Via Saragozza 12)",
                   "address_matches_order": True}},
     {"order_no": "LP-90002", "paid_with": "bank", "name": "Lena Vogel", "email": "lena.vogel@example.com",
+     "phone": "+43 1 555 0177",
      "address": "Kirchgasse 4, 1070 Wien, AT", "date": "2026-10-14", "time": "2026-10-14T09:15:00Z",
      "amount": 89.0, "currency": "EUR", "items": [{"item_name": "Linen shirt", "item_quantity": "1", "size": "M"}],
      "tracking": {"carrier": "Local courier", "tracking_number": "LC90002IT", "status": "DELIVERED",

@@ -12,6 +12,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secondlook import demo as demo_mod, judge, sort as sort_mod, team as team_mod, today, web  # noqa: E402
+# Tests never run local whisper: a call's words are the transcript shipped beside it (26/10).
+web.TRANSCRIBE = lambda wav: None
 from secondlook.demo import DemoPayPal  # noqa: E402
 
 TODAY = date(2026, 10, 20)
@@ -135,7 +137,7 @@ def test_the_demo_morning_reads_every_channel_against_its_orders():
     with morning():
         v = web.today_view("demo")
         s = v["see"]
-        assert s["since"] == "2026-10-19T00:00" and s["counts"] == {"call": 0, "email": 2, "form": 1, "paypal": 3}
+        assert s["since"] == "2026-10-19T00:00" and s["counts"] == {"call": 1, "email": 2, "form": 1, "paypal": 3}
         assert s["orders"] == 141                                # 68 orders on 19 Oct, 73 on 20 Oct: made-up, ~2,000 a month
         assert [r["link"] for r in s["rows"]] == ["/c/DEMO-C003", "/d/DEMO-039", "/d/DEMO-036", "/c/DEMO-C001", "/c/DEMO-C002"]
         pablo = s["rows"][0]
@@ -148,7 +150,7 @@ def test_the_demo_morning_reads_every_channel_against_its_orders():
         assert len(v["manage"]["unassigned"]) == 9 and v["manage"]["handoffs"] == []
         k = v["know"]
         assert (k["from"], k["orders"], k["requests"], k["solved_before_dispute"]) == ("2026-10-01T00:00", 1329, 64, 31)
-        assert (k["answers"], k["staff_cost"], k["back_cases"], k["back_paypal"], k["fees"]) == (23, 57.5, 160.0, 154.7, 14.0)
+        assert (k["answers"], k["staff_cost"], k["back_cases"], k["back_paypal"], k["fees"]) == (23, 57.74, 160.0, 154.7, 14.0)
         assert k["could_still_cost"] == 1073.0
 
 

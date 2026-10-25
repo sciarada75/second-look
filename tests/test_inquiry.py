@@ -10,6 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secondlook import demo as demo_mod, judge, sort as sort_mod, team as team_mod, web  # noqa: E402
+# Tests never run local whisper: a call's words are the transcript shipped beside it (26/10).
+web.TRANSCRIBE = lambda wav: None
 from secondlook.demo import DemoPayPal  # noqa: E402
 from secondlook.guard import CHECKS, Judgment, apply_policy  # noqa: E402
 

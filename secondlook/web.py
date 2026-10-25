@@ -28,7 +28,7 @@ from pathlib import Path
 from datetime import timedelta, timezone
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
-from . import cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
+from . import calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
 from .guard import apply_policy, may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
@@ -263,7 +263,13 @@ def by_for_post(t: dict, by: str | None) -> tuple[bool, str | None]:
 # demo/shop.json, filed by the same code the first time it is read; the live shop's starts empty.
 CASE_FILES = {"demo": ROOT / ".tmp" / "cases-demo.json", "live": ROOT / "records" / "cases-live.json"}
 _SEEDING = threading.Lock()
-REQUEST_CHANNELS = ("email", "form")   # phone calls arrive in a later step; PayPal disputes are read from PayPal
+REQUEST_CHANNELS = ("email", "form")   # calls come from the call box; PayPal disputes are read from PayPal
+# The call box: where the phone system leaves recorded calls (secondlook/calls.py). The demo's ships in the repo;
+# a live shop sets SECONDLOOK_CALL_BOX. No call box: the morning screen says the phone isn't connected.
+CALL_BOXES = {"demo": ROOT / "demo" / "calls", "live": Path(os.environ["SECONDLOOK_CALL_BOX"])
+              if os.environ.get("SECONDLOOK_CALL_BOX") else None}
+# How a recording becomes words: local whisper (calls.whisper). A setting, so a test never runs a model.
+TRANSCRIBE = calls_mod.whisper
 
 
 def shop_of_case(cid: str) -> str:
@@ -319,12 +325,29 @@ def _file_request(store, src: str, req: dict, ai) -> tuple:
     return store.file(req, s, dispute=dispute)
 
 
+def file_calls(store, src: str) -> int:
+    """Every recording in the shop's call box not filed yet becomes a request on the channel "call", sorted by the
+    caller's number like an email by its address (rules only: no AI call). Returns how many were filed. A call with
+    no words yet (no local whisper, no shipped transcript) waits in the box for the next look."""
+    n = 0
+    for rec in calls_mod.recordings(CALL_BOXES.get(src)):
+        if store.by_source(rec["source_id"]):
+            continue
+        req = calls_mod.as_request(rec, TRANSCRIBE)
+        if req:
+            _file_request(store, src, req, ai=None)
+            n += 1
+    return n
+
+
 def case_store(src: str) -> cases_mod.CaseStore:
     path = CASE_FILES[src]
     store = cases_mod.CaseStore(path, prefix="DEMO-" if src == "demo" else "")
     if src == "demo":
         with _SEEDING:
             if not path.exists():
+                # the morning in the order it happened: Sophie's call (08:31) before her email (08:52) joins it
+                file_calls(store, "demo")
                 for r in DemoPayPal().requests():   # they sort by rules alone (tests/test_demo_shop.py): no AI call
                     _file_request(store, "demo", r, ai=None)
     return store
@@ -451,7 +474,8 @@ def receive(src: str, body) -> tuple:
     if not isinstance(body, dict):
         return bad("Send one JSON object.")
     if body.get("channel") not in REQUEST_CHANNELS:
-        return bad('channel must be "email" or "form". Phone calls arrive in a later step; PayPal disputes are read from PayPal.')
+        return bad('channel must be "email" or "form". Phone calls come in through the call box; PayPal disputes are '
+                   'read from PayPal.')
     sender = body.get("from")
     if not isinstance(sender, dict) or not isinstance(sender.get("email"), str) or "@" not in sender["email"]:
         return bad("from.email: the address the request came from.")

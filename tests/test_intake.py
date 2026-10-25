@@ -10,6 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secondlook import cases as cases_mod, sort as sort_mod, team as team_mod, web  # noqa: E402
+# Tests never run local whisper: a call's words are the transcript shipped beside it (26/10).
+web.TRANSCRIBE = lambda wav: None
 from secondlook.demo import DemoPayPal  # noqa: E402
 
 
@@ -41,7 +43,7 @@ def email(text, address, source_id=None, subject="", channel="email", time="2026
 
 def test_a_request_is_checked_before_anything_is_filed():
     with morning() as tmp:
-        for body, why in [([], "one JSON object"), ({**email("x", "a@b.c"), "channel": "call"}, "later step"),
+        for body, why in [([], "one JSON object"), ({**email("x", "a@b.c"), "channel": "call"}, "call box"),
                           ({**email("x", "a@b.c"), "channel": "paypal"}, "read from PayPal"),
                           ({**email("x", "a@b.c"), "from": {"email": "nobody"}}, "from.email"),
                           (email("   ", "a@b.c"), "text"), ({**email("x", "a@b.c"), "subject": 7}, "subject")]:
@@ -131,7 +133,7 @@ def test_an_unknown_sender_waits_unsorted_until_a_person_picks_the_order():
         assert web.pick_order(out["case_id"], "LP-90001", None)[0] == 400          # nobody named
         assert web.pick_order(out["case_id"], "LP-99999", "marta")[0] == 400       # no such order
         assert web.pick_order(out["case_id"], "LP-90001", "marta") == (200, "DEMO-C001")   # joins Sophie's case
-        assert len(web.case_store("demo").get("DEMO-C001")["timeline"]) == 3     # her email, this one, the note
+        assert len(web.case_store("demo").get("DEMO-C001")["timeline"]) == 4     # her call, her email, this, the note
 
 
 def test_the_case_page_shows_every_channel_every_role_and_the_cost_so_far():
@@ -366,7 +368,8 @@ def test_a_title_never_shows_the_ai_s_words_as_the_shop_s():
             web.shop_orders = kept
         sophie = web.case_file_page("DEMO-C001", me="marta")
     assert f"<title>Case {out['case_id']} | Second Look</title>" in page and "<title>Refund" not in page
-    assert "<title>Tablecloth not arrived | Second Look</title>" in sophie    # the customer's own subject
+    # her case began with her call: its line is what the call is about, never presented as her words
+    assert "<title>Phone call: says it never arrived | Second Look</title>" in sophie
 
 
 def test_paypal_keeps_its_name_and_is_never_said_twice():

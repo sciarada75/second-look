@@ -212,11 +212,16 @@ class CaseStore(JsonFile):
             if sid and data["sources"].get(sid) in data["cases"]:
                 return dict(data["cases"][data["sources"][sid]]), "already_received"
             sender = request.get("from") or {}
+            # a call has no name or address of its own: the customer its number belongs to, else the number
+            caller = (sorting.get("customer") or {}).get("name") if request["channel"] == "call" else None
             got = entry(request.get("time"), request["channel"], "in", request["text"],
-                        sender.get("name") or sender.get("email") or "Customer",
+                        sender.get("name") or caller or sender.get("email") or sender.get("phone") or "Customer",
                         subject=request.get("subject") or "", source_id=sid,
-                        **{"from": {"name": sender.get("name"), "email": sender.get("email")}},
-                        sorted={"by": sorting.get("by"), "how": sorting.get("how")})
+                        **{"from": {"name": sender.get("name"), "email": sender.get("email"),
+                                    **({"phone": sender["phone"]} if sender.get("phone") else {})}},
+                        sorted={"by": sorting.get("by"), "how": sorting.get("how")},
+                        # a call's length (its staff time), how it was transcribed, and its recording
+                        **{k: request[k] for k in ("minutes", "transcript", "recording") if request.get(k) is not None})
             customer = sorting.get("customer") or {"name": sender.get("name"), "email": sender.get("email")}
             target = _open_of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
             if target is None and sorting.get("settled"):
