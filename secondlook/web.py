@@ -347,35 +347,57 @@ def _logged_refund(c: dict | None) -> dict | None:
             "on": f"{when:%d %b %Y}" if when else "", "by": back[-1].get("by") or ""}
 
 
-def _money_case_for(did: str, dispute_of) -> dict | None:
-    """The case of a PayPal dispute that has logged a refund, or None. Found by the dispute itself (a case it
-    joined) or by its order (the dispute's transaction is the case's order number), whether or not anything
-    has linked them yet: the inbox -> dispute -> approve path never opens the case page, where the link is made.
-    Read only (a dispute page never writes the case file), and with no case that logged money, no further
-    reading at all: `dispute_of()` (which may call PayPal) is asked only then."""
-    path = CASE_FILES[shop_of_case(did)]
+def _said(r: dict, cur: str) -> str:
+    """One logged refund in words: "10.00 EUR on 25 Oct 2026 by Giulia"."""
+    return f'{r["amount"]:.2f} {cur}' + (f' on {r["on"]}' if r["on"] else "") + (f' by {r["by"]}' if r["by"] else "")
+
+
+def refunds_on_order(src: str, order_no: str | None) -> list:
+    """Every refund logged on this order, by case (_logged_refund), from every case on it, closed ones too: a
+    closed case's refund is still money that went back. One order, one total, whichever case logged it."""
+    path = CASE_FILES[src]
+    if not order_no or not path.exists():
+        return []
+    return [r for r in (_logged_refund(c) for c in cases_mod.CaseStore(path).all() if c.get("order_no") == order_no) if r]
+
+
+def _money_cases_for(did: str, dispute_of) -> list:
+    """The cases that logged a refund on a PayPal dispute's order: the case it joined, and every case on its order
+    (the dispute's transaction is the order's transaction id), whether or not anything has linked them yet: the
+    inbox -> dispute -> approve path never opens the case page, where the link is made. Read only (a dispute
+    page never writes the case file), and with no case that logged money, no further reading at all:
+    `dispute_of()` (which may call PayPal) and the shop's orders are read only then."""
+    src = shop_of_case(did)
+    path = CASE_FILES[src]
     if not path.exists():
-        return None
+        return []
     paid = [c for c in cases_mod.CaseStore(path).all() if _logged_refund(c)]
     if not paid:
-        return None
+        return []
     joined = [c for c in paid if c.get("dispute_id") == did]
-    tx = None if joined else _tx_of(dispute_of() or {})
-    on = joined or [c for c in paid if tx and c.get("order_no") == tx]
-    return next((c for c in on if c["status"] == "open"), on[0] if on else None)
+    tx = _tx_of(dispute_of() or {})
+    on = []
+    if tx:
+        # only a case whose order IS that PayPal transaction: a card or bank order's number never matches one
+        by_no = {sort_mod.order_no(o): o for o in shop_orders(src)}
+        on = [c for c in paid if c not in joined and c.get("order_no")
+              and (by_no.get(c["order_no"]) or {}).get("transaction_id") == tx]
+    return joined + on
 
 
 def _with_case_refund(did: str, case: dict) -> dict:
-    """A PayPal dispute whose case already logged a refund (the shop answered the inquiry before PayPal had it):
-    its records say so, for the judge, the page and the guard's rule 10. A dispute whose case logged no money
-    is returned exactly as it was."""
-    r = _logged_refund(_money_case_for(did, lambda: case["dispute"]))
-    if not r:
+    """A PayPal dispute on an order whose cases already logged refunds (the shop answered by email before PayPal
+    had it): its records say so, with the total and each case, for the judge, the page and the guard's rule 10.
+    A dispute whose order has no logged refund is returned exactly as it was."""
+    rs = [_logged_refund(c) for c in _money_cases_for(did, lambda: case["dispute"])]
+    if not rs:
         return case
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
-    said = f'{r["amount"]:.2f} {cur}' + (f' on {r["on"]}' if r["on"] else "") + (f' by {r["by"]}' if r["by"] else "")
-    records = {**case["seller_records"], "refund_logged_on_case": r["case_id"], "refunded_so_far": r["amount"],
-               "already_refunded": f'{said}, on case {r["case_id"]}',
+    total = round(sum(r["amount"] for r in rs), 2)
+    each = "; ".join(f'{_said(r, cur)}, on case {r["case_id"]}' for r in rs)
+    records = {**case["seller_records"], "refund_logged_on_case": ", ".join(r["case_id"] for r in rs),
+               "refunded_so_far": total, "already_refunded": each if len(rs) == 1 else f"{total:.2f} {cur} in all: {each}",
+               "refunds_logged": [{**r, "currency": cur} for r in rs],
                "sources": {**case["seller_records"].get("sources", {}), "already_refunded": "Your case record"}}
     return {**case, "seller_records": records}
 
@@ -519,8 +541,9 @@ def inquiry_case(cid: str) -> dict:
     talk = [x for x in c["timeline"] if x["direction"] in ("in", "out")]
     # What has already gone back on this order: the amount at stake is what is left of it, so a second refund
     # finds nothing (the guard's rule 9) and a partial refund is capped at the rest.
-    back = [m for m in c.get("money", []) if m.get("kind") in ("refund", "partial_refund")]
-    refunded = round(sum(float(m.get("amount") or 0) for m in back), 2)
+    back = refunds_on_order(v["src"], c.get("order_no")) if c.get("order_no") else \
+        [r for r in (_logged_refund(c),) if r]
+    refunded = round(sum(r["amount"] for r in back), 2)
     left = max(0.0, round(v["at_stake"] - refunded, 2))
     # The case's real stage: once PayPal has it, the inquiry's review is out of date (and refused: see _inquiry_refusal)
     stage = "SHOP_INQUIRY" if c["stage"] == "inquiry" else c["stage"].upper()
@@ -543,9 +566,9 @@ def inquiry_case(cid: str) -> dict:
     records["order_amount"] = _num(o.get("amount")) if o else None     # unreadable: no order with an amount
     records["refunded_so_far"] = refunded
     if back:
-        when = _t(back[-1].get("at"))
-        records["already_refunded"] = (f"{refunded:.2f} {v['currency']}" + (f" on {when:%d %b %Y}" if when else "")
-                                       + (f" by {back[-1]['by']}" if back[-1].get("by") else ""))
+        each = "; ".join(_said(r, v["currency"]) + ("" if r["case_id"] == cid else f', on case {r["case_id"]}')
+                         for r in back)
+        records["already_refunded"] = each if len(back) == 1 else f"{refunded:.2f} {v['currency']} in all: {each}"
         sources["already_refunded"] = "Your case record"
     records["sources"] = sources
     ins = [x for x in talk if x["direction"] == "in"]
@@ -1972,14 +1995,15 @@ def judged_note(did: str, judged: str | None, sent: bool) -> str:
 
 
 def case_refund_note(r: dict) -> str:
-    """On a PayPal dispute's page: a refund the shop already logged on this order's case, before PayPal had it."""
+    """On a PayPal dispute's page: each refund the shop already logged on this order's cases, before PayPal had it."""
     if not r.get("refund_logged_on_case"):
         return ""
-    said, _, cid = r["already_refunded"].rpartition(", on case ")
-    amount, _, rest = said.partition(" on ")
-    return (f'<p class="check-sender">A refund of {e(amount)} was already logged on case '
-            f'<a href="/c/{e(cid)}">{e(cid)}</a>{" on " + e(rest) if rest else ""}. '
-            'Check it before you answer PayPal: paying twice, or defending a refund you promised, is never right.</p>')
+    each = " ".join(f'A refund of {x["amount"]:.2f} {e(x.get("currency", ""))} was already logged on case '
+                    f'<a href="/c/{e(x["case_id"])}">{e(x["case_id"])}</a>'
+                    f'{" on " + e(x["on"]) if x.get("on") else ""}{" by " + e(x["by"]) if x.get("by") else ""}.'
+                    for x in r.get("refunds_logged", []))
+    return (f'<p class="check-sender">{each} Check it before you answer PayPal: paying twice, or defending a refund '
+            'you promised, is never right.</p>')
 
 
 def part_of_case(did: str) -> str:
@@ -2153,7 +2177,7 @@ def run_review(did: str) -> Decision:
     judge = "claude" if has_ai_key() else "rules"
     if cases_mod.is_case_id(did):
         dec = review_inquiry(did, judge)
-    elif _money_case_for(did, lambda: _client(did).get_dispute(did)):
+    elif _money_cases_for(did, lambda: _client(did).get_dispute(did)):
         dec = review_with_case_refund(did, judge)
     else:
         dec = review(_client(did), did, judge)       # every other dispute: exactly as before

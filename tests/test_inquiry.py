@@ -506,6 +506,53 @@ def test_a_case_is_closed_by_a_person_with_its_outcome_and_a_dispute_only_by_pay
         assert web.take("DEMO-C002", "luca") == (200, "Luca took this case.")     # an open inquiry can be taken
 
 
+def test_refunds_on_one_order_add_up_across_its_cases_on_both_sides():
+    with morning():                                                            # the inquiry side: rule 9
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", "r2:1")
+        a = o["case_id"]
+        web.run_review(a)
+        assert web.approve(a, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        assert web.close_case(a, "refunded", "giulia")[0] == 200
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: where is my refund?", "r2:2")
+        b = o["case_id"]
+        assert b != a and o["filed"] == "opened"                                # a closed case is never joined
+        dec = web.run_review(b)
+        assert "already_refunded" in dec.stops and web.approve(b, "REFUND", "Refund.", by="giulia")[0] == 409
+        assert f"on case {a}" in web._case(b)["seller_records"]["already_refunded"]
+    clara = next(o for o in DemoPayPal().orders() if o["transaction_id"] == "DEMOTX01969")
+    claude = lambda c: Judgment("PARTIAL_REFUND", 0.95, "Faked.", draft_message="10 back", partial_amount="10 EUR")  # noqa: E731
+    with morning(ai_key=True, claude=claude):                                  # the dispute side: rule 10
+        real = web.shop_disputes
+        web.shop_disputes = lambda src: [d for d in real(src) if d["dispute_id"] != "DEMO-039"]
+        try:
+            _, o = _ask(clara["email"], "My order DEMOTX01969 never arrived.", "r2:3")
+            a = o["case_id"]
+            web.run_review(a)
+            assert web.approve(a, "PARTIAL_REFUND", "10 back", by="giulia")[0] == 200
+            assert web.close_case(a, "refunded", "giulia")[0] == 200
+            _, o = _ask(clara["email"], "Order DEMOTX01969 again: still nothing.", "r2:4")
+            b = o["case_id"]
+            web.run_review(b)
+            assert web.approve(b, "PARTIAL_REFUND", "10 back", by="giulia")[0] == 200
+        finally:
+            web.shop_disputes = real
+        rec = web._case("DEMO-039")["seller_records"]
+        assert rec["refunded_so_far"] == 20.0 and rec["refund_logged_on_case"] == f"{a}, {b}"
+        assert rec["already_refunded"].startswith("20.00 EUR in all: 10.00 EUR on ")
+        page = web.case_page("DEMO-039", me="giulia")
+        assert f'on case <a href="/c/{a}">{a}</a>' in page and f'on case <a href="/c/{b}">{b}</a>' in page
+        assert web.approve("DEMO-039", "REFUND", "x", by="giulia")[0] == 409
+
+
+def test_a_case_matches_a_dispute_by_order_only_when_its_order_is_that_paypal_transaction():
+    claude = lambda c: Judgment("PARTIAL_REFUND", 0.95, "Faked.", draft_message="5 back", partial_amount="5 EUR")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        web.run_review("DEMO-C001")                                            # Sophie: card order LP-90001
+        assert web.approve("DEMO-C001", "PARTIAL_REFUND", "5 back", by="marta")[0] == 200
+        fake = {"dispute_id": "DEMO-998", "disputed_transactions": [{"seller_transaction_id": "LP-90001"}]}
+        assert web._money_cases_for("DEMO-998", lambda: fake) == []           # a card order is no PayPal transaction
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
