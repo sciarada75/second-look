@@ -90,6 +90,68 @@ def test_a_call_is_sorted_by_the_caller_s_number_and_never_onto_two_customers():
     assert not shared["settled"] and shared["how"].startswith("The caller's number is on none of the shop's orders")
 
 
+@contextmanager
+def morning(live_box=None):
+    """The demo shop's real data and its call box; its case file, assignments, reviews and logs in a temporary
+    folder; no AI key; local whisper never runs. `live_box`: a call box for the live shop (a temporary folder)."""
+    tmp = Path(tempfile.mkdtemp())
+    kept = (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+            sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], judge.BACKENDS["claude"], demo_mod.ACTION_LOG,
+            web.CALL_BOXES, web.TRANSCRIBE)
+    store = team_mod.Assignments(tmp / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
+
+    def no_paid_call(*a):
+        raise AssertionError("no paid AI call may run in this test")
+    try:
+        web.CASE_FILES = {"demo": tmp / "cases-demo.json", "live": tmp / "cases-live.json"}
+        web.OUTBOX_LOGS = {"demo": tmp / "actions-demo.jsonl", "live": tmp / "actions-live.jsonl"}
+        web.REVIEWS, web.SUGGESTED = tmp / "reviews", tmp / "suggested.json"
+        demo_mod.ACTION_LOG = tmp / "demo-paypal-actions.jsonl"
+        web.assignments_for = lambda did: store
+        web.has_ai_key = lambda: False
+        web.notify = lambda event, payload: None
+        sort_mod.read_with_ai = judge.INQUIRY_BACKENDS["claude"] = judge.BACKENDS["claude"] = no_paid_call
+        web.CALL_BOXES = {"demo": BOX, "live": live_box}
+        web.TRANSCRIBE = lambda wav: None
+        yield tmp
+    finally:
+        (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+         sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], judge.BACKENDS["claude"], demo_mod.ACTION_LOG,
+         web.CALL_BOXES, web.TRANSCRIBE) = kept
+
+
+def test_sophie_calls_first_and_her_email_joins_the_same_case():
+    with morning():
+        c = web.case_store("demo").get("DEMO-C001")
+        assert [(x["channel"], x["by"]) for x in c["timeline"]] == [("call", "Sophie Durand"), ("email", "Sophie Durand")]
+        call = c["timeline"][0]
+        assert (call["minutes"], call["transcript"], call["recording"]) == (0.57, calls.SHIPPED, f"{SOPHIE}.wav")
+        assert c["order_no"] == "LP-90001" and "the caller's number is Sophie Durand's" in c["sorted"]["how"]
+        assert web.case_view("DEMO-C001")["costs"]["minutes"] == 0.57          # a call's length is its staff time
+        page = web.case_file_page("DEMO-C001", me="marta")
+        assert "📞</span> Call in · Sophie Durand, <i>customer</i>" in page and "34 s call · transcript shipped with the demo" in page
+        s = web.today_view("demo")["see"]
+        assert s["counts"]["call"] == 1 and next(r for r in s["rows"] if r["case_id"] == "DEMO-C001")["channels"] == ["call", "email"]
+        assert "📞 1 call" in web.today_page("demo", "giulia")
+
+
+def test_a_new_recording_comes_in_once_and_without_a_call_box_the_phone_says_so():
+    box = Path(tempfile.mkdtemp())
+    with morning():
+        assert "📞 Phone: not connected yet" in web.today_page("live")          # the live shop has no call box here
+    with morning(live_box=box):
+        assert web.today_view("live")["phone"] and web.case_store("live").all() == []
+        shutil.copy(BOX / f"{SOPHIE}.wav", box / "call1.wav")
+        (box / "call1.json").write_text(json.dumps({"recording": "call1.wav", "from_phone": "+1 555 000 1111",
+                                                    "time": "2026-10-25T09:00:00Z", "seconds": 90}))
+        (box / "call1.txt").write_text("My order never arrived.")
+        web.today_view("live")
+        web.today_view("live")                                               # the second look files nothing new
+        [c] = web.case_store("live").all()
+        assert c["timeline"][0]["minutes"] == 1.5 and c["sorted"]["by"] is None   # an unknown number: a person picks
+        assert "The caller's number is on none of the shop's orders" in c["sorted"]["how"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

@@ -65,6 +65,12 @@ def _buyer_since(d: dict, start: str) -> list:
                   if m.get("posted_by") == "BUYER" and _at(m.get("time_posted")) >= start)
 
 
+def _opened_by_call(c: dict) -> bool:
+    """The case began with a phone call: its line is Second Look's description of the call, not anyone's words."""
+    first = next((x for x in sorted(c.get("timeline", []), key=lambda x: x.get("at") or "") if x.get("direction") == "in"), None)
+    return bool(first) and first.get("channel") == "call"
+
+
 def _dispute_of_case(cases: list) -> dict:
     """Dispute id -> the case holding it: the open one first (a closed case is history)."""
     out = {}
@@ -131,7 +137,8 @@ def came_in(cases: list, disputes: list, orders: list, today: date, review_of=la
                      "decision_id": decision, "channels": chans, "who": c["customer"].get("name") or c["customer"].get("email"),
                      "summary": c["problem"].get("summary") or KIND_LABEL.get(c["problem"].get("kind"), ""),
                      # whose words the summary is: Second Look's AI's reading, or the customer's own
-                     "summary_by": "ai" if (c.get("sorted") or {}).get("by") == "ai" else "customer",
+                     "summary_by": "ai" if (c.get("sorted") or {}).get("by") == "ai"
+                     else "call" if _opened_by_call(c) else "customer",
                      "order_no": c.get("order_no"),
                      "amount": _num(d["dispute_amount"]["value"]) if d else amount_of.get(c.get("order_no"), 0.0),
                      "currency": (d["dispute_amount"].get("currency_code") if d else currency_of.get(c.get("order_no")))
@@ -272,6 +279,8 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
     return {"from": m, "orders": ordered, "requests": len(new_cases) + len(new_disputes),
             "requests_by_channel": _first_channels(new_cases, len(new_disputes)),
             "solved_before_dispute": len(solved), "answers": written, "minutes": minutes,
+            "calls": sum(1 for x in entries if x.get("channel") == "call" and x.get("direction") == "in"),
+            "call_minutes": round(call_min, 2),
             "hourly_cost": st["hourly_cost"], "reply_minutes": st["reply_minutes"],
             "staff_cost": round(minutes / 60 * st["hourly_cost"], 2),
             "back_cases": back_cases, "back_paypal": back_paypal, "back": round(back_cases + back_paypal, 2),

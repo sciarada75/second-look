@@ -1288,7 +1288,7 @@ table.waiting{{width:100%;border-collapse:collapse;margin-top:8px}}
 .check-sender{{border-left:4px solid var(--incon);background:#fff;padding:8px 12px;margin:12px 0}}
 .pill.shop{{background:var(--kraft-bg);color:#6E4F27}} .chan{{display:inline-block;min-width:24px}}
 .ai-tag{{display:inline-block;margin-left:8px;padding:0 6px;font-size:12px;font-weight:500;border:1px solid var(--kraft);color:#6E4F27;background:#fff}}
-.talk .t-sub{{display:block}} .pick input{{width:100%;font:400 16px "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff}}
+.talk .t-sub{{display:block}} .talk q{{white-space:pre-line}} .pick input{{width:100%;font:400 16px "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff}}
 .pick label{{display:block;font-weight:700;margin:12px 0 6px}}
 .blocks{{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start;margin-top:18px}}
 .block{{background:#fff;border:1px solid var(--rule);padding:18px 20px}} .block.wide{{max-width:1100px;margin:0 0 30px}}
@@ -1733,10 +1733,12 @@ def today_view(src: str) -> dict:
     """The three blocks of the morning screen, as data (the page and GET /api/today show the same)."""
     demo = src == "demo"
     today = DemoPayPal().today if demo else datetime.utcnow().date()
+    if CALL_BOXES.get(src):
+        file_calls(case_store(src), src)              # a call left in the box since the last look comes in now
     cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
     t = team_for_src(src)
     assigned = {} if t.get("solo") else assignments_for("DEMO-" if demo else None).all()
-    return {"today": today, "team": t,
+    return {"today": today, "team": t, "phone": bool(CALL_BOXES.get(src)),
             "see": today_mod.came_in(cases, disputes, orders, today, review_of=review_line),
             "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
             "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src))}
@@ -1772,7 +1774,9 @@ def month_block(k: dict, today) -> str:
             ("Solved before any PayPal dispute", f'{k["solved_before_dispute"]}', "shop inquiries closed this month"),
             ("Staff time", f'{_hours(k["minutes"])}, about {m(k["staff_cost"])}',
              f'estimated: {k["answers"]} written answer{"s" if k["answers"] != 1 else ""} × {k["reply_minutes"]:g} min '
-             f'at {k["hourly_cost"]:g} {cur} an hour (your rules)'),
+             + (f'and {k["calls"]} call{"s" if k["calls"] != 1 else ""} ({_hours(k["call_minutes"])}, their own length) '
+                if k.get("calls") else "")
+             + f'at {k["hourly_cost"]:g} {cur} an hour (your rules)'),
             ("Money given back", m(k["back"]), f'{m(k["back_cases"])} on your own cases (logged), '
                                                f'{m(k["back_paypal"])} through PayPal'),
             ("PayPal dispute fees", m(k["fees"]), "estimated from PayPal's fee table"),
@@ -1797,12 +1801,12 @@ def _rec(r: dict | None) -> str:
     return f'<span class="rec">{tag} {e(r["text"])}</span>'
 
 
-def see_block(s: dict, q: str) -> str:
+def see_block(s: dict, q: str, phone: bool = False) -> str:
     chips = [f'<span class="chip ord">🛒 {s["orders"]:,} new order{"s" if s["orders"] != 1 else ""}</span>']
     for ch, word, n in today_mod.channel_words(s["counts"]):
         if ch == "paypal" and s.get("paypal_messages"):
             word = "PayPal disputes or new PayPal messages"     # it counts a buyer's new message on an older one too
-        if ch == "call":
+        if ch == "call" and not phone:
             chips.append('<span class="chip off">📞 Phone: not connected yet</span>')
             continue
         chips.append(f'<span class="chip">{e(cases_mod.CHANNEL_ICON[ch])} {n} {e(word)}</span>')
@@ -1818,6 +1822,7 @@ def see_block(s: dict, q: str) -> str:
                     f'<span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · '
                     # the customer's own words, or Second Look's AI's reading of them: never one for the other
                     + (f'Second Look\'s AI reads this as: {e(r["summary"])}' if r.get("summary_by") == "ai"
+                       else e(r["summary"]) if r.get("summary_by") == "call"
                        else f'they wrote: “{e(r["summary"])}”')
                     + f' · {r["amount"]:.2f} {e(r.get("currency") or "EUR")}{order}{" · closed" if r["status"] != "open" else ""}'
                     f'{_rec(r["review"])}</span>{due}</a></li>')
@@ -1860,7 +1865,7 @@ def today_page(src: str, me: str | None = None) -> str:
     body = (f'<h1 class="page">Today at {e(name)}</h1>{about}'
             f'<p class="who">I see, I manage, I know: every channel, one place. The lists stay where they were: '
             f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
-            f'<div class="blocks"><section class="block">{see_block(v["see"], q)}</section>'
+            f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"])}</section>'
             f'<section class="block">{manage_block(v["manage"], q)}</section>'
             f'<section class="block">{month_block(v["know"], v["today"])}'
             f'{claim_line_box(v["know"]["high_volume"], v["today"])}</section></div>')
@@ -1900,6 +1905,11 @@ def _when(at: str) -> str:
     return f"{t:%d %b, %H:%M}" if t else ""
 
 
+def _call_length(minutes) -> str:
+    seconds = int(round(float(minutes) * 60))
+    return f"{seconds // 60} min {seconds % 60:02d} s call" if seconds >= 60 else f"{seconds} s call"
+
+
 def timeline_block(v: dict) -> str:
     """Every contact in time order: channel, in or out, who (with their role), and whether Second Look's AI wrote it."""
     c, t = v["case"], v["team"]
@@ -1915,6 +1925,10 @@ def timeline_block(v: dict) -> str:
         head = (f'<b><span class="chan" title="{e(label)}">{e(icon)}</span>{" " + e(said) if said else ""} · {who} · '
                 f'{e(_when(x["at"]))}{ai}</b>')
         subject = f'<span class="t-sub">{e(x["subject"])}</span>' if x.get("subject") else ""
+        if x["channel"] == "call" and x.get("minutes"):
+            # a call: how long it was (its staff time), and whose words these are: local whisper's, or shipped
+            subject += (f'<span class="t-sub">{_call_length(x["minutes"])} · '
+                        f'{e(x.get("transcript") or "transcript")}</span>')
         body = f'<q>{e(x.get("text") or "")}</q>' if x["direction"] != "note" else f'<span>{e(x.get("text") or "")}</span>'
         srt = x.get("sorted") or {}
         sort_line = (f'<span class="t-sub">{e(srt["how"])}'

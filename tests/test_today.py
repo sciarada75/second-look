@@ -193,7 +193,7 @@ def test_the_morning_screen_says_whose_names_and_roles_and_labels_every_estimate
     with morning():
         html_ = web.today_page("demo", "giulia")
         for words in ("I see", "I manage", "I know", "🛒 141 new orders", "✉️ 2 emails", "📝 1 web form",
-                      "PayPal 3 PayPal disputes", "📞 Phone: not connected yet", "<b>Pablo Martin</b>, <i>customer</i>",
+                      "PayPal 3 PayPal disputes", "📞 1 call", "<b>Pablo Martin</b>, <i>customer</i>",
                       "<b>Marta</b>, <i>Customer care assistant</i>", "<b>Giulia</b>, <i>Head of customer care</i>",
                       "Second Look's AI", "19 days left", "no PayPal deadline", "This month (October 2026)",
                       "estimated: 23 written answers", "estimated from PayPal&#x27;s fee table", "at most 1,073.00 EUR",
