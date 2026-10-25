@@ -60,6 +60,14 @@ class DemoPayPal(MockPayPal):
     def orders(self) -> list:
         return self.raw["orders"]
 
+    def other_orders(self) -> list:
+        """Orders paid by card or bank transfer: the shop's own records, not PayPal's (no transaction id)."""
+        return self.raw.get("other_orders", [])
+
+    def requests(self) -> list:
+        """What reached the shop by email or web form this morning, through its helpdesk."""
+        return self.raw.get("requests", [])
+
     def list_disputes(self, status: str = "REQUIRED_ACTION") -> list:
         return [d for d in self.raw["disputes"] if d["status"] in STATE.get(status, ())]
 

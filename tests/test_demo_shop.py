@@ -104,6 +104,42 @@ def test_new_customers_are_not_the_team_and_names_rarely_repeat():
     assert max(collections.Counter(new.values()).values()) <= 5
 
 
+# ---------- requests by email and web form (25/10) ----------
+# The PayPal side of the demo, as it was before requests were added: orders, disputes, records, who has which
+# case, who handled what. Shipped reviews and paid-for reviews were made on exactly this.
+PAYPAL_SIDE = "2d109ff504445f4270f8971b1d9ec68703d91708ba4dcb56a98f23a22a17e6a8"
+
+
+def test_adding_requests_moved_nothing_on_the_paypal_side():
+    import hashlib
+    import json
+    keep = {k: pp.raw[k] for k in ("today", "orders", "disputes", "records", "assignments", "handled_by")}
+    assert hashlib.sha256(json.dumps(keep, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == PAYPAL_SIDE
+
+
+def test_the_generator_is_deterministic_and_the_shipped_file_is_its_output():
+    import subprocess
+    import tempfile
+    root = Path(__file__).resolve().parent.parent
+    outs = [Path(tempfile.mkdtemp()) / "shop.json" for _ in range(2)]
+    for out in outs:
+        subprocess.run([sys.executable, str(root / "demo" / "make_demo.py"), str(out)], check=True, capture_output=True)
+    assert outs[0].read_bytes() == outs[1].read_bytes() == (root / "demo" / "shop.json").read_bytes()
+
+
+def test_the_demo_requests_sort_by_rules_to_the_cases_the_film_follows():
+    from secondlook import sort
+    everything = pp.orders() + pp.other_orders()
+    open_orders = {d["disputed_transactions"][0]["seller_transaction_id"] for d in pp.disputes() if d["status"] != "RESOLVED"}
+    got = {r["source_id"]: sort.sort(r, everything, open_orders, ai=None) for r in pp.requests()}
+    assert {sid: (s["settled"], s["by"], s["order_no"], s["kind"]) for sid, s in got.items()} == {
+        "ticketbook:2101": (True, "rules", "LP-90001", "not_received"),     # Sophie, card
+        "ticketbook:2102": (True, "rules", "LP-90002", "wrong_size"),       # Lena, bank, web form
+        "ticketbook:2004": (True, "rules", "DEMOTX01828", "refund_missing")}  # Pablo: the order of DEMO-034
+    paid = {o["order_no"]: o["paid_with"] for o in pp.other_orders()}
+    assert paid == {"LP-90001": "card", "LP-90002": "bank"}
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

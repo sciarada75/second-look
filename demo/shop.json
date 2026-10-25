@@ -46,7 +46,8 @@
    "Linen shirt": "Linen shirt, sizes S-XL, relaxed fit; size chart on the listing.",
    "Art print": "Art print, A4, on 300 g paper, shipped flat in a stiffened envelope.",
    "Framed print set": "Set of 3 framed A3 prints, oak frames, shipped insured.",
-   "Notebook set": "Set of 2 linen-bound notebooks, A5, dotted."
+   "Notebook set": "Set of 2 linen-bound notebooks, A5, dotted.",
+   "Linen tablecloth": "Linen tablecloth, 140x200 cm, natural or sage, stonewashed."
   },
   "costs": {
    "_comment": "The shop's own figures: what one item costs to make, and postage.",
@@ -58,7 +59,8 @@
     "Linen shirt": 31.0,
     "Art print": 6.0,
     "Framed print set": 96.0,
-    "Notebook set": 9.0
+    "Notebook set": 9.0,
+    "Linen tablecloth": 26.0
    }
   }
  },
@@ -144823,5 +144825,95 @@
   "DEMO-106": "Giulia",
   "DEMO-111": "Giulia",
   "DEMO-124": "Marta"
- }
+ },
+ "other_orders": [
+  {
+   "order_no": "LP-90001",
+   "paid_with": "card",
+   "name": "Sophie Durand",
+   "email": "sophie.durand@example.com",
+   "address": "Via Saragozza 10, 40123 Bologna, IT",
+   "date": "2026-10-12",
+   "time": "2026-10-12T18:40:00Z",
+   "amount": 64.0,
+   "currency": "EUR",
+   "items": [
+    {
+     "item_name": "Linen tablecloth",
+     "item_quantity": "1"
+    }
+   ],
+   "tracking": {
+    "carrier": "Local courier",
+    "tracking_number": "LC90001IT",
+    "status": "DELIVERED",
+    "shipped_date": "2026-10-13",
+    "last_update": "2026-10-15T11:05:00Z",
+    "delivered_to": "left with a neighbour (Bianchi, Via Saragozza 12)",
+    "address_matches_order": true
+   }
+  },
+  {
+   "order_no": "LP-90002",
+   "paid_with": "bank",
+   "name": "Lena Vogel",
+   "email": "lena.vogel@example.com",
+   "address": "Kirchgasse 4, 1070 Wien, AT",
+   "date": "2026-10-14",
+   "time": "2026-10-14T09:15:00Z",
+   "amount": 89.0,
+   "currency": "EUR",
+   "items": [
+    {
+     "item_name": "Linen shirt",
+     "item_quantity": "1",
+     "size": "M"
+    }
+   ],
+   "tracking": {
+    "carrier": "Local courier",
+    "tracking_number": "LC90002IT",
+    "status": "DELIVERED",
+    "shipped_date": "2026-10-14",
+    "last_update": "2026-10-16T14:30:00Z",
+    "delivered_to": "handed to the customer",
+    "address_matches_order": true
+   }
+  }
+ ],
+ "requests": [
+  {
+   "source_id": "ticketbook:2101",
+   "channel": "email",
+   "from": {
+    "name": "Sophie Durand",
+    "email": "sophie.durand@example.com"
+   },
+   "time": "2026-10-19T08:52:00Z",
+   "subject": "Tablecloth not arrived",
+   "text": "Hello, my linen tablecloth (order LP-90001) still hasn't arrived. The tracking says delivered, but I have nothing. Can you help? Sophie"
+  },
+  {
+   "source_id": "ticketbook:2102",
+   "channel": "form",
+   "from": {
+    "name": "Lena Vogel",
+    "email": "lena.vogel@example.com"
+   },
+   "time": "2026-10-19T21:10:00Z",
+   "subject": "Exchange: wrong size",
+   "text": "Order LP-90002: the linen shirt is too small. I ordered M but I need an L. Can I exchange it?"
+  },
+  {
+   "source_id": "ticketbook:2004",
+   "channel": "email",
+   "from": {
+    "name": "Pablo Martin",
+    "email": "pablo.m576@example.com"
+   },
+   "time": "2026-10-19T09:45:00Z",
+   "subject": "Refund for my returned shirt?",
+   "text": "I sent the shirt back on 5 October and you got it on the 8th. I still have no refund."
+  }
+ ]
 }
