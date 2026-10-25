@@ -553,6 +553,26 @@ def test_a_case_matches_a_dispute_by_order_only_when_its_order_is_that_paypal_tr
         assert web._money_cases_for("DEMO-998", lambda: fake) == []           # a card order is no PayPal transaction
 
 
+def test_ticketbook_shows_and_approves_sophie_s_inquiry_through_the_real_api():
+    from helpdesk.app import Helpdesk
+    from helpdesk.secondlook_client import SecondLook
+    with morning() as b:
+        web.run_review("DEMO-C001")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            hd = Helpdesk(ROOT / "helpdesk" / "tickets.json", b.tmp / "events.jsonl",
+                          SecondLook(f"http://127.0.0.1:{srv.server_address[1]}"))
+            page = hd.ticket_page(2101, "marta")
+            assert "Shop inquiry DEMO-C001" in page and "Approve as Marta: reply only" in page
+            code, text = hd.approve(2101, "marta", {"dispute_id": "DEMO-C001", "action": "MESSAGE",
+                                                    "message": "It was left at no. 12.", "review": web.review_mark("DEMO-C001")})
+            assert code == 200 and text.startswith("Reply sent by email. Sent by Marta")
+            assert web.case_store("demo").get("DEMO-C001")["timeline"][-1]["text"] == "It was left at no. 12."
+        finally:
+            srv.shutdown()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

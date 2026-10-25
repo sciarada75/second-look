@@ -34,7 +34,7 @@ ACTION = {"DEFEND": "Defend with evidence", "REFUND": "Refund in full", "PARTIAL
           "REPLACE": "Send a replacement", "MESSAGE": "Reply only", "ASK_SELLER": "Your call"}
 REASON = {"MERCHANDISE_OR_SERVICE_NOT_RECEIVED": "Says it never arrived",
           "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED": "Says it's not as described",
-          "CREDIT_NOT_PROCESSED": "Says the refund never came"}
+          "CREDIT_NOT_PROCESSED": "Says the refund never came", "SHOP_INQUIRY": "Wrote to the shop"}
 
 CSS = """
 :root{--page:#EEF1F5;--card:#FFFFFF;--rail:#1C2541;--rail-soft:#2A3558;--accent:#2F6FDE;--accent-bg:#E6EEFC;
@@ -157,6 +157,8 @@ def money(amount) -> str:
 
 def pill(case: dict) -> str:
     """Whose move it is, from the dispute's status and stage as Second Look reports them."""
+    if case.get("stage") == "SHOP_INQUIRY":           # a request to the shop, not (yet) a PayPal dispute
+        return '<span class="pill you">Shop inquiry</span>'
     if case.get("stage") and case.get("stage") != "INQUIRY":
         return '<span class="pill claim">PayPal claim</span>'
     cls, text = {"WAITING_FOR_SELLER_RESPONSE": ("you", "Your move"),
@@ -199,7 +201,8 @@ def event_text(ev: dict) -> str:
     kind = ev.get("event")
     if kind == "answer.sent":
         by = ev.get("by")
-        text = f"answer sent to PayPal by {by}" if by else "answer sent to PayPal"
+        where = {"email": "by email", "form": "by email", "call": "by phone"}.get(ev.get("channel"), "to PayPal")
+        text = f"answer sent {where} by {by}" if by else f"answer sent {where}"
         at = re.search(r"\b(\d{1,2}:\d{2})\b", str(ev.get("what_happened") or ""))
         return text + (f", {at.group(1)}" if at else "")
     if kind == "case.handed_off":
@@ -260,7 +263,7 @@ class Helpdesk:
         """Keep one notification from Second Look (one JSON line), with the time it arrived. Anything that isn't
         one is ignored. Stored as it came: it is escaped when shown, never when stored."""
         if not (isinstance(payload, dict) and isinstance(payload.get("event"), str)
-                and isinstance(payload.get("dispute_id"), str)):
+                and (isinstance(payload.get("dispute_id"), str) or isinstance(payload.get("case_id"), str))):
             return False
         line = {**payload, "received": datetime.now(timezone.utc).isoformat(timespec="microseconds")}
         with self._lock:
@@ -281,7 +284,7 @@ class Helpdesk:
                 ev = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(ev, dict) and ev.get("dispute_id") in dispute_ids:
+            if isinstance(ev, dict) and (ev.get("dispute_id") in dispute_ids or ev.get("case_id") in dispute_ids):
                 out.append((str(ev.get("received") or ""), i, ev))
         return [ev for _, _, ev in sorted(out, key=lambda x: (x[0], x[1]))]
 
@@ -416,16 +419,32 @@ class Helpdesk:
             sleep(first_wait * 2 ** i)
         return 0
 
-    def _case_line(self, t: dict, me: dict) -> str:
-        """Which Second Look case this ticket is on: filed (again, harmlessly) when the panel opens."""
+    def _filed_case(self, t: dict):
+        """(case id, the case as Second Look shows it) for an open ticket; (None, {}) when there is none."""
         if t.get("status") != "open":
-            return ""
+            return None, {}
         filed = self.sl.file_request(t)
         if not isinstance(filed, dict) or not filed.get("case_id"):
-            return ""
+            return None, {}
         c = self.sl.case_of(str(filed["case_id"])) or {}
         if not isinstance(c, dict):
             raise ValueError("case is not an object")
+        cid = str(filed["case_id"])
+        return cid, {**filed, **c, "case_id": cid}
+
+    def inquiry_of(self, t: dict) -> str | None:
+        """The ticket's own Second Look case when it is a shop inquiry (no PayPal dispute): Ticketbook may approve
+        on it. A case with a PayPal dispute is approved on the dispute, as before."""
+        cid, c = self._filed_case(t)
+        return cid if cid and not c.get("dispute_id") and c.get("status", "open") == "open" else None
+
+    def _case_line(self, t: dict, me: dict) -> str:
+        """Which Second Look case this ticket is on: filed (again, harmlessly) when the panel opens. A shop
+        inquiry gets its review and its one button here, from Second Look's answer, like a dispute."""
+        cid, c = self._filed_case(t)
+        if not cid:
+            return ""
+        filed = c
         # the channels as people say them ("email + PayPal", "web form"); an older Second Look sends only keys
         came = " + ".join(str(x) for x in c.get("channel_labels") or c.get("channels") or [])
         stage = str(c.get("stage_label") or filed.get("stage") or "")
@@ -433,9 +452,12 @@ class Helpdesk:
         how = str(((c.get("sorted") or filed.get("sorted")) or {}).get("how") or "")
         link = (f'<a class="open-sl" href="{e(self.secondlook_url())}/c/{e(quote(str(filed["case_id"])))}?as={e(quote(me["id"]))}" '
                 'target="_blank" rel="noopener">Open the case in Second Look</a>')
-        return (f'<div class="case"><div class="line"><span class="pill {kind}">{e(stage)}</span>'
+        line = (f'<div class="case"><div class="line"><span class="pill {kind}">{e(stage)}</span>'
                 f'<span>Case {e(str(filed["case_id"]))}</span>{f"<span>{e(came)}</span>" if came else ""}</div>'
                 f'<p class="soft">{e(how)}</p>{link}</div>')
+        if not c.get("dispute_id") and c.get("sorted", {}).get("by") and c.get("status", "open") == "open":
+            line += self._case_block(cid, me, int(t["id"])) + self.history([cid])
+        return line
 
     def _panel_body(self, t: dict, me: dict) -> str:
         try:
@@ -462,7 +484,8 @@ class Helpdesk:
         return on_case + "".join(parts)
 
     def _case_block(self, did: str, me: dict, tid: int) -> str:
-        link = (f'<a class="open-sl" href="{e(self.secondlook_url())}/d/{e(quote(did))}?as={e(quote(me["id"]))}" '
+        page = "c" if re.fullmatch(r"(?:DEMO-)?C\d{3,}", did) else "d"     # a shop inquiry has a case page
+        link = (f'<a class="open-sl" href="{e(self.secondlook_url())}/{page}/{e(quote(did))}?as={e(quote(me["id"]))}" '
                 f'target="_blank" rel="noopener">Open in Second Look</a>')
         c = self.sl.case(did, as_person=me["id"])
         if c is None:
@@ -471,7 +494,7 @@ class Helpdesk:
             raise ValueError("case is not an object")
         head = (f'<div class="line">{pill(c)}<span class="amt">{e(money(c.get("amount")))}</span>'
                 f'<span>{e(REASON.get(c.get("reason"), str(c.get("reason") or "")))}</span></div>'
-                f'<p class="soft">PayPal dispute {e(did)}</p>')
+                f'<p class="soft">{"Shop inquiry" if c.get("stage") == "SHOP_INQUIRY" else "PayPal dispute"} {e(did)}</p>')
         r = c.get("review")
         fp = c.get("for_person")
         if fp is not None and not isinstance(fp, dict):
@@ -575,8 +598,10 @@ class Helpdesk:
         if not t:
             return 404, "No such ticket."
         try:
-            if form.get("dispute_id") not in self.open_disputes(self.sl.customer(t.get("from_email", ""))):
-                return 400, "That PayPal dispute isn't one of this customer's open disputes. Nothing was sent."
+            cu = self.sl.customer(t.get("from_email", ""))
+            allowed = (self.open_disputes(cu) if cu is not None else []) + [x for x in [self.inquiry_of(t)] if x]
+            if form.get("dispute_id") not in allowed:
+                return 400, "That isn't one of this customer's open cases. Nothing was sent."
             return self.sl.approve(form["dispute_id"], form["action"], form.get("message"), agent_id, form.get("review"))
         except Unavailable as err:
             return 503, f"Second Look didn't answer properly ({err}). Check the case in Second Look before trying again."

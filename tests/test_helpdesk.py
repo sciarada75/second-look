@@ -490,6 +490,47 @@ def test_a_case_answer_of_the_wrong_shape_never_hides_the_paypal_dispute():
     assert "Defend with evidence" in html and "couldn't read this ticket's case" in html
 
 
+# ---------- a shop inquiry is answered from the ticket too (25/10) ----------
+SOPHIE_FILED = {"case_id": "DEMO-C001", "filed": "already_received", "stage": "inquiry",
+                "sorted": {"by": "rules", "how": "Sorted by Second Look's rules: the message quotes order LP-90001."}}
+SOPHIE_CASE = {"case_id": "DEMO-C001", "stage_label": "Shop inquiry", "status": "open", "dispute_id": None,
+               "channels": ["email"], "sorted": SOPHIE_FILED["sorted"]}
+INQUIRY = {"dispute_id": "DEMO-C001", "status": "WAITING_FOR_SELLER_RESPONSE", "stage": "SHOP_INQUIRY",
+           "amount": {"value": "64.00", "currency_code": "EUR"}, "reason": "SHOP_INQUIRY", "evidence": {},
+           "review": {"recommended": "MESSAGE", "confidence": 0.8, "judge": "rules", "limits_notes": [], "checks": [],
+                      "draft_reply": "It was left with your neighbour.", "sent": None, "out_of_date": [], "mark": "m9"},
+           "for_person": {"person": "Marta", "action": "MESSAGE", "outcome": "send", "to": None, "why": None, "amount": 0.0,
+                          "says": "Sends exactly this to the customer.", "draft": "It was left with your neighbour."}}
+
+
+def sophie():
+    return FakeSL(nobody=True, case=INQUIRY, filed=SOPHIE_FILED, case_of=SOPHIE_CASE)
+
+
+def test_a_shop_inquiry_gets_its_review_and_its_one_button_in_the_ticket():
+    html = bench(sophie()).ticket_page(2041, "marta")
+    assert "Shop inquiry DEMO-C001" in html and "Approve as Marta: reply only" in html
+    assert 'name="dispute_id" value="DEMO-C001"' in html and "/c/DEMO-C001?as=marta" in html
+    assert "Sends exactly this to the customer." in html and "Rules baseline, not the AI" in html
+
+
+def test_from_the_ticket_only_its_own_case_can_be_approved():
+    sl = sophie()
+    hd = bench(sl)
+    code, _ = hd.approve(2041, "marta", {"dispute_id": "DEMO-C001", "action": "MESSAGE", "message": "Hi", "review": "m9"})
+    assert code == 202 and sl.calls[-1][:3] == ("approve", "DEMO-C001", "MESSAGE")
+    code, text = hd.approve(2041, "marta", {"dispute_id": "DEMO-C009", "action": "MESSAGE"})
+    assert code == 400 and "Nothing was sent" in text
+
+
+def test_an_answer_sent_by_email_lands_on_the_ticket():
+    hd = bench(sophie())
+    hd.add_event({"event": "answer.sent", "case_id": "DEMO-C001", "channel": "email", "by": "Marta",
+                  "what_happened": "Reply sent by email. Sent by Marta, 09:14."})
+    assert "answer sent by email by Marta, 09:14" in hd.ticket_page(2041, "marta")
+    assert not hd.add_event({"event": "answer.sent"})              # about no case and no dispute: ignored
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
