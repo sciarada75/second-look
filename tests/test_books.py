@@ -141,6 +141,34 @@ def test_a_refund_marked_cancelled_lifts_the_hold_and_one_marked_paid_keeps_it()
         assert web.case_view(cid)["costs"]["money_moved"] == 20.0
 
 
+def test_a_paid_refund_lets_a_later_paypal_dispute_be_defended_with_it_as_proof():
+    with morning():
+        cid = _refunded_paypal_order("b7:1")
+        later = {"dispute": {"dispute_id": "DEMO-990", "dispute_amount": {"value": "20.00", "currency_code": "EUR"},
+                             "disputed_transactions": [{"seller_transaction_id": "DEMOTX00001"}]},
+                 "seller_records": {"sources": {}}}                      # Sami opens a PayPal dispute on that order
+        r = web._with_case_refund("DEMO-990", later)["seller_records"]
+        assert r["refund_logged_on_case"] == cid and not r.get("refund_paid")      # logged: not proof yet
+        web.reconcile(cid, 0, "paid", "paypal", "giulia")
+        r = web._with_case_refund("DEMO-990", later)["seller_records"]
+        assert r["refund_paid"] and r["sources"]["refund_paid"] == "Your case record"
+    refunded = {"refund_logged_on_case": "C1", "already_refunded": "20.00 EUR", "refunded_so_far": 20.0}
+    d = {"dispute_id": "D1", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED", "dispute_life_cycle_stage": "INQUIRY",
+         "dispute_amount": {"value": "20.00", "currency_code": "EUR"}, "messages": []}
+    held = apply_policy(Judgment("DEFEND", 0.9, "x"), POLICY, d, refunded)
+    assert held.action == "ASK_SELLER" and "refund_logged_on_case" in held.stops            # only logged: a person checks
+    paid = {**refunded, "refund_paid": True}
+    assert apply_policy(Judgment("DEFEND", 0.9, "x"), POLICY, d, paid).stops == []          # paid: the refund is the proof
+    assert "refund_logged_on_case" in apply_policy(Judgment("REFUND", 0.9, "x"), POLICY, d, paid).stops   # never twice
+    import secondlook.__main__ as cli
+    from secondlook.guard import Decision
+    log = Path(tempfile.mkdtemp()) / "a.jsonl"
+    pp = MockPayPal(Path(tempfile.mkdtemp()), log)
+    cli.execute(pp, Decision("DEFEND", [], Judgment("DEFEND", 0.9, "We refunded you on 19 Oct."), False, []),
+                {**d, "status": "WAITING_FOR_SELLER_RESPONSE"}, paid)
+    assert json.loads(log.read_text().splitlines()[0])["payload"]["evidence_type"] == "PROOF_OF_REFUND"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

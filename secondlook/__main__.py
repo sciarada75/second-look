@@ -90,7 +90,9 @@ def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
     did, note = dispute["dispute_id"], d.judgment.draft_message or d.judgment.reasoning
     if d.action == "DEFEND":
         # Evidence keeps seller protection; the message keeps the buyer informed. Both, in that order.
-        result = {"evidence": pp.defend(did, d.judgment.reasoning, records.get("tracking"))}
+        # a refund the shop paid before PayPal had the case is its proof; otherwise the parcel's delivery
+        kind = "PROOF_OF_REFUND" if records.get("refund_paid") else "PROOF_OF_FULFILLMENT"
+        result = {"evidence": pp.defend(did, d.judgment.reasoning, records.get("tracking"), kind)}
         # PayPal takes one seller message, then waits for the buyer (422 ACTION_NOT_ALLOWED_IN_CURRENT_DISPUTE_STATE).
         if d.judgment.draft_message and dispute.get("status") != "WAITING_FOR_BUYER_RESPONSE":
             result["message"] = pp.message(did, d.judgment.draft_message)

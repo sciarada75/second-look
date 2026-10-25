@@ -536,6 +536,12 @@ def _with_case_refund(did: str, case: dict) -> dict:
     if rs:
         total = round(sum(r["amount"] for r in rs), 2)
         each = "; ".join(f'{_said(r, cur)}, on case {r["case_id"]}' for r in rs)
+        # every logged refund marked paid: proof the shop answered (guard rule 10 then lets a defence through)
+        paid = all(m.get("status") == "paid" for c in found for m in c.get("money", [])
+                   if m.get("kind") in ("refund", "partial_refund") and m.get("status") != "cancelled")
+        if paid:
+            records["refund_paid"] = True
+            records["sources"]["refund_paid"] = "Your case record"
         records.update(refund_logged_on_case=", ".join(r["case_id"] for r in rs), refunded_so_far=total,
                        already_refunded=each if len(rs) == 1 else f"{total:.2f} {cur} in all: {each}",
                        refunds_logged=[{**r, "currency": cur} for r in rs])

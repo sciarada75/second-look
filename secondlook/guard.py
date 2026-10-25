@@ -261,7 +261,10 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     # Rule 10: a PayPal dispute on an order whose case already logged a refund (the shop answered the customer's
     # email before they went to PayPal). Nothing more goes out unseen, and a defence would contradict the reply
     # already sent: a person checks first. Only when the records say so; every other dispute is untouched.
-    if records.get("refund_logged_on_case") and (_subject() in MONEY or _subject() == "DEFEND"):
+    # A refund a person marked paid (records' refund_paid) is proof the shop answered: a defence with that proof
+    # may go (PROOF_OF_REFUND); money still never goes out twice.
+    if records.get("refund_logged_on_case") and (_subject() in MONEY
+                                                 or (_subject() == "DEFEND" and not records.get("refund_paid"))):
         notes.append(f"A refund was already logged on this order's case {records['refund_logged_on_case']}: "
                      f"{records.get('already_refunded') or ''}. Check it before anything more is sent or defended.")
         action = "ASK_SELLER"
