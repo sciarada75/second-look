@@ -8,6 +8,7 @@ https://developer.paypal.com/docs/api/customer-disputes/v1/):
     POST /v1/customer/disputes/{id}/accept-claim       (REFUND)
     POST /v1/customer/disputes/{id}/make-offer         (PARTIAL_REFUND, REPLACE)
     POST /v1/customer/disputes/{id}/send-message
+    POST /v2/payments/captures/{id}/refund             (a refund of a PayPal-paid order with no dispute)
 
 Mock client: reads cases/*.json and appends every action to .tmp/actions.jsonl,
 so the whole flow runs without credentials. Same method names, same payloads.
@@ -72,10 +73,11 @@ class PayPalDisputes:
         return self._call("GET", f"/v1/customer/disputes/{dispute_id}")
 
     # --- actions (each maps to one of our recommendation types) -----------
-    def defend(self, dispute_id: str, note: str, tracking: Optional[dict] = None) -> dict:
+    def defend(self, dispute_id: str, note: str, tracking: Optional[dict] = None,
+               evidence_type: str = "PROOF_OF_FULFILLMENT") -> dict:
         # provide-evidence is multipart/form-data: a JSON part named "input", plus optional files.
-        payload: Dict = {"evidences": [{"evidence_type": "PROOF_OF_FULFILLMENT",
-                                        "notes": note}]}
+        # PROOF_OF_REFUND: the shop already refunded the order outside the dispute (a refund it marked paid).
+        payload: Dict = {"evidences": [{"evidence_type": evidence_type, "notes": note}]}
         if tracking and tracking.get("tracking_number"):
             info = {"carrier_name": tracking.get("carrier") or "OTHER",
                     "tracking_number": tracking["tracking_number"]}
@@ -111,6 +113,17 @@ class PayPalDisputes:
     def message(self, dispute_id: str, text: str) -> dict:
         return self._call("POST", f"/v1/customer/disputes/{dispute_id}/send-message",
                           {"message": text})
+
+    def refund_capture(self, capture_id: str, amount: str, currency: str, note: str) -> dict:
+        """Refund a captured PayPal payment (an order paid by PayPal, with no dispute: a shop inquiry). Payments v2.
+        The capture id of an order paid through PayPal Checkout is the transaction id PayPal shows for it
+        (Transaction Search, a dispute's seller_transaction_id). Money moves: only ever after a person approves."""
+        return self._call("POST", f"/v2/payments/captures/{parse.quote(capture_id, safe='')}/refund",
+                          {"amount": {"value": amount, "currency_code": currency}, "note_to_payer": (note or "")[:255]})
+
+    def get_capture(self, capture_id: str) -> dict:
+        """Read one captured payment (read only): how to check that a transaction id is a capture id."""
+        return self._call("GET", f"/v2/payments/captures/{parse.quote(capture_id, safe='')}")
 
     def add_tracking(self, transaction_id: str, tracking_number: str, carrier: str = "OTHER",
                      carrier_name_other: Optional[str] = None) -> dict:
@@ -155,8 +168,9 @@ class MockPayPal:
             fh.write(json.dumps(entry) + "\n")
         return {"status": "MOCK_OK", **entry}
 
-    def defend(self, dispute_id, note, tracking=None):
-        return self._record(dispute_id, "provide-evidence", {"note": note, "tracking": tracking})
+    def defend(self, dispute_id, note, tracking=None, evidence_type="PROOF_OF_FULFILLMENT"):
+        return self._record(dispute_id, "provide-evidence", {"note": note, "tracking": tracking,
+                                                             "evidence_type": evidence_type})
 
     def refund(self, dispute_id, note):
         return self._record(dispute_id, "accept-claim", {"note": note})
@@ -170,6 +184,11 @@ class MockPayPal:
 
     def message(self, dispute_id, text):
         return self._record(dispute_id, "send-message", {"message": text})
+
+    def refund_capture(self, capture_id, amount, currency, note):
+        return {**self._record(capture_id, "capture-refund", {"capture_id": capture_id, "amount": amount,
+                                                               "currency": currency, "note": note}),
+                "id": f"MOCK-REFUND-{capture_id}"}
 
 
 def client_from_env(root: Path):

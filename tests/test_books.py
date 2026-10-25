@@ -55,6 +55,17 @@ def test_a_resolved_paypal_dispute_books_its_refund_and_its_fee():
     assert books.dispute_events({**d, "status": "WAITING_FOR_SELLER_RESPONSE"}, None, None, False) == []
 
 
+def test_the_live_client_asks_paypal_to_refund_the_capture_and_can_read_it():
+    seen = []
+    pp = PayPalDisputes("id", "secret")
+    pp._call = lambda method, path, payload=None: seen.append((method, path, payload)) or {"id": "R1", "status": "COMPLETED"}
+    assert pp.refund_capture("2BU27307GH548541C", "20.00", "EUR", "Sorry: your refund.")["id"] == "R1"
+    assert seen[0] == ("POST", "/v2/payments/captures/2BU27307GH548541C/refund",
+                       {"amount": {"value": "20.00", "currency_code": "EUR"}, "note_to_payer": "Sorry: your refund."})
+    pp.get_capture("2BU27307GH548541C")
+    assert seen[1] == ("GET", "/v2/payments/captures/2BU27307GH548541C", None)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
