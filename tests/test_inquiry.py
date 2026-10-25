@@ -119,6 +119,59 @@ def test_the_case_page_reviews_an_inquiry_in_its_own_words_and_disputes_read_as_
             web.receive("demo", {"channel": "email", "from": {"email": "y@nowhere.example"}, "text": "Hi?"})[1]["case_id"])
 
 
+def test_sophie_s_answer_goes_out_by_email_signed_by_marta_and_only_once():
+    with morning() as b:
+        web.run_review("DEMO-C001")
+        code, text = web.approve("DEMO-C001", "MESSAGE", "It was left with your neighbour at no. 12.", by="marta",
+                                 review=web.review_mark("DEMO-C001"))
+        assert code == 200 and text.startswith("Reply sent by email. Sent by Marta, ")
+        assert text.endswith("(Demo shop: logged; no email or money sent.)")
+        out = web.case_store("demo").get("DEMO-C001")["timeline"][-1]
+        assert (out["direction"], out["channel"], out["by"], out["ai"]) == ("out", "email", "Marta", False)
+        log = [json.loads(x) for x in (b.tmp / "actions-demo.jsonl").read_text().splitlines()]
+        assert [(x["case_id"], x["action"], x["channel"]) for x in log] == [("DEMO-C001", "reply", "email")]
+        sent = [p for ev, p in b.events if ev == "answer.sent"][-1]
+        assert sent["case_id"] == "DEMO-C001" and sent["channel"] == "email" and "dispute_id" not in sent
+        assert web.approve("DEMO-C001", "MESSAGE", "Again", by="giulia")[1] == text     # sent once
+        assert web.case_view("DEMO-C001")["costs"]["replies"] == 1
+
+
+def test_lena_s_exchange_is_over_marta_s_limit_and_giulia_sends_it():
+    with morning() as b:
+        web.run_review("DEMO-C002")
+        o = web.page_offer("DEMO-C002", "marta")
+        assert o["outcome"] == "pass" and o["to"] == "Giulia" and o["action"] == "REPLACE"
+        code, text = web.approve("DEMO-C002", "REPLACE", "We'll exchange it.", by="marta")
+        assert code == 202 and "Giulia" in text and not (b.tmp / "actions-demo.jsonl").exists()   # nothing sent
+        assert b.store.get("DEMO-C002")["to"] == "giulia" and b.events[-1][0] == "case.handed_off"
+        assert b.events[-1][1]["case_id"] == "DEMO-C002" and b.events[-1][1]["channel"] == "form"
+        code, text = web.approve("DEMO-C002", "REPLACE", None, by="giulia")
+        assert code == 200 and text.startswith(
+            "Exchange or replacement logged and reply sent by email, to the address on the web form.")
+        out = web.case_store("demo").get("DEMO-C002")["timeline"][-1]
+        assert (out["channel"], out["by"], out["text"]) == ("form", "Giulia", "We'll exchange it.")   # Marta's words
+
+
+def test_a_refund_on_an_inquiry_is_logged_never_moved_and_counted_in_the_cost():
+    def claude(case):
+        assert case["seller_records"]["paid_with"] == "card" and case["inquiry"]["customer"] == "Sophie Durand"
+        return Judgment("PARTIAL_REFUND", 0.9, "Claude, faked: no call is made.", draft_message="Here is 20 EUR back.",
+                        partial_amount="20.00 EUR",
+                        checks=[{"id": "delivery_address", "result": "PASS", "finding": "Left next door."}])
+    with morning(ai_key=True, claude=claude):
+        web.run_review("DEMO-C001")
+        assert web.judge_of("DEMO-C001") == "claude"
+        page = web.case_file_page("DEMO-C001", me="marta")
+        assert "Delivered to the order&#x27;s delivery address" in page and "Refund part" in page
+        code, text = web.approve("DEMO-C001", "PARTIAL_REFUND", "Here is 20 EUR back.", by="marta")
+        assert code == 200 and text.startswith("Partial refund of 20.00 EUR logged and reply sent by email.")
+        c = web.case_store("demo").get("DEMO-C001")
+        assert c["money"][0]["kind"] == "partial_refund" and c["money"][0]["amount"] == 20.0
+        assert c["timeline"][-1]["ai"] is True                       # drafted by Second Look's AI, approved by Marta
+        assert web.case_view("DEMO-C001")["costs"]["money_moved"] == 20.0
+        assert '<span class="ai-tag">Second Look\'s AI</span>' in web.case_file_page("DEMO-C001", me="marta")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

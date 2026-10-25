@@ -494,6 +494,48 @@ def review_inquiry(cid: str, judge: str) -> Decision:
     return apply_policy(j, policy, case["dispute"], case["seller_records"])
 
 
+class Outbox:
+    """The approved answer to an inquiry, recorded: a signed "out" entry on the case's timeline, on the channel
+    the customer used, any money as a logged entry on the case, and one line in the action log. The same
+    interface as the PayPal clients, so execute() runs it unchanged. Nothing is sent from here in this step."""
+
+    def __init__(self, cid: str, by: str, ai: bool, amount: float):
+        self.cid, self.by, self.ai, self.amount = cid, by, ai, amount
+        self.src = shop_of_case(cid)
+
+    def _out(self, action: str, text: str, money: dict | None = None) -> dict:
+        store = case_store(self.src)
+        ch = reply_channel(store.get(self.cid))
+
+        def change(c):
+            c["timeline"].append(cases_mod.entry(None, ch, "out", text, self.by, ai=self.ai, action=action))
+            if money:
+                c["money"].append({**money, "at": cases_mod.minute(None), "by": self.by})
+        store.update(self.cid, change)
+        log = OUTBOX_LOGS[self.src]
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": cases_mod.minute(None), "case_id": self.cid, "action": action, "channel": ch,
+                                "by": self.by, "text": text, **({"money": money} if money else {})},
+                               ensure_ascii=False) + "\n")
+        return {"status": "LOGGED", "channel": ch}
+
+    def message(self, did, text):
+        return self._out("reply", text)
+
+    def refund(self, did, note):
+        return self._out("refund", note, {"kind": "refund", "amount": self.amount})
+
+    def partial_refund(self, did, amount, currency, note):
+        return self._out("partial_refund", note, {"kind": "partial_refund", "amount": float(amount)})
+
+    def replace(self, did, note):
+        return self._out("replace", note)
+
+    def defend(self, did, note, tracking=None):
+        raise RuntimeError("An inquiry has no PayPal evidence to submit: nothing was sent.")
+
+
 def _about(did: str) -> dict:
     """What a notification is about, so a helpdesk can put it on the right ticket: the case, and the channel
     its answer uses. A PayPal dispute keeps its dispute_id, as before."""
@@ -1743,6 +1785,10 @@ def _no_key_run(w: dict) -> str:
     return NO_KEY_RUN.replace(RULES_LOOK, w["rules_look"])
 
 
+def page_of(did: str) -> str:
+    return f"/c/{did}" if cases_mod.is_case_id(did) else f"/d/{did}"
+
+
 def judged_note(did: str, judged: str | None, sent: bool) -> str:
     """Who wrote the review on screen, when it isn't a review Claude made on this machine."""
     if judged == "rules":
@@ -2045,7 +2091,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         handoff = {"from": who["id"], "from_name": who["name"], "action": chosen, "amount": need,
                    "message": message, "at": now.isoformat(timespec="minutes")}
         assignments_for(did).update(did, lambda a: {"to": to["id"], "handoff": handoff})
-        notify("case.handed_off", {"dispute_id": did, "action": chosen, "amount": need,
+        notify("case.handed_off", {**_about(did), "action": chosen, "amount": need,
                                    "from": who["name"], "to": to["name"]})
         cap = team_mod.limit(t, who["id"]) or 0.0
         what = (f"{ACTION.get(chosen, chosen).lower()} of {amount:.2f} {cur}" if amount >= need
@@ -2062,15 +2108,25 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         dec.judgment.draft_message = message
     raw = _raw(did) or {}  # the case's own review, or the shipped demo one it starts from
     seen, judged = raw.get("seen"), raw.get("judge")
-    result = execute(_client(did), dec, case["dispute"], case["seller_records"])
-    sent = {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
+    inquiry = cases_mod.is_case_id(did)
+    client = (Outbox(did, by=who["name"], ai=judged == "claude", amount=float(case["dispute"]["dispute_amount"]["value"]))
+              if inquiry else _client(did))
+    result = execute(client, dec, case["dispute"], case["seller_records"])
+    how = OUT_WORDS.get(result.get("channel"), "by email") if inquiry else ""
+    sent = {"MESSAGE": ("Question" if recommended == "ASK_SELLER" else "Reply") + f" sent {how}.",
+            "REFUND": f"Refund of {amount:.2f} {cur} logged and reply sent {how}.",
+            "PARTIAL_REFUND": f"Partial refund of {amount:.2f} {cur} logged and reply sent {how}.",
+            "REPLACE": f"Exchange or replacement logged and reply sent {how}."}.get(dec.action, "Done.") if inquiry else {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
             else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
             "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
             "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
             "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
     if not t.get("solo"):
         sent += f" Sent by {who['name']}, {now:%H:%M}."
-    if is_demo(did):
+    if inquiry:
+        sent += (" (Demo shop: logged; no email or money sent.)" if is_demo(did) else
+                 " (Logged in Second Look: your helpdesk sends the email; money is not moved from here yet.)")
+    elif is_demo(did):
         sent += " (Demo shop: logged, not sent to PayPal.)"
     elif isinstance(_client(did), MockPayPal):
         sent += " (Practice case: logged, not sent to PayPal.)"
@@ -2082,7 +2138,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
     if not t.get("solo"):
         # Sent by them: the case is theirs, and any handoff waiting on it is done.
         assignments_for(did).update(did, lambda a: {"to": who["id"], "handoff": None})
-    notify("answer.sent", {"dispute_id": did, "action": chosen, "what_happened": sent, "by": by_name})
+    notify("answer.sent", {**_about(did), "action": chosen, "what_happened": sent, "by": by_name})
     return 200, sent
 
 
@@ -2264,7 +2320,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/rules":
                 return self._send(rules_page(demo=shop == "demo", me=me))
             if u.path.startswith("/d/"):
-                return self._send(case_page(u.path[3:].strip("/"), me=me))
+                did = u.path[3:].strip("/")
+                if cases_mod.is_case_id(did):
+                    return self._redirect(f"/c/{did}")    # a shop inquiry has its case page
+                return self._send(case_page(did, me=me))
             self._send("Not found", 404)
         except Exception as err:  # show the reason on the page, never a blank screen
             self._fail(err)
@@ -2346,15 +2405,18 @@ class Handler(BaseHTTPRequestHandler):
                 remove_rule(int(form.get("i", ["-1"])[0]))
                 return self._redirect("/rules")
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "review":
-                run_review(parts[1])
-                return self._redirect(f"/d/{parts[1]}")
+                try:
+                    run_review(parts[1])
+                except ValueError as err:          # an unsorted request: a person picks its order first
+                    return self._send(str(err), 409)
+                return self._redirect(page_of(parts[1]))
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "approve":
                 code, text = approve(parts[1], form.get("action", [""])[0], form.get("message", [None])[0],
                                      form.get("rule", [""])[0], by=me, review=form.get("review", [None])[0])
-                return self._redirect(f"/d/{parts[1]}") if code in (200, 202) else self._send(text, code)
+                return self._redirect(page_of(parts[1])) if code in (200, 202) else self._send(text, code)
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
                 code, text = take(parts[1], me)
-                return self._redirect(f"/d/{parts[1]}") if code == 200 else self._send(text, code)
+                return self._redirect(page_of(parts[1])) if code == 200 else self._send(text, code)
             # the API: the same review and the same approval, as JSON
             if len(parts) == 4 and parts[:2] == ["api", "disputes"] and parts[3] in ("review", "approve"):
                 did = parts[2]
