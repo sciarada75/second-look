@@ -1646,7 +1646,7 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
     demo = src == "demo"
     pp, disputes, orders, today = _shop(src)
     handled = (pp.raw.get("handled_by") or {}) if src == "demo" else {}
-    cu = ledger.customer(key, disputes, orders, today)
+    cu = ledger.customer(key, disputes, orders, today) or own_customer(key, src)
     q = "?shop=demo" if demo else ""
     if not cu:
         return page("Customer | Second Look", "PayPal sandbox", '<h1 class="page">No customer with that id or email.</h1>', demo,
@@ -1661,7 +1661,9 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
                    for x in cu["disputes"])
     api = f'/api/customers/{cu["email"] or cu["payer_id"]}{q}'
     body = (f'<a class="back" href="/overview{q}">Overview</a><h1 class="page">{e(cu["name"] or cu["payer_id"])}</h1>'
-            f'<p class="who">{e(cu["email"] or "")} · PayPal payer {e(cu["payer_id"])}</p>'
+            f'<p class="who">{e(cu["email"] or "")} · '
+            + (f'PayPal payer {e(cu["payer_id"])}' if cu["payer_id"] else f'paid by {e(", ".join(cu.get("paid_with") or []))}')
+            + '</p>'
             f'<div class="kpis">'
             f'<div class="tile"><span class="t-label">Orders</span><b>{cu["orders"]}</b><span class="t-sub">{cu["spent"]:,.2f} EUR, since {e(cu["first_order"] or "")}</span></div>'
             f'<div class="tile"><span class="t-label">Disputes</span><b>{len(cu["disputes"])}</b><span class="t-sub">{e(rate)}</span></div>'
@@ -1676,7 +1678,69 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
 
 def customer_json(key: str, src: str) -> dict | None:
     _, disputes, orders, today = _shop(src)
-    return ledger.customer(key, disputes, orders, today)
+    return ledger.customer(key, disputes, orders, today) or own_customer(key, src)
+
+
+# ---------- the shop's own systems as Second Look reads them: its orders, and its courier ----------
+# In the demo both are made-up stand-ins (demo/shop.json), labelled so. On the live shop an order is PayPal's
+# (Transaction Search) and its tracking PayPal's tracking API. The case's evidence reads the same records.
+STAND_IN = "made-up stand-in (demo shop)"
+
+
+def _raw_order(src: str, no: str | None) -> dict | None:
+    key = (no or "").strip().lower()
+    return next((o for o in shop_orders(src) if key and (sort_mod.order_no(o) or "").lower() == key), None) if key else None
+
+
+def order_record(src: str, no: str | None) -> dict | None:
+    """One order as the shop's orders system holds it: items, delivery address, how it was paid. None if unknown."""
+    o = _raw_order(src, no)
+    if o is None:
+        return None
+    v = sort_mod.order_view(o)
+    return {"order_no": v["order_no"], "date": v["date"], "amount": v["amount"], "currency": v["currency"],
+            "items": v["items"], "paid_with": v["paid_with"], "ship_to": v["ship_to"],
+            "transaction_id": v["transaction_id"], "customer": {"name": v["name"], "email": v["email"]},
+            "source": f"Orders: {STAND_IN}" if src == "demo" else "Orders: PayPal Transaction Search"}
+
+
+def tracking_record(src: str, no: str | None) -> dict | None:
+    """The courier's record of an order: shipped, delivered, where, to whom, and a return on its way back. None if
+    the order is unknown; {"tracking": None} if the courier holds nothing for it."""
+    o = _raw_order(src, no)
+    if o is None:
+        return None
+    tracking = o.get("tracking")
+    if tracking is None and o.get("transaction_id"):
+        if src == "demo":
+            # a PayPal order's tracking, as the demo's PayPal holds it: only for the orders its disputes are about
+            raw = DemoPayPal().raw
+            did = next((d["dispute_id"] for d in raw["disputes"] if _tx_of(d) == o["transaction_id"]), None)
+            tracking = (raw["records"].get(did) or {}).get("tracking") if did else None
+        else:
+            pp = client_from_env(ROOT)
+            try:
+                found = [] if isinstance(pp, MockPayPal) else evidence_mod._trackers(pp, o["transaction_id"])
+            except RuntimeError:
+                found = []
+            tracking = found[-1] if found else None
+    return {"order_no": sort_mod.order_no(o), "tracking": tracking, "return": o.get("return"),
+            "source": f"Courier: {STAND_IN}" if src == "demo" else "Courier: PayPal tracking"}
+
+
+def own_customer(key: str, src: str) -> dict | None:
+    """A customer who paid the shop directly (card, bank) has no PayPal record: their record from the shop's own
+    orders, in the shape the customer API gives for a PayPal customer. None when the shop has no such order."""
+    k = (key or "").strip().lower()
+    mine = [o for o in shop_orders(src) if not o.get("transaction_id") and (o.get("email") or "").strip().lower() == k]
+    if not k or not mine:
+        return None
+    return {"payer_id": None, "name": mine[-1].get("name"), "email": mine[0].get("email"), "orders": len(mine),
+            "spent": round(sum(_num(o.get("amount")) or 0 for o in mine), 2),
+            "first_order": min(o.get("date") or "" for o in mine), "last_order": max(o.get("date") or "" for o in mine),
+            "paid_with": sorted({str(o.get("paid_with") or "card") for o in mine}), "disputes": [], "escalated": 0,
+            "refunded": 0.0, "dispute_rate": None, "shop_dispute_rate": None, "times_shop_rate": None,
+            "escalations": "No PayPal disputes: paid the shop directly."}
 
 
 # ---------- the morning screen: "I see, I manage, I know" (secondlook/today.py does the counting) ----------
@@ -2901,6 +2965,10 @@ class Handler(BaseHTTPRequestHandler):
                 cid = u.path[3:].strip("/")
                 known = cases_mod.is_case_id(cid) and case_store(shop_of_case(cid)).get(cid) is not None
                 return self._send(case_file_page(cid, me=me), 200 if known else 404)
+            if u.path.startswith(("/api/orders/", "/api/tracking/")):
+                kind, no = u.path.split("/")[2], unquote(u.path.split("/", 3)[3].strip("/"))
+                rec = (order_record if kind == "orders" else tracking_record)("live" if src == "live" else "demo", no)
+                return self._json(rec if rec else {"error": "unknown order"}, 200 if rec else 404)
             if u.path.startswith("/api/customers/"):
                 # the integration: a CRM or helpdesk asks for a customer's record by email or PayPal payer id
                 cu = customer_json(unquote(u.path[len("/api/customers/"):].strip("/")), src)

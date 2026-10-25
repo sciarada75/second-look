@@ -152,6 +152,34 @@ def test_a_new_recording_comes_in_once_and_without_a_call_box_the_phone_says_so(
         assert "The caller's number is on none of the shop's orders" in c["sorted"]["how"]
 
 
+def test_the_shop_s_orders_and_courier_answer_through_the_api_labelled_made_up():
+    with morning():
+        o = web.order_record("demo", "lp-90001")
+        assert (o["paid_with"], o["amount"], o["customer"]["name"]) == ("card", 64.0, "Sophie Durand")
+        assert o["source"] == "Orders: made-up stand-in (demo shop)" and web.order_record("demo", "LP-0") is None
+        t = web.tracking_record("demo", "LP-90002")
+        assert t["tracking"]["delivered_to"] == "handed to the customer" and t["return"]["delivered_to"] == "the shop"
+        assert web.tracking_record("demo", "DEMOTX02334")["tracking"]["tracking_number"] == "LC02334IT"   # DEMO-031's
+        assert web.tracking_record("demo", "DEMOTX00001")["tracking"] is None
+        sophie = web.customer_json("sophie.durand@example.com", "demo")    # she paid by card: no PayPal record
+        assert (sophie["payer_id"], sophie["orders"], sophie["paid_with"], sophie["disputes"]) == (None, 1, ["card"], [])
+        assert "paid by card" in web.customer_page("sophie.durand@example.com", "demo")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            def get(path):
+                con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+                con.request("GET", path)
+                r = con.getresponse()
+                return r.status, json.loads(r.read())
+            assert get("/api/orders/LP-90001?shop=demo")[1]["paid_with"] == "card"
+            assert get("/api/tracking/LP-90001?shop=demo")[1]["tracking"]["status"] == "DELIVERED"
+            assert get("/api/orders/NOPE?shop=demo")[0] == 404
+            assert get("/api/customers/sophie.durand@example.com?shop=demo")[1]["name"] == "Sophie Durand"
+        finally:
+            srv.shutdown()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
