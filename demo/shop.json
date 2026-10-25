@@ -144923,5 +144923,4746 @@
    "subject": "Refund for my returned shirt?",
    "text": "I sent the shirt back on 5 October and you got it on the 8th. I still have no refund."
   }
+ ],
+ "history": [
+  {
+   "id": "DEMO-H001",
+   "customer": {
+    "name": "Federico Peeters",
+    "email": "federico.p4234@example.com"
+   },
+   "order_no": "DEMOTX05379",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-03T08:00",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-02T08:00",
+   "timeline": [
+    {
+     "at": "2026-09-02T08:00",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen apron hasn't arrived yet. Could you check where it is?",
+     "by": "Federico Peeters",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Federico Peeters",
+      "email": "federico.p4234@example.com"
+     }
+    },
+    {
+     "at": "2026-09-02T21:00",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-03T08:00",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 58.0,
+     "at": "2026-09-02T21:00",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H002",
+   "customer": {
+    "name": "Marco Colombo",
+    "email": "marco.c2289@example.com"
+   },
+   "order_no": "DEMOTX05450",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-04T05:31",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-02T11:31",
+   "timeline": [
+    {
+     "at": "2026-09-02T11:31",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Marco Colombo",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Marco Colombo",
+      "email": "marco.c2289@example.com"
+     }
+    },
+    {
+     "at": "2026-09-02T23:31",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-08-23: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-09-04T05:31",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H003",
+   "customer": {
+    "name": "Bruno Fernández",
+    "email": "bruno.f1519@example.com"
+   },
+   "order_no": "DEMOTX05373",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-04T03:31",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-02T10:31",
+   "timeline": [
+    {
+     "at": "2026-09-02T10:31",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Bruno Fernández",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Bruno Fernández",
+      "email": "bruno.f1519@example.com"
+     }
+    },
+    {
+     "at": "2026-09-02T23:31",
+     "channel": "form",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-04T03:31",
+     "channel": "form",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 20.0,
+     "at": "2026-09-02T23:31",
+     "by": "Marta"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H004",
+   "customer": {
+    "name": "Femke Sánchez",
+    "email": "femke.s2708@example.com"
+   },
+   "order_no": "DEMOTX05488",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-09-05T01:18",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-03T12:18",
+   "timeline": [
+    {
+     "at": "2026-09-03T12:18",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Femke Sánchez",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Femke Sánchez",
+      "email": "femke.s2708@example.com"
+     }
+    },
+    {
+     "at": "2026-09-04T00:18",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Femke Sánchez",
+     "ai": false,
+     "from": {
+      "name": "Femke Sánchez",
+      "email": "femke.s2708@example.com"
+     }
+    },
+    {
+     "at": "2026-09-05T01:18",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H005",
+   "customer": {
+    "name": "Ana Andersson",
+    "email": "ana.a2833@example.com"
+   },
+   "order_no": "DEMOTX05775",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-04T17:37",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-03T11:37",
+   "timeline": [
+    {
+     "at": "2026-09-03T11:37",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Ana Andersson",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Ana Andersson",
+      "email": "ana.a2833@example.com"
+     }
+    },
+    {
+     "at": "2026-09-04T03:37",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-08-30: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-04T17:37",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H006",
+   "customer": {
+    "name": "Clara Marino",
+    "email": "clara.m2131@example.com"
+   },
+   "order_no": "DEMOTX05510",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-04T16:36",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-03T10:36",
+   "timeline": [
+    {
+     "at": "2026-09-03T10:36",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my notebook set hasn't arrived yet. Could you check where it is?",
+     "by": "Clara Marino",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Clara Marino",
+      "email": "clara.m2131@example.com"
+     }
+    },
+    {
+     "at": "2026-09-03T18:36",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-08-24: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-04T16:36",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H007",
+   "customer": {
+    "name": "Eva Bakker",
+    "email": "eva.b2706@example.com"
+   },
+   "order_no": "DEMOTX05822",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-05T11:25",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-04T08:25",
+   "timeline": [
+    {
+     "at": "2026-09-04T08:25",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Eva Bakker",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Eva Bakker",
+      "email": "eva.b2706@example.com"
+     }
+    },
+    {
+     "at": "2026-09-04T18:25",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-05T11:25",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 42.0,
+     "at": "2026-09-04T18:25",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H008",
+   "customer": {
+    "name": "Yusuf Schulz",
+    "email": "yusuf.s4039@example.com"
+   },
+   "order_no": "DEMOTX05756",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-07T17:25",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-06T09:25",
+   "timeline": [
+    {
+     "at": "2026-09-06T09:25",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Yusuf Schulz",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Yusuf Schulz",
+      "email": "yusuf.s4039@example.com"
+     }
+    },
+    {
+     "at": "2026-09-06T11:25",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-08-30: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-07T17:25",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H009",
+   "customer": {
+    "name": "Sofia Bernard",
+    "email": "sofia.b1743@example.com"
+   },
+   "order_no": "DEMOTX05892",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-09-08T06:46",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-06T12:46",
+   "timeline": [
+    {
+     "at": "2026-09-06T12:46",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Sofia Bernard",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Sofia Bernard",
+      "email": "sofia.b1743@example.com"
+     }
+    },
+    {
+     "at": "2026-09-07T08:46",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Sofia Bernard",
+     "ai": false,
+     "from": {
+      "name": "Sofia Bernard",
+      "email": "sofia.b1743@example.com"
+     }
+    },
+    {
+     "at": "2026-09-08T06:46",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H010",
+   "customer": {
+    "name": "Elena Bernard",
+    "email": "elena.b1612@example.com"
+   },
+   "order_no": "DEMOTX05675",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-08T06:05",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-07T13:05",
+   "timeline": [
+    {
+     "at": "2026-09-07T13:05",
+     "channel": "form",
+     "direction": "in",
+     "text": "The linen napkins arrived with a small mark on it. What can you do?",
+     "by": "Elena Bernard",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Elena Bernard",
+      "email": "elena.b1612@example.com"
+     }
+    },
+    {
+     "at": "2026-09-07T14:05",
+     "channel": "form",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Stonewashed linen has small marks by nature; a gentle wash takes most of them out. Tell us if this one stays."
+    },
+    {
+     "at": "2026-09-08T06:05",
+     "channel": "form",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H011",
+   "customer": {
+    "name": "Lars Wójcik",
+    "email": "lars.w2966@example.com"
+   },
+   "order_no": "DEMOTX05585",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-09T13:56",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-08T19:56",
+   "timeline": [
+    {
+     "at": "2026-09-08T19:56",
+     "channel": "email",
+     "direction": "in",
+     "text": "I sent the art print back last week. When will the refund come?",
+     "by": "Lars Wójcik",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Lars Wójcik",
+      "email": "lars.w2966@example.com"
+     }
+    },
+    {
+     "at": "2026-09-08T21:56",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-09-09T13:56",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 20.0,
+     "at": "2026-09-08T21:56",
+     "by": "Sara"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H012",
+   "customer": {
+    "name": "Lars López",
+    "email": "lars.l4833@example.com"
+   },
+   "order_no": "DEMOTX05606",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-10T20:54",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-09T17:54",
+   "timeline": [
+    {
+     "at": "2026-09-09T17:54",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Lars López",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Lars López",
+      "email": "lars.l4833@example.com"
+     }
+    },
+    {
+     "at": "2026-09-10T08:54",
+     "channel": "form",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-08-26: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-10T20:54",
+     "channel": "form",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H013",
+   "customer": {
+    "name": "Zofia Fontana",
+    "email": "zofia.f2435@example.com"
+   },
+   "order_no": "DEMOTX05880",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-11T08:35",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-09T11:35",
+   "timeline": [
+    {
+     "at": "2026-09-09T11:35",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my notebook set hasn't arrived yet. Could you check where it is?",
+     "by": "Zofia Fontana",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Zofia Fontana",
+      "email": "zofia.f2435@example.com"
+     }
+    },
+    {
+     "at": "2026-09-10T03:35",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-01: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-11T08:35",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H014",
+   "customer": {
+    "name": "Elif Hansen",
+    "email": "elif.h5023@example.com"
+   },
+   "order_no": "DEMOTX05682",
+   "problem": {
+    "kind": "wrong_size",
+    "summary": "Wrong size"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-09-11T01:27",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-09T21:27",
+   "timeline": [
+    {
+     "at": "2026-09-09T21:27",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen shirt is too small. Can I exchange it for the next size?",
+     "by": "Elif Hansen",
+     "ai": false,
+     "subject": "Wrong size",
+     "from": {
+      "name": "Elif Hansen",
+      "email": "elif.h5023@example.com"
+     }
+    },
+    {
+     "at": "2026-09-10T11:27",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Of course: send it back and the next size goes out as soon as it arrives."
+    },
+    {
+     "at": "2026-09-11T01:27",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 89.0,
+     "at": "2026-09-10T11:27",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H015",
+   "customer": {
+    "name": "Paul Laurent",
+    "email": "paul.l3849@example.com"
+   },
+   "order_no": "DEMOTX05668",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-11T22:43",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-10T08:43",
+   "timeline": [
+    {
+     "at": "2026-09-10T08:43",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my notebook set hasn't arrived yet. Could you check where it is?",
+     "by": "Paul Laurent",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Paul Laurent",
+      "email": "paul.l3849@example.com"
+     }
+    },
+    {
+     "at": "2026-09-11T00:43",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-08-28: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-11T22:43",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H016",
+   "customer": {
+    "name": "Rui Oliveira",
+    "email": "rui.o4754@example.com"
+   },
+   "order_no": "DEMOTX06136",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-11T20:47",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-10T11:47",
+   "timeline": [
+    {
+     "at": "2026-09-10T11:47",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Rui Oliveira",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Rui Oliveira",
+      "email": "rui.o4754@example.com"
+     }
+    },
+    {
+     "at": "2026-09-10T20:47",
+     "channel": "form",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-07: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-09-11T20:47",
+     "channel": "form",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H017",
+   "customer": {
+    "name": "Daan Schneider",
+    "email": "daan.s1353@example.com"
+   },
+   "order_no": "DEMOTX05804",
+   "problem": {
+    "kind": "wrong_size",
+    "summary": "Wrong size"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-09-11T09:33",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-10T13:33",
+   "timeline": [
+    {
+     "at": "2026-09-10T13:33",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen shirt is too small. Can I exchange it for the next size?",
+     "by": "Daan Schneider",
+     "ai": false,
+     "subject": "Wrong size",
+     "from": {
+      "name": "Daan Schneider",
+      "email": "daan.s1353@example.com"
+     }
+    },
+    {
+     "at": "2026-09-11T03:33",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Of course: send it back and the next size goes out as soon as it arrives."
+    },
+    {
+     "at": "2026-09-11T09:33",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 89.0,
+     "at": "2026-09-11T03:33",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H018",
+   "customer": {
+    "name": "Andrea Fontana",
+    "email": "andrea.f4773@example.com"
+   },
+   "order_no": "DEMOTX05893",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-13T05:47",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-11T20:47",
+   "timeline": [
+    {
+     "at": "2026-09-11T20:47",
+     "channel": "email",
+     "direction": "in",
+     "text": "The notebook set arrived with a small mark on it. What can you do?",
+     "by": "Andrea Fontana",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Andrea Fontana",
+      "email": "andrea.f4773@example.com"
+     }
+    },
+    {
+     "at": "2026-09-12T15:47",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Stonewashed linen has small marks by nature; a gentle wash takes most of them out. Tell us if this one stays."
+    },
+    {
+     "at": "2026-09-13T05:47",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H019",
+   "customer": {
+    "name": "Sami Caruso",
+    "email": "sami.c3864@example.com"
+   },
+   "order_no": "DEMOTX05714",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-13T08:51",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-11T15:51",
+   "timeline": [
+    {
+     "at": "2026-09-11T15:51",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Sami Caruso",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Sami Caruso",
+      "email": "sami.c3864@example.com"
+     }
+    },
+    {
+     "at": "2026-09-12T05:51",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-13T08:51",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 42.0,
+     "at": "2026-09-12T05:51",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H020",
+   "customer": {
+    "name": "Ingrid Fischer",
+    "email": "ingrid.f5029@example.com"
+   },
+   "order_no": "DEMOTX05991",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-09-14T02:42",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-12T10:42",
+   "timeline": [
+    {
+     "at": "2026-09-12T10:42",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen apron hasn't arrived yet. Could you check where it is?",
+     "by": "Ingrid Fischer",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Ingrid Fischer",
+      "email": "ingrid.f5029@example.com"
+     }
+    },
+    {
+     "at": "2026-09-13T08:42",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Ingrid Fischer",
+     "ai": false,
+     "from": {
+      "name": "Ingrid Fischer",
+      "email": "ingrid.f5029@example.com"
+     }
+    },
+    {
+     "at": "2026-09-14T02:42",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H021",
+   "customer": {
+    "name": "Karim Kovač",
+    "email": "karim.k1522@example.com"
+   },
+   "order_no": "DEMOTX06065",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-09-13T20:41",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-12T11:41",
+   "timeline": [
+    {
+     "at": "2026-09-12T11:41",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen apron arrived with a small mark on it. What can you do?",
+     "by": "Karim Kovač",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Karim Kovač",
+      "email": "karim.k1522@example.com"
+     }
+    },
+    {
+     "at": "2026-09-12T23:41",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-09-13T20:41",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 58.0,
+     "at": "2026-09-12T23:41",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H022",
+   "customer": {
+    "name": "Federico Vidal",
+    "email": "federico.v1509@example.com"
+   },
+   "order_no": "DEMOTX05781",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-14T17:33",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-12T18:33",
+   "timeline": [
+    {
+     "at": "2026-09-12T18:33",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Federico Vidal",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Federico Vidal",
+      "email": "federico.v1509@example.com"
+     }
+    },
+    {
+     "at": "2026-09-13T13:33",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-14T17:33",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 36.0,
+     "at": "2026-09-13T13:33",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H023",
+   "customer": {
+    "name": "Clara Romano",
+    "email": "clara.r3087@example.com"
+   },
+   "order_no": "DEMOTX06292",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-09-15T04:54",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-13T17:54",
+   "timeline": [
+    {
+     "at": "2026-09-13T17:54",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen apron hasn't arrived yet. Could you check where it is?",
+     "by": "Clara Romano",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Clara Romano",
+      "email": "clara.r3087@example.com"
+     }
+    },
+    {
+     "at": "2026-09-14T12:54",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Clara Romano",
+     "ai": false,
+     "from": {
+      "name": "Clara Romano",
+      "email": "clara.r3087@example.com"
+     }
+    },
+    {
+     "at": "2026-09-15T04:54",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H024",
+   "customer": {
+    "name": "Eva Colombo",
+    "email": "eva.c4208@example.com"
+   },
+   "order_no": "DEMOTX06245",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-14T17:48",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-13T18:48",
+   "timeline": [
+    {
+     "at": "2026-09-13T18:48",
+     "channel": "email",
+     "direction": "in",
+     "text": "I sent the notebook set back last week. When will the refund come?",
+     "by": "Eva Colombo",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Eva Colombo",
+      "email": "eva.c4208@example.com"
+     }
+    },
+    {
+     "at": "2026-09-14T12:48",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-09-14T17:48",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 29.0,
+     "at": "2026-09-14T12:48",
+     "by": "Luca"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H025",
+   "customer": {
+    "name": "Jakob Testa",
+    "email": "jakob.t1942@example.com"
+   },
+   "order_no": "DEMOTX06175",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-16T13:29",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-14T21:29",
+   "timeline": [
+    {
+     "at": "2026-09-14T21:29",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Jakob Testa",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Jakob Testa",
+      "email": "jakob.t1942@example.com"
+     }
+    },
+    {
+     "at": "2026-09-15T08:29",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-08: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-09-16T13:29",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H026",
+   "customer": {
+    "name": "Sophie Barbieri",
+    "email": "sophie.b2627@example.com"
+   },
+   "order_no": "DEMOTX05795",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-16T04:01",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-14T09:01",
+   "timeline": [
+    {
+     "at": "2026-09-14T09:01",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Sophie Barbieri",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Sophie Barbieri",
+      "email": "sophie.b2627@example.com"
+     }
+    },
+    {
+     "at": "2026-09-15T03:01",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-08-31: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-09-16T04:01",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H027",
+   "customer": {
+    "name": "Ada Mancini",
+    "email": "ada.m1426@example.com"
+   },
+   "order_no": "DEMOTX06196",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-16T13:02",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-15T10:02",
+   "timeline": [
+    {
+     "at": "2026-09-15T10:02",
+     "channel": "email",
+     "direction": "in",
+     "text": "I sent the linen napkins back last week. When will the refund come?",
+     "by": "Ada Mancini",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Ada Mancini",
+      "email": "ada.m1426@example.com"
+     }
+    },
+    {
+     "at": "2026-09-15T13:02",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-09-16T13:02",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 36.0,
+     "at": "2026-09-15T13:02",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H028",
+   "customer": {
+    "name": "Sophie Laurent",
+    "email": "sophie.l3481@example.com"
+   },
+   "order_no": "DEMOTX06194",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-16T00:53",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-15T08:53",
+   "timeline": [
+    {
+     "at": "2026-09-15T08:53",
+     "channel": "email",
+     "direction": "in",
+     "text": "I sent the linen apron back last week. When will the refund come?",
+     "by": "Sophie Laurent",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Sophie Laurent",
+      "email": "sophie.l3481@example.com"
+     }
+    },
+    {
+     "at": "2026-09-15T11:53",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-09-16T00:53",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 58.0,
+     "at": "2026-09-15T11:53",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H029",
+   "customer": {
+    "name": "Javier Maes",
+    "email": "javier.m1452@example.com"
+   },
+   "order_no": "DEMOTX06058",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-16T15:48",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-15T08:48",
+   "timeline": [
+    {
+     "at": "2026-09-15T08:48",
+     "channel": "email",
+     "direction": "in",
+     "text": "The art print arrived with a small mark on it. What can you do?",
+     "by": "Javier Maes",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Javier Maes",
+      "email": "javier.m1452@example.com"
+     }
+    },
+    {
+     "at": "2026-09-16T00:48",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Stonewashed linen has small marks by nature; a gentle wash takes most of them out. Tell us if this one stays."
+    },
+    {
+     "at": "2026-09-16T15:48",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H030",
+   "customer": {
+    "name": "Ines Hansen",
+    "email": "ines.h1540@example.com"
+   },
+   "order_no": "DEMOTX06247",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-17T21:28",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-16T20:28",
+   "timeline": [
+    {
+     "at": "2026-09-16T20:28",
+     "channel": "form",
+     "direction": "in",
+     "text": "The linen tote bag arrived with a small mark on it. What can you do?",
+     "by": "Ines Hansen",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Ines Hansen",
+      "email": "ines.h1540@example.com"
+     }
+    },
+    {
+     "at": "2026-09-16T23:28",
+     "channel": "form",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: we've refunded you in full. No need to send it back."
+    },
+    {
+     "at": "2026-09-17T21:28",
+     "channel": "form",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 42.0,
+     "at": "2026-09-16T23:28",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H031",
+   "customer": {
+    "name": "Nikola Sánchez",
+    "email": "nikola.s2010@example.com"
+   },
+   "order_no": "DEMOTX06003",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-17T04:45",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-16T08:45",
+   "timeline": [
+    {
+     "at": "2026-09-16T08:45",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Nikola Sánchez",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Nikola Sánchez",
+      "email": "nikola.s2010@example.com"
+     }
+    },
+    {
+     "at": "2026-09-17T01:45",
+     "channel": "form",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-04: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-09-17T04:45",
+     "channel": "form",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H032",
+   "customer": {
+    "name": "Tomasz Hansen",
+    "email": "tomasz.h2935@example.com"
+   },
+   "order_no": "DEMOTX05931",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-18T10:27",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-17T21:27",
+   "timeline": [
+    {
+     "at": "2026-09-17T21:27",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen shirt hasn't arrived yet. Could you check where it is?",
+     "by": "Tomasz Hansen",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Tomasz Hansen",
+      "email": "tomasz.h2935@example.com"
+     }
+    },
+    {
+     "at": "2026-09-18T10:27",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-03: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-09-18T10:27",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H033",
+   "customer": {
+    "name": "Davide Petit",
+    "email": "davide.p4580@example.com"
+   },
+   "order_no": "DEMOTX06428",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-09-20T10:06",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-18T14:06",
+   "timeline": [
+    {
+     "at": "2026-09-18T14:06",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Davide Petit",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Davide Petit",
+      "email": "davide.p4580@example.com"
+     }
+    },
+    {
+     "at": "2026-09-19T15:06",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Davide Petit",
+     "ai": false,
+     "from": {
+      "name": "Davide Petit",
+      "email": "davide.p4580@example.com"
+     }
+    },
+    {
+     "at": "2026-09-20T10:06",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H034",
+   "customer": {
+    "name": "Zofia Fontana",
+    "email": "zofia.f1852@example.com"
+   },
+   "order_no": "DEMOTX06227",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-20T09:44",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-19T10:44",
+   "timeline": [
+    {
+     "at": "2026-09-19T10:44",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Zofia Fontana",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Zofia Fontana",
+      "email": "zofia.f1852@example.com"
+     }
+    },
+    {
+     "at": "2026-09-19T23:44",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-20T09:44",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 20.0,
+     "at": "2026-09-19T23:44",
+     "by": "Sara"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H035",
+   "customer": {
+    "name": "Rui Bauer",
+    "email": "rui.b3595@example.com"
+   },
+   "order_no": "DEMOTX06445",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-20T11:40",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-19T13:40",
+   "timeline": [
+    {
+     "at": "2026-09-19T13:40",
+     "channel": "form",
+     "direction": "in",
+     "text": "The art print arrived with a small mark on it. What can you do?",
+     "by": "Rui Bauer",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Rui Bauer",
+      "email": "rui.b3595@example.com"
+     }
+    },
+    {
+     "at": "2026-09-20T05:40",
+     "channel": "form",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Stonewashed linen has small marks by nature; a gentle wash takes most of them out. Tell us if this one stays."
+    },
+    {
+     "at": "2026-09-20T11:40",
+     "channel": "form",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H036",
+   "customer": {
+    "name": "Katarina Maes",
+    "email": "katarina.m1767@example.com"
+   },
+   "order_no": "DEMOTX06125",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-09-20T06:43",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-19T16:43",
+   "timeline": [
+    {
+     "at": "2026-09-19T16:43",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen tote bag arrived with a small mark on it. What can you do?",
+     "by": "Katarina Maes",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Katarina Maes",
+      "email": "katarina.m1767@example.com"
+     }
+    },
+    {
+     "at": "2026-09-20T00:43",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-09-20T06:43",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 42.0,
+     "at": "2026-09-20T00:43",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H037",
+   "customer": {
+    "name": "Bruno Visser",
+    "email": "bruno.v1715@example.com"
+   },
+   "order_no": "DEMOTX06114",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-21T05:20",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-20T16:20",
+   "timeline": [
+    {
+     "at": "2026-09-20T16:20",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Bruno Visser",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Bruno Visser",
+      "email": "bruno.v1715@example.com"
+     }
+    },
+    {
+     "at": "2026-09-21T01:20",
+     "channel": "form",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-21T05:20",
+     "channel": "form",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 42.0,
+     "at": "2026-09-21T01:20",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H038",
+   "customer": {
+    "name": "Diego Fischer",
+    "email": "diego.f3753@example.com"
+   },
+   "order_no": "DEMOTX06309",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-09-22T02:41",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-21T07:41",
+   "timeline": [
+    {
+     "at": "2026-09-21T07:41",
+     "channel": "email",
+     "direction": "in",
+     "text": "The notebook set arrived with a small mark on it. What can you do?",
+     "by": "Diego Fischer",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Diego Fischer",
+      "email": "diego.f3753@example.com"
+     }
+    },
+    {
+     "at": "2026-09-21T22:41",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-09-22T02:41",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 29.0,
+     "at": "2026-09-21T22:41",
+     "by": "Luca"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H039",
+   "customer": {
+    "name": "Diego Caruso",
+    "email": "diego.c1920@example.com"
+   },
+   "order_no": "DEMOTX06533",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-22T14:49",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-21T16:49",
+   "timeline": [
+    {
+     "at": "2026-09-21T16:49",
+     "channel": "email",
+     "direction": "in",
+     "text": "The art print arrived with a small mark on it. What can you do?",
+     "by": "Diego Caruso",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Diego Caruso",
+      "email": "diego.c1920@example.com"
+     }
+    },
+    {
+     "at": "2026-09-21T22:49",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "We're sorry: we've refunded you in full. No need to send it back."
+    },
+    {
+     "at": "2026-09-22T14:49",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 20.0,
+     "at": "2026-09-21T22:49",
+     "by": "Luca"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H040",
+   "customer": {
+    "name": "Ada Novotný",
+    "email": "ada.n1947@example.com"
+   },
+   "order_no": "DEMOTX06554",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-24T15:56",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-22T20:56",
+   "timeline": [
+    {
+     "at": "2026-09-22T20:56",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Ada Novotný",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Ada Novotný",
+      "email": "ada.n1947@example.com"
+     }
+    },
+    {
+     "at": "2026-09-23T13:56",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-24T15:56",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 36.0,
+     "at": "2026-09-23T13:56",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H041",
+   "customer": {
+    "name": "Thomas Marino",
+    "email": "thomas.m2641@example.com"
+   },
+   "order_no": "DEMOTX06509",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-23T07:06",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-22T14:06",
+   "timeline": [
+    {
+     "at": "2026-09-22T14:06",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Thomas Marino",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Thomas Marino",
+      "email": "thomas.m2641@example.com"
+     }
+    },
+    {
+     "at": "2026-09-23T02:06",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-15: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-23T07:06",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H042",
+   "customer": {
+    "name": "Sophie Fischer",
+    "email": "sophie.f3367@example.com"
+   },
+   "order_no": "DEMOTX06462",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-24T14:06",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-23T19:06",
+   "timeline": [
+    {
+     "at": "2026-09-23T19:06",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Sophie Fischer",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Sophie Fischer",
+      "email": "sophie.f3367@example.com"
+     }
+    },
+    {
+     "at": "2026-09-24T09:06",
+     "channel": "form",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-14: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-09-24T14:06",
+     "channel": "form",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H043",
+   "customer": {
+    "name": "Lukas Hoffmann",
+    "email": "lukas.h1480@example.com"
+   },
+   "order_no": "DEMOTX06399",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-24T23:44",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-23T13:44",
+   "timeline": [
+    {
+     "at": "2026-09-23T13:44",
+     "channel": "email",
+     "direction": "in",
+     "text": "I sent the art print back last week. When will the refund come?",
+     "by": "Lukas Hoffmann",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Lukas Hoffmann",
+      "email": "lukas.h1480@example.com"
+     }
+    },
+    {
+     "at": "2026-09-24T05:44",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-09-24T23:44",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 20.0,
+     "at": "2026-09-24T05:44",
+     "by": "Sara"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H044",
+   "customer": {
+    "name": "Valentina Svoboda",
+    "email": "valentina.s1445@example.com"
+   },
+   "order_no": "DEMOTX06625",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-09-25T17:20",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-24T11:20",
+   "timeline": [
+    {
+     "at": "2026-09-24T11:20",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Valentina Svoboda",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Valentina Svoboda",
+      "email": "valentina.s1445@example.com"
+     }
+    },
+    {
+     "at": "2026-09-24T23:20",
+     "channel": "form",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Valentina Svoboda",
+     "ai": false,
+     "from": {
+      "name": "Valentina Svoboda",
+      "email": "valentina.s1445@example.com"
+     }
+    },
+    {
+     "at": "2026-09-25T17:20",
+     "channel": "form",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H045",
+   "customer": {
+    "name": "Tomasz Visser",
+    "email": "tomasz.v1803@example.com"
+   },
+   "order_no": "DEMOTX06682",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-09-28T06:48",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-26T16:48",
+   "timeline": [
+    {
+     "at": "2026-09-26T16:48",
+     "channel": "email",
+     "direction": "in",
+     "text": "The art print arrived with a small mark on it. What can you do?",
+     "by": "Tomasz Visser",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Tomasz Visser",
+      "email": "tomasz.v1803@example.com"
+     }
+    },
+    {
+     "at": "2026-09-27T12:48",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-09-28T06:48",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 20.0,
+     "at": "2026-09-27T12:48",
+     "by": "Sara"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H046",
+   "customer": {
+    "name": "Eva Huber",
+    "email": "eva.h1784@example.com"
+   },
+   "order_no": "DEMOTX06504",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-28T13:58",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-27T08:58",
+   "timeline": [
+    {
+     "at": "2026-09-27T08:58",
+     "channel": "email",
+     "direction": "in",
+     "text": "I sent the linen napkins back last week. When will the refund come?",
+     "by": "Eva Huber",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Eva Huber",
+      "email": "eva.h1784@example.com"
+     }
+    },
+    {
+     "at": "2026-09-27T18:58",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-09-28T13:58",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 36.0,
+     "at": "2026-09-27T18:58",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H047",
+   "customer": {
+    "name": "Ada Oliveira",
+    "email": "ada.o3759@example.com"
+   },
+   "order_no": "DEMOTX06473",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-29T08:11",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-27T17:11",
+   "timeline": [
+    {
+     "at": "2026-09-27T17:11",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Ada Oliveira",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Ada Oliveira",
+      "email": "ada.o3759@example.com"
+     }
+    },
+    {
+     "at": "2026-09-28T08:11",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-14: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-09-29T08:11",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H048",
+   "customer": {
+    "name": "Camille Hansen",
+    "email": "camille.h4282@example.com"
+   },
+   "order_no": "DEMOTX06624",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-09-28T12:55",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-27T08:55",
+   "timeline": [
+    {
+     "at": "2026-09-27T08:55",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Camille Hansen",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Camille Hansen",
+      "email": "camille.h4282@example.com"
+     }
+    },
+    {
+     "at": "2026-09-27T16:55",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-17: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-09-28T12:55",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H049",
+   "customer": {
+    "name": "Marco Andersson",
+    "email": "marco.a4910@example.com"
+   },
+   "order_no": "DEMOTX06824",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-09-30T02:38",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-28T21:38",
+   "timeline": [
+    {
+     "at": "2026-09-28T21:38",
+     "channel": "email",
+     "direction": "in",
+     "text": "The art print arrived with a small mark on it. What can you do?",
+     "by": "Marco Andersson",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Marco Andersson",
+      "email": "marco.a4910@example.com"
+     }
+    },
+    {
+     "at": "2026-09-29T17:38",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-09-30T02:38",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 20.0,
+     "at": "2026-09-29T17:38",
+     "by": "Marta"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H050",
+   "customer": {
+    "name": "Amira Babić",
+    "email": "amira.b4306@example.com"
+   },
+   "order_no": "DEMOTX06758",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-29T10:14",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-28T16:14",
+   "timeline": [
+    {
+     "at": "2026-09-28T16:14",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Amira Babić",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Amira Babić",
+      "email": "amira.b4306@example.com"
+     }
+    },
+    {
+     "at": "2026-09-29T01:14",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-09-29T10:14",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 36.0,
+     "at": "2026-09-29T01:14",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H051",
+   "customer": {
+    "name": "Daan Nilsson",
+    "email": "daan.n4749@example.com"
+   },
+   "order_no": "DEMOTX06572",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-09-30T04:58",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-29T13:58",
+   "timeline": [
+    {
+     "at": "2026-09-29T13:58",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen apron arrived with a small mark on it. What can you do?",
+     "by": "Daan Nilsson",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Daan Nilsson",
+      "email": "daan.n4749@example.com"
+     }
+    },
+    {
+     "at": "2026-09-30T03:58",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: we've refunded you in full. No need to send it back."
+    },
+    {
+     "at": "2026-09-30T04:58",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 58.0,
+     "at": "2026-09-30T03:58",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H052",
+   "customer": {
+    "name": "Katarina Bakker",
+    "email": "katarina.b4807@example.com"
+   },
+   "order_no": "DEMOTX07074",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-01T18:49",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-30T21:49",
+   "timeline": [
+    {
+     "at": "2026-09-30T21:49",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Katarina Bakker",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Katarina Bakker",
+      "email": "katarina.b4807@example.com"
+     }
+    },
+    {
+     "at": "2026-10-01T08:49",
+     "channel": "form",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-27: the courier left it in your building's mailroom. Could you check there?"
+    },
+    {
+     "at": "2026-10-01T18:49",
+     "channel": "form",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H053",
+   "customer": {
+    "name": "Amira Hoffmann",
+    "email": "amira.h1773@example.com"
+   },
+   "order_no": "DEMOTX06687",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-10-01T18:59",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-09-30T13:59",
+   "timeline": [
+    {
+     "at": "2026-09-30T13:59",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen apron hasn't arrived yet. Could you check where it is?",
+     "by": "Amira Hoffmann",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Amira Hoffmann",
+      "email": "amira.h1773@example.com"
+     }
+    },
+    {
+     "at": "2026-09-30T19:59",
+     "channel": "form",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-10-01T18:59",
+     "channel": "form",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 58.0,
+     "at": "2026-09-30T19:59",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H054",
+   "customer": {
+    "name": "Camille Wagner",
+    "email": "camille.w4539@example.com"
+   },
+   "order_no": "DEMOTX06850",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-02T19:13",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-01T13:13",
+   "timeline": [
+    {
+     "at": "2026-10-01T13:13",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Camille Wagner",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Camille Wagner",
+      "email": "camille.w4539@example.com"
+     }
+    },
+    {
+     "at": "2026-10-01T22:13",
+     "channel": "form",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-22: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-10-02T19:13",
+     "channel": "form",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H055",
+   "customer": {
+    "name": "Pierre Becker",
+    "email": "pierre.b2110@example.com"
+   },
+   "order_no": "DEMOTX06745",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-10-02T15:52",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-01T13:52",
+   "timeline": [
+    {
+     "at": "2026-10-01T13:52",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Pierre Becker",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Pierre Becker",
+      "email": "pierre.b2110@example.com"
+     }
+    },
+    {
+     "at": "2026-10-01T14:52",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-10-02T15:52",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 36.0,
+     "at": "2026-10-01T14:52",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H056",
+   "customer": {
+    "name": "Elif Schulz",
+    "email": "elif.s2511@example.com"
+   },
+   "order_no": "DEMOTX06936",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-10-03T17:35",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-02T18:35",
+   "timeline": [
+    {
+     "at": "2026-10-02T18:35",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen apron arrived with a small mark on it. What can you do?",
+     "by": "Elif Schulz",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Elif Schulz",
+      "email": "elif.s2511@example.com"
+     }
+    },
+    {
+     "at": "2026-10-02T20:35",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-10-03T17:35",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 58.0,
+     "at": "2026-10-02T20:35",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H057",
+   "customer": {
+    "name": "Felix Pereira",
+    "email": "felix.p3273@example.com"
+   },
+   "order_no": "DEMOTX06751",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-10-04T17:34",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-03T14:34",
+   "timeline": [
+    {
+     "at": "2026-10-03T14:34",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Felix Pereira",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Felix Pereira",
+      "email": "felix.p3273@example.com"
+     }
+    },
+    {
+     "at": "2026-10-04T05:34",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Felix Pereira",
+     "ai": false,
+     "from": {
+      "name": "Felix Pereira",
+      "email": "felix.p3273@example.com"
+     }
+    },
+    {
+     "at": "2026-10-04T17:34",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H058",
+   "customer": {
+    "name": "Katarina Colombo",
+    "email": "katarina.c3151@example.com"
+   },
+   "order_no": "DEMOTX06736",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-05T07:19",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-03T19:19",
+   "timeline": [
+    {
+     "at": "2026-10-03T19:19",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Katarina Colombo",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Katarina Colombo",
+      "email": "katarina.c3151@example.com"
+     }
+    },
+    {
+     "at": "2026-10-04T12:19",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-19: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-10-05T07:19",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H059",
+   "customer": {
+    "name": "Ana Peeters",
+    "email": "ana.p1864@example.com"
+   },
+   "order_no": "DEMOTX06851",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-04T13:20",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-03T08:20",
+   "timeline": [
+    {
+     "at": "2026-10-03T08:20",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Ana Peeters",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Ana Peeters",
+      "email": "ana.p1864@example.com"
+     }
+    },
+    {
+     "at": "2026-10-04T00:20",
+     "channel": "form",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-22: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-10-04T13:20",
+     "channel": "form",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H060",
+   "customer": {
+    "name": "Femke Romano",
+    "email": "femke.r3145@example.com"
+   },
+   "order_no": "DEMOTX06842",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-10-05T13:10",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-04T13:10",
+   "timeline": [
+    {
+     "at": "2026-10-04T13:10",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Femke Romano",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Femke Romano",
+      "email": "femke.r3145@example.com"
+     }
+    },
+    {
+     "at": "2026-10-05T03:10",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Femke Romano",
+     "ai": false,
+     "from": {
+      "name": "Femke Romano",
+      "email": "femke.r3145@example.com"
+     }
+    },
+    {
+     "at": "2026-10-05T13:10",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H061",
+   "customer": {
+    "name": "Lukas Pérez",
+    "email": "lukas.p1433@example.com"
+   },
+   "order_no": "DEMOTX07004",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-10-05T03:21",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-04T07:21",
+   "timeline": [
+    {
+     "at": "2026-10-04T07:21",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my notebook set hasn't arrived yet. Could you check where it is?",
+     "by": "Lukas Pérez",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Lukas Pérez",
+      "email": "lukas.p1433@example.com"
+     }
+    },
+    {
+     "at": "2026-10-04T13:21",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Lukas Pérez",
+     "ai": false,
+     "from": {
+      "name": "Lukas Pérez",
+      "email": "lukas.p1433@example.com"
+     }
+    },
+    {
+     "at": "2026-10-05T03:21",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H062",
+   "customer": {
+    "name": "Katarina Hansen",
+    "email": "katarina.h3873@example.com"
+   },
+   "order_no": "DEMOTX06932",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-10-05T13:52",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-04T08:52",
+   "timeline": [
+    {
+     "at": "2026-10-04T08:52",
+     "channel": "email",
+     "direction": "in",
+     "text": "The art print arrived with a small mark on it. What can you do?",
+     "by": "Katarina Hansen",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Katarina Hansen",
+      "email": "katarina.h3873@example.com"
+     }
+    },
+    {
+     "at": "2026-10-04T19:52",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "We're sorry: we've refunded you in full. No need to send it back."
+    },
+    {
+     "at": "2026-10-05T13:52",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 20.0,
+     "at": "2026-10-04T19:52",
+     "by": "Sara"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H063",
+   "customer": {
+    "name": "Katarina Caruso",
+    "email": "katarina.c3212@example.com"
+   },
+   "order_no": "DEMOTX06866",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-07T22:56",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-06T11:56",
+   "timeline": [
+    {
+     "at": "2026-10-06T11:56",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Katarina Caruso",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Katarina Caruso",
+      "email": "katarina.c3212@example.com"
+     }
+    },
+    {
+     "at": "2026-10-06T20:56",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-23: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-10-07T22:56",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H064",
+   "customer": {
+    "name": "Hugo Willems",
+    "email": "hugo.w3738@example.com"
+   },
+   "order_no": "DEMOTX07284",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-08T05:22",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-07T17:22",
+   "timeline": [
+    {
+     "at": "2026-10-07T17:22",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Hugo Willems",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Hugo Willems",
+      "email": "hugo.w3738@example.com"
+     }
+    },
+    {
+     "at": "2026-10-07T21:22",
+     "channel": "form",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-10-01: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-10-08T05:22",
+     "channel": "form",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H065",
+   "customer": {
+    "name": "Anna Pereira",
+    "email": "anna.p1983@example.com"
+   },
+   "order_no": "DEMOTX07399",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-08T21:05",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-07T12:05",
+   "timeline": [
+    {
+     "at": "2026-10-07T12:05",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my notebook set hasn't arrived yet. Could you check where it is?",
+     "by": "Anna Pereira",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Anna Pereira",
+      "email": "anna.p1983@example.com"
+     }
+    },
+    {
+     "at": "2026-10-07T23:05",
+     "channel": "form",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-10-04: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-10-08T21:05",
+     "channel": "form",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H066",
+   "customer": {
+    "name": "Ana Petit",
+    "email": "ana.p1495@example.com"
+   },
+   "order_no": "DEMOTX07311",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-10-09T18:11",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-08T11:11",
+   "timeline": [
+    {
+     "at": "2026-10-08T11:11",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen tote bag arrived with a small mark on it. What can you do?",
+     "by": "Ana Petit",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Ana Petit",
+      "email": "ana.p1495@example.com"
+     }
+    },
+    {
+     "at": "2026-10-09T04:11",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-10-09T18:11",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 42.0,
+     "at": "2026-10-09T04:11",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H067",
+   "customer": {
+    "name": "Thomas Fischer",
+    "email": "thomas.f1953@example.com"
+   },
+   "order_no": "DEMOTX07184",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-10T02:32",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-08T12:32",
+   "timeline": [
+    {
+     "at": "2026-10-08T12:32",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen apron hasn't arrived yet. Could you check where it is?",
+     "by": "Thomas Fischer",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Thomas Fischer",
+      "email": "thomas.f1953@example.com"
+     }
+    },
+    {
+     "at": "2026-10-09T06:32",
+     "channel": "form",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-09-29: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-10-10T02:32",
+     "channel": "form",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H068",
+   "customer": {
+    "name": "Martina Moreno",
+    "email": "martina.m1808@example.com"
+   },
+   "order_no": "DEMOTX07028",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-10-10T17:59",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-09T13:59",
+   "timeline": [
+    {
+     "at": "2026-10-09T13:59",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Martina Moreno",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Martina Moreno",
+      "email": "martina.m1808@example.com"
+     }
+    },
+    {
+     "at": "2026-10-10T01:59",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Martina Moreno",
+     "ai": false,
+     "from": {
+      "name": "Martina Moreno",
+      "email": "martina.m1808@example.com"
+     }
+    },
+    {
+     "at": "2026-10-10T17:59",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H069",
+   "customer": {
+    "name": "Matteo Gruber",
+    "email": "matteo.g2957@example.com"
+   },
+   "order_no": "DEMOTX07032",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-10-12T08:12",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-10T20:12",
+   "timeline": [
+    {
+     "at": "2026-10-10T20:12",
+     "channel": "email",
+     "direction": "in",
+     "text": "I sent the linen tote bag back last week. When will the refund come?",
+     "by": "Matteo Gruber",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Matteo Gruber",
+      "email": "matteo.g2957@example.com"
+     }
+    },
+    {
+     "at": "2026-10-11T14:12",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-10-12T08:12",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 42.0,
+     "at": "2026-10-11T14:12",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H070",
+   "customer": {
+    "name": "Lea Schneider",
+    "email": "lea.s2038@example.com"
+   },
+   "order_no": "DEMOTX07368",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-12T22:04",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-11T08:04",
+   "timeline": [
+    {
+     "at": "2026-10-11T08:04",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Lea Schneider",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Lea Schneider",
+      "email": "lea.s2038@example.com"
+     }
+    },
+    {
+     "at": "2026-10-11T23:04",
+     "channel": "email",
+     "direction": "out",
+     "by": "Sara",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-10-03: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-10-12T22:04",
+     "channel": "email",
+     "direction": "note",
+     "by": "Sara",
+     "ai": false,
+     "text": "Closed by Sara: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H071",
+   "customer": {
+    "name": "Camille Ricci",
+    "email": "camille.r1708@example.com"
+   },
+   "order_no": "DEMOTX07297",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-10-12T19:42",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-11T13:42",
+   "timeline": [
+    {
+     "at": "2026-10-11T13:42",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Camille Ricci",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Camille Ricci",
+      "email": "camille.r1708@example.com"
+     }
+    },
+    {
+     "at": "2026-10-12T13:42",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Camille Ricci",
+     "ai": false,
+     "from": {
+      "name": "Camille Ricci",
+      "email": "camille.r1708@example.com"
+     }
+    },
+    {
+     "at": "2026-10-12T19:42",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H072",
+   "customer": {
+    "name": "Emma Hoffmann",
+    "email": "emma.h1699@example.com"
+   },
+   "order_no": "DEMOTX07549",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-14T14:34",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-13T14:34",
+   "timeline": [
+    {
+     "at": "2026-10-13T14:34",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my linen tote bag hasn't arrived yet. Could you check where it is?",
+     "by": "Emma Hoffmann",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Emma Hoffmann",
+      "email": "emma.h1699@example.com"
+     }
+    },
+    {
+     "at": "2026-10-13T22:34",
+     "channel": "form",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-10-07: the courier left it with a neighbour. Could you check there?"
+    },
+    {
+     "at": "2026-10-14T14:34",
+     "channel": "form",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H073",
+   "customer": {
+    "name": "Ada Moser",
+    "email": "ada.m1579@example.com"
+   },
+   "order_no": "DEMOTX07216",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-10-15T04:11",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-13T20:11",
+   "timeline": [
+    {
+     "at": "2026-10-13T20:11",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my notebook set hasn't arrived yet. Could you check where it is?",
+     "by": "Ada Moser",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Ada Moser",
+      "email": "ada.m1579@example.com"
+     }
+    },
+    {
+     "at": "2026-10-14T23:11",
+     "channel": "email",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Ada Moser",
+     "ai": false,
+     "from": {
+      "name": "Ada Moser",
+      "email": "ada.m1579@example.com"
+     }
+    },
+    {
+     "at": "2026-10-15T04:11",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H074",
+   "customer": {
+    "name": "Davide Willems",
+    "email": "davide.w3762@example.com"
+   },
+   "order_no": "DEMOTX07636",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "withdrawn",
+   "closed_at": "2026-10-15T12:12",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-14T13:12",
+   "timeline": [
+    {
+     "at": "2026-10-14T13:12",
+     "channel": "form",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Davide Willems",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Davide Willems",
+      "email": "davide.w3762@example.com"
+     }
+    },
+    {
+     "at": "2026-10-15T05:12",
+     "channel": "form",
+     "direction": "in",
+     "text": "It's arrived, sorry for the trouble!",
+     "by": "Davide Willems",
+     "ai": false,
+     "from": {
+      "name": "Davide Willems",
+      "email": "davide.w3762@example.com"
+     }
+    },
+    {
+     "at": "2026-10-15T12:12",
+     "channel": "form",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: the customer withdrew."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H075",
+   "customer": {
+    "name": "Anna Andersson",
+    "email": "anna.a2901@example.com"
+   },
+   "order_no": "DEMOTX07417",
+   "problem": {
+    "kind": "wrong_size",
+    "summary": "Wrong size"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-10-15T05:09",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-14T09:09",
+   "timeline": [
+    {
+     "at": "2026-10-14T09:09",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen shirt is too small. Can I exchange it for the next size?",
+     "by": "Anna Andersson",
+     "ai": false,
+     "subject": "Wrong size",
+     "from": {
+      "name": "Anna Andersson",
+      "email": "anna.a2901@example.com"
+     }
+    },
+    {
+     "at": "2026-10-15T00:09",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Of course: send it back and the next size goes out as soon as it arrives."
+    },
+    {
+     "at": "2026-10-15T05:09",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 89.0,
+     "at": "2026-10-15T00:09",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H076",
+   "customer": {
+    "name": "Karim Kovač",
+    "email": "karim.k2539@example.com"
+   },
+   "order_no": "DEMOTX07391",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-10-15T01:17",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-14T11:17",
+   "timeline": [
+    {
+     "at": "2026-10-14T11:17",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen napkins arrived with a small mark on it. What can you do?",
+     "by": "Karim Kovač",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Karim Kovač",
+      "email": "karim.k2539@example.com"
+     }
+    },
+    {
+     "at": "2026-10-14T14:17",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-10-15T01:17",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 36.0,
+     "at": "2026-10-14T14:17",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H077",
+   "customer": {
+    "name": "Manon Visser",
+    "email": "manon.v3385@example.com"
+   },
+   "order_no": "DEMOTX07372",
+   "problem": {
+    "kind": "refund_missing",
+    "summary": "Refund for my return?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-10-16T10:37",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-15T19:37",
+   "timeline": [
+    {
+     "at": "2026-10-15T19:37",
+     "channel": "form",
+     "direction": "in",
+     "text": "I sent the linen tote bag back last week. When will the refund come?",
+     "by": "Manon Visser",
+     "ai": false,
+     "subject": "Refund for my return?",
+     "from": {
+      "name": "Manon Visser",
+      "email": "manon.v3385@example.com"
+     }
+    },
+    {
+     "at": "2026-10-15T23:37",
+     "channel": "form",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Your return has arrived: we've refunded you in full."
+    },
+    {
+     "at": "2026-10-16T10:37",
+     "channel": "form",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 42.0,
+     "at": "2026-10-15T23:37",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H078",
+   "customer": {
+    "name": "Lucía Fernández",
+    "email": "lucía.f3100@example.com"
+   },
+   "order_no": "DEMOTX07482",
+   "problem": {
+    "kind": "wrong_size",
+    "summary": "Wrong size"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-10-17T02:26",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-15T09:26",
+   "timeline": [
+    {
+     "at": "2026-10-15T09:26",
+     "channel": "form",
+     "direction": "in",
+     "text": "The linen shirt is too small. Can I exchange it for the next size?",
+     "by": "Lucía Fernández",
+     "ai": false,
+     "subject": "Wrong size",
+     "from": {
+      "name": "Lucía Fernández",
+      "email": "lucía.f3100@example.com"
+     }
+    },
+    {
+     "at": "2026-10-15T22:26",
+     "channel": "form",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Of course: send it back and the next size goes out as soon as it arrives."
+    },
+    {
+     "at": "2026-10-17T02:26",
+     "channel": "form",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 89.0,
+     "at": "2026-10-15T22:26",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H079",
+   "customer": {
+    "name": "Lucía Leroy",
+    "email": "lucía.l2700@example.com"
+   },
+   "order_no": "DEMOTX07605",
+   "problem": {
+    "kind": "not_as_described",
+    "summary": "A problem with my order"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "replaced",
+   "closed_at": "2026-10-16T13:43",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-15T20:43",
+   "timeline": [
+    {
+     "at": "2026-10-15T20:43",
+     "channel": "email",
+     "direction": "in",
+     "text": "The linen tote bag arrived with a small mark on it. What can you do?",
+     "by": "Lucía Leroy",
+     "ai": false,
+     "subject": "A problem with my order",
+     "from": {
+      "name": "Lucía Leroy",
+      "email": "lucía.l2700@example.com"
+     }
+    },
+    {
+     "at": "2026-10-16T07:43",
+     "channel": "email",
+     "direction": "out",
+     "by": "Giulia",
+     "ai": false,
+     "text": "We're sorry: a new one is on its way to you today."
+    },
+    {
+     "at": "2026-10-16T13:43",
+     "channel": "email",
+     "direction": "note",
+     "by": "Giulia",
+     "ai": false,
+     "text": "Closed by Giulia: replaced or exchanged."
+    }
+   ],
+   "money": [
+    {
+     "kind": "replace",
+     "amount": 42.0,
+     "at": "2026-10-16T07:43",
+     "by": "Giulia"
+    }
+   ]
+  },
+  {
+   "id": "DEMO-H080",
+   "customer": {
+    "name": "Paul Gallo",
+    "email": "paul.g2989@example.com"
+   },
+   "order_no": "DEMOTX07464",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-16T23:16",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-16T11:16",
+   "timeline": [
+    {
+     "at": "2026-10-16T11:16",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my linen napkins hasn't arrived yet. Could you check where it is?",
+     "by": "Paul Gallo",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Paul Gallo",
+      "email": "paul.g2989@example.com"
+     }
+    },
+    {
+     "at": "2026-10-16T23:16",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-10-05: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-10-16T23:16",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H081",
+   "customer": {
+    "name": "Nora Hoffmann",
+    "email": "nora.h2583@example.com"
+   },
+   "order_no": "DEMOTX07600",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "solved",
+   "closed_at": "2026-10-17T06:09",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-16T13:09",
+   "timeline": [
+    {
+     "at": "2026-10-16T13:09",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my notebook set hasn't arrived yet. Could you check where it is?",
+     "by": "Nora Hoffmann",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Nora Hoffmann",
+      "email": "nora.h2583@example.com"
+     }
+    },
+    {
+     "at": "2026-10-16T18:09",
+     "channel": "email",
+     "direction": "out",
+     "by": "Luca",
+     "ai": false,
+     "text": "Your parcel was delivered on 2026-10-08: the courier left it at the front door. Could you check there?"
+    },
+    {
+     "at": "2026-10-17T06:09",
+     "channel": "email",
+     "direction": "note",
+     "by": "Luca",
+     "ai": false,
+     "text": "Closed by Luca: solved before any dispute."
+    }
+   ],
+   "money": []
+  },
+  {
+   "id": "DEMO-H082",
+   "customer": {
+    "name": "Bruno Pereira",
+    "email": "bruno.p2340@example.com"
+   },
+   "order_no": "DEMOTX07574",
+   "problem": {
+    "kind": "not_received",
+    "summary": "Where is my order?"
+   },
+   "stage": "inquiry",
+   "status": "closed",
+   "outcome": "refunded",
+   "closed_at": "2026-10-17T22:08",
+   "dispute_id": null,
+   "sorted": {
+    "by": "rules",
+    "how": "An earlier case: the shop's own record."
+   },
+   "opened": "2026-10-16T16:08",
+   "timeline": [
+    {
+     "at": "2026-10-16T16:08",
+     "channel": "email",
+     "direction": "in",
+     "text": "Hello, my art print hasn't arrived yet. Could you check where it is?",
+     "by": "Bruno Pereira",
+     "ai": false,
+     "subject": "Where is my order?",
+     "from": {
+      "name": "Bruno Pereira",
+      "email": "bruno.p2340@example.com"
+     }
+    },
+    {
+     "at": "2026-10-17T00:08",
+     "channel": "email",
+     "direction": "out",
+     "by": "Marta",
+     "ai": false,
+     "text": "We're sorry: the courier has lost your parcel. We've refunded you in full."
+    },
+    {
+     "at": "2026-10-17T22:08",
+     "channel": "email",
+     "direction": "note",
+     "by": "Marta",
+     "ai": false,
+     "text": "Closed by Marta: refunded."
+    }
+   ],
+   "money": [
+    {
+     "kind": "refund",
+     "amount": 20.0,
+     "at": "2026-10-17T00:08",
+     "by": "Marta"
+    }
+   ]
+  }
  ]
 }

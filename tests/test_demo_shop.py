@@ -147,6 +147,17 @@ def test_the_team_s_roles_are_the_shop_s_own_titles():
     assert set(pp.shop["team"]["roles"]) == {"Head of customer care", "Customer care assistant"}
 
 
+def test_the_earlier_cases_are_closed_and_touch_nothing_this_morning_or_paypal_holds():
+    h = pp.history()
+    assert len(h) == 82 and sum(1 for c in h if c["opened"] >= "2026-10-01") == 29
+    assert all(c["status"] == "closed" and c["closed_at"] < "2026-10-19" and c["dispute_id"] is None for c in h)
+    assert all(c["id"].startswith("DEMO-H") for c in h)              # never a case id the case file could give out
+    disputed = {d["disputed_transactions"][0]["seller_transaction_id"] for d in pp.disputes()}
+    late = {o["email"] for o in pp.orders() if o["date"] >= "2026-10-10"} | {r["from"]["email"] for r in pp.requests()}
+    assert not {c["order_no"] for c in h} & disputed and not {c["customer"]["email"] for c in h} & late
+    assert len({c["customer"]["email"] for c in h}) == len(h)        # one case per customer
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

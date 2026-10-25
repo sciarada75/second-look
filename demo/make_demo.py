@@ -440,10 +440,92 @@ requests = [
      "text": "I sent the shirt back on 5 October and you got it on the 8th. I still have no refund."},
 ]
 
+# ---------- the shop's earlier cases (26/10): what "I know" counts this month ----------
+# Closed shop inquiries from 1 September to 16 October, by email or the web form, each answered and closed by the
+# team: the shop's own record of the weeks before this morning. A third random stream (rng3) draws them, after
+# everything above, so no earlier draw moves (the PayPal side and the paid reviews stay exactly as they were).
+# Each case is about an order of a customer who has no other request, no PayPal dispute and no order after
+# 9 October, so nothing this morning (a ticket, a request, a dispute) can land on one of them.
+rng3 = random.Random(20261026)
+disputed = {x["disputed_transactions"][0]["seller_transaction_id"] for x in disputes}
+late_buyers = {o["email"] for o in orders if o["date"] >= "2026-10-10"} | {r["from"]["email"] for r in requests}
+eligible = [o for o in grown if o["transaction_id"] not in disputed and o["email"] not in late_buyers]
+WHERE = ["with a neighbour", "in your building's mailroom", "at the front door"]
+# weight, kind, subject, what the customer wrote, [(outcome, weight, the team's answer)]; {item}: the order's item
+HISTORY_KINDS = [
+    (6, "not_received", "Where is my order?", "Hello, my {item} hasn't arrived yet. Could you check where it is?",
+     [("solved", 6, "Your parcel was delivered on {day}: the courier left it {where}. Could you check there?"),
+      ("refunded", 2, "We're sorry: the courier has lost your parcel. We've refunded you in full."),
+      ("withdrawn", 2, None)]),
+    (3, "not_as_described", "A problem with my order", "The {item} arrived with a small mark on it. What can you do?",
+     [("replaced", 3, "We're sorry: a new one is on its way to you today."),
+      ("refunded", 1, "We're sorry: we've refunded you in full. No need to send it back."),
+      ("solved", 2, "Stonewashed linen has small marks by nature; a gentle wash takes most of them out. "
+                    "Tell us if this one stays.")]),
+    (1, "refund_missing", "Refund for my return?", "I sent the {item} back last week. When will the refund come?",
+     [("refunded", 1, "Your return has arrived: we've refunded you in full.")]),
+]
+SIZE_KIND = (1, "wrong_size", "Wrong size", "The {item} is too small. Can I exchange it for the next size?",
+             [("replaced", 1, "Of course: send it back and the next size goes out as soon as it arrives.")])
+CLOSE_SAYS = {"solved": "solved before any dispute", "refunded": "refunded", "replaced": "replaced or exchanged",
+              "withdrawn": "the customer withdrew"}
+
+
+def at(day, h, m):
+    return datetime(day.year, day.month, day.day, h, m).strftime("%Y-%m-%dT%H:%M")
+
+
+history, used, k, day = [], set(), 0, date(2026, 9, 1)
+while day <= date(2026, 10, 16):
+    for _ in range(rng3.choice([0, 1, 1, 2, 2, 2, 3])):
+        pool = [o for o in eligible if o["email"] not in used
+                and (day - timedelta(days=14)).isoformat() <= o["date"] <= (day - timedelta(days=3)).isoformat()]
+        if not pool:
+            continue
+        o = rng3.choice(pool)
+        used.add(o["email"])
+        item = o["items"][0]["item_name"]
+        _, kind, subject, text, answers = (SIZE_KIND if item == "Linen shirt" and rng3.random() < 0.5
+                                           else rng3.choice([h for h in HISTORY_KINDS for _ in range(h[0])]))
+        outcome_, _, answer = rng3.choice([a for a in answers for _ in range(a[1])])
+        channel = "email" if rng3.random() < 0.75 else "form"
+        k += 1
+        opened = at(day, rng3.randint(7, 21), rng3.randint(0, 59))
+        t0 = datetime.strptime(opened, "%Y-%m-%dT%H:%M")
+        amount = o["amount"]
+        by = "Giulia" if outcome_ in ("refunded", "replaced") and amount > 30 else rng3.choice(["Marta", "Luca", "Sara"])
+        said = text.format(item=item.lower())
+        timeline_ = [{"at": opened, "channel": channel, "direction": "in", "text": said, "by": o["name"], "ai": False,
+                      "subject": subject, "from": {"name": o["name"], "email": o["email"]}}]
+        money = []
+        if answer:
+            replied = (t0 + timedelta(hours=rng3.randint(1, 20))).strftime("%Y-%m-%dT%H:%M")
+            timeline_.append({"at": replied, "channel": channel, "direction": "out", "by": by, "ai": False,
+                              "text": answer.format(day=o["date"], where=rng3.choice(WHERE))})
+            if outcome_ == "refunded":
+                money.append({"kind": "refund", "amount": amount, "at": replied, "by": by})
+            if outcome_ == "replaced":
+                money.append({"kind": "replace", "amount": amount, "at": replied, "by": by})
+            last = datetime.strptime(replied, "%Y-%m-%dT%H:%M")
+        else:
+            last = t0 + timedelta(hours=rng3.randint(2, 30))
+            timeline_.append({"at": last.strftime("%Y-%m-%dT%H:%M"), "channel": channel, "direction": "in",
+                              "text": "It's arrived, sorry for the trouble!", "by": o["name"], "ai": False,
+                              "from": {"name": o["name"], "email": o["email"]}})
+        closed = (last + timedelta(hours=rng3.randint(0, 30))).strftime("%Y-%m-%dT%H:%M")
+        timeline_.append({"at": closed, "channel": channel, "direction": "note", "by": by, "ai": False,
+                          "text": f"Closed by {by}: {CLOSE_SAYS[outcome_]}."})
+        history.append({"id": f"DEMO-H{k:03d}", "customer": {"name": o["name"], "email": o["email"]},
+                        "order_no": o["transaction_id"], "problem": {"kind": kind, "summary": subject},
+                        "stage": "inquiry", "status": "closed", "outcome": outcome_, "closed_at": closed,
+                        "dispute_id": None, "sorted": {"by": "rules", "how": "An earlier case: the shop's own record."},
+                        "opened": opened, "timeline": timeline_, "money": money})
+    day += timedelta(days=1)
+
 OUT.write_text(json.dumps({"_comment": "Demo shop, made-up data. Generated by demo/make_demo.py; do not edit by hand.",
                            "today": TODAY.isoformat(), "shop": SHOP, "orders": orders, "disputes": disputes,
                            "records": records, "assignments": assignments, "handled_by": handled_by,
-                           "other_orders": other_orders, "requests": requests},
+                           "other_orders": other_orders, "requests": requests, "history": history},
                           indent=1, ensure_ascii=False) + "\n")
 print(f"{OUT.name}: {len(orders)} orders ({orders_90} in 90 days), {len(disputes)} disputes "
       f"({sum(x['status'] == 'RESOLVED' for x in disputes)} closed, {sum(x['status'] != 'RESOLVED' for x in disputes)} open)")
