@@ -109,7 +109,10 @@ def _ask_seller(why: str) -> Judgment:
     return Judgment("ASK_SELLER", 0.0, why)
 
 
-def claude(case: dict, model: str = None) -> Judgment:
+def ask_claude(system: str, schema: dict, content: str, model: str = None, effort: str = "high",
+               max_tokens: int = 16000) -> tuple:
+    """One structured call to Claude. Returns (stop, data): stop is "ok" (data = the parsed reply), "refusal",
+    "max_tokens" (data None) or "bad_json" (data = the raw text). Shared by the judge and the sort."""
     if not os.getenv("ANTHROPIC_API_KEY"):
         raise RuntimeError("ANTHROPIC_API_KEY not set: the model judge cannot run. Use --judge rules for the baseline.")
     import anthropic  # imported here so the rest of the tool works without the SDK
@@ -118,10 +121,10 @@ def claude(case: dict, model: str = None) -> Judgment:
     # max_tokens. With max_tokens=800 the model spent it all thinking and returned no text.
     msg = client.beta.messages.create(
         model=model or os.getenv("SECONDLOOK_MODEL", "claude-opus-5-5"),
-        max_tokens=16000,
-        system=SYSTEM,
-        messages=[{"role": "user", "content": "Case:\n" + _case_text(case)}],
-        output_config={"effort": "high", "format": {"type": "json_schema", "schema": SCHEMA}},
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": content}],
+        output_config={"effort": effort, "format": {"type": "json_schema", "schema": schema}},
         betas=["server-side-fallback-2026-07-01"],
         # The installed SDK (0.104) predates the `fallbacks` kwarg; send it as a raw body field.
         extra_body={"fallbacks": "default"},
@@ -130,14 +133,24 @@ def claude(case: dict, model: str = None) -> Judgment:
     USAGE["input_tokens"] += msg.usage.input_tokens
     USAGE["output_tokens"] += msg.usage.output_tokens
     if msg.stop_reason == "refusal":
-        return _ask_seller("The model declined this case; a human must look at it.")
+        return "refusal", None
     if msg.stop_reason == "max_tokens":
-        return _ask_seller("The model ran out of room before answering; routed to you.")
+        return "max_tokens", None
     text = next((b.text for b in msg.content if b.type == "text"), "")
     try:
-        data = json.loads(text)
+        return "ok", json.loads(text)
     except ValueError:
-        return _ask_seller("Model reply was not valid JSON: " + text[:200])
+        return "bad_json", text
+
+
+def claude(case: dict, model: str = None) -> Judgment:
+    stop, data = ask_claude(SYSTEM, SCHEMA, "Case:\n" + _case_text(case), model)
+    if stop == "refusal":
+        return _ask_seller("The model declined this case; a human must look at it.")
+    if stop == "max_tokens":
+        return _ask_seller("The model ran out of room before answering; routed to you.")
+    if stop == "bad_json":
+        return _ask_seller("Model reply was not valid JSON: " + data[:200])
     return Judgment(action=data["action"], confidence=float(data["confidence"]),
                     reasoning=data["reasoning"], evidence_cited=data["evidence_cited"],
                     draft_message=data["draft_message"], partial_amount=data["partial_amount"] or None,

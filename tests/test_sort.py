@@ -83,6 +83,40 @@ def test_the_ai_reads_and_the_code_matches_its_facts_to_the_sender_s_own_orders(
     s = sort.sort(req("The thing from September arrived damaged.", "ada.r@example.com"), ORDERS, set(), ai=down)
     assert not s["settled"] and "couldn't read it" in s["how"]
 
+
+def test_the_judge_and_the_sort_share_one_claude_call_and_a_refusal_still_goes_to_the_seller():
+    """A fake `anthropic` package stands in for the SDK: no request leaves this machine."""
+    sent = []
+
+    def reply(stop, text):
+        return types.SimpleNamespace(stop_reason=stop, usage=types.SimpleNamespace(input_tokens=10, output_tokens=5),
+                                     content=[types.SimpleNamespace(type="text", text=text)])
+    answers = [reply("end_turn", '{"order_no": "", "item": "notebook", "problem_kind": "question", "summary": "s"}'),
+               reply("refusal", "")]
+
+    class Messages:
+        def create(self, **kw):
+            sent.append(kw)
+            return answers.pop(0)
+    fake = types.SimpleNamespace(Anthropic=lambda: types.SimpleNamespace(beta=types.SimpleNamespace(messages=Messages())))
+    kept_mod, kept_key = sys.modules.get("anthropic"), os.environ.get("ANTHROPIC_API_KEY")
+    sys.modules["anthropic"], os.environ["ANTHROPIC_API_KEY"] = fake, "fake-for-this-test"
+    try:
+        assert sort.read_with_ai(req("x", "a@b.c"))["item"] == "notebook"
+        assert sent[0]["output_config"]["effort"] == "low" and sent[0]["max_tokens"] == 4000
+        j = judge.claude({"dispute": {}, "seller_records": {}})
+        assert j.action == "ASK_SELLER" and "declined" in j.reasoning and sent[1]["output_config"]["effort"] == "high"
+    finally:
+        if kept_mod is None:
+            sys.modules.pop("anthropic", None)
+        else:
+            sys.modules["anthropic"] = kept_mod
+        if kept_key is None:
+            os.environ.pop("ANTHROPIC_API_KEY", None)
+        else:
+            os.environ["ANTHROPIC_API_KEY"] = kept_key
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
