@@ -127,3 +127,112 @@ def channel_words(counts: dict) -> list:
     nouns = {"call": ("call", "calls"), "email": ("email", "emails"), "form": ("web form", "web forms"),
              "paypal": ("PayPal dispute", "PayPal disputes")}
     return [(ch, nouns[ch][counts.get(ch, 0) != 1], counts.get(ch, 0)) for ch in CHANNEL_ORDER if ch in CHANNEL_LABEL]
+
+
+def open_items(cases: list, disputes: list, orders: list) -> list:
+    """Everything still open, once each: every open PayPal dispute (a case holding one is answered on it), and every
+    open shop inquiry. Each with its decision id (whose assignment it is), who it is about and what is at stake."""
+    held = _dispute_of_case(cases)
+    amount_of = _amounts(orders)
+    out = []
+    for d in disputes:
+        if d.get("status") == "RESOLVED":
+            continue
+        c = held.get(d["dispute_id"])
+        out.append({"id": d["dispute_id"], "link": f"/c/{c['id']}" if c else f"/d/{d['dispute_id']}",
+                    "who": (c or {}).get("customer", {}).get("name") or _buyer_name(d),
+                    "summary": (c or {}).get("problem", {}).get("summary") or _first_message(d),
+                    "amount": _num(d["dispute_amount"]["value"])})
+    for c in cases:
+        if c.get("status") == "open" and not c.get("dispute_id"):
+            out.append({"id": c["id"], "link": f"/c/{c['id']}", "who": c["customer"].get("name") or c["customer"].get("email"),
+                        "summary": c["problem"].get("summary") or "", "amount": amount_of.get(c.get("order_no"), 0.0)})
+    return out
+
+
+def who_has(items: list, assigned: dict, team: dict) -> dict:
+    """I manage: for each person of the team (in the shop's own order), the open items they have and the handoffs
+    waiting for them; what nobody has; every handoff. `assigned`: decision id -> {"to", "handoff"}."""
+    if team.get("solo"):
+        return {"solo": True, "total": len(items), "people": [], "unassigned": [], "handoffs": []}
+    people = [p for p in team.get("people", []) if isinstance(p, dict) and p.get("id")]
+    ids = {p["id"] for p in people}
+    rows = {p["id"]: {"id": p["id"], "name": p.get("name") or p["id"], "role": p.get("role") or "", "items": [],
+                      "waiting": [], "passed_on": 0} for p in people}
+    unassigned, handoffs = [], []
+    for it in items:
+        a = assigned.get(it["id"]) or {}
+        to, hand = a.get("to"), a.get("handoff") if isinstance(a.get("handoff"), dict) else None
+        if to not in ids:
+            unassigned.append(it)
+            continue
+        rows[to]["items"].append(it)
+        if hand:
+            rows[to]["waiting"].append(it)
+            if hand.get("from") in rows:
+                rows[hand["from"]]["passed_on"] += 1
+            frm = rows.get(hand.get("from")) or {"name": hand.get("from_name") or "A colleague", "role": ""}
+            handoffs.append({**it, "from_name": frm["name"], "from_role": frm["role"],
+                             "to_name": rows[to]["name"], "to_role": rows[to]["role"]})
+    return {"solo": False, "total": len(items), "people": [rows[p["id"]] for p in people],
+            "unassigned": unassigned, "handoffs": handoffs}
+
+
+def _closed_at(c: dict) -> str:
+    """When a case closed: as recorded, else its last timeline entry (cases closed before closed_at was kept)."""
+    return c.get("closed_at") or max((x.get("at") or "" for x in c.get("timeline", [])), default="")
+
+
+def month(cases: list, disputes: list, orders: list, today: date, policy: dict | None, answers=(),
+          currency: str = "EUR") -> dict:
+    """I know: this month, every channel. `answers`: when each answer to a PayPal dispute was sent from Second Look
+    (an inquiry's answers are on its case already). Staff time is an estimate (cases.staff_time); dispute fees are
+    estimated from PayPal's fee table, as the Overview's."""
+    m = month_start(today)
+    held = {c.get("dispute_id") for c in cases if c.get("dispute_id")}
+    ordered = sum(1 for o in orders if (o.get("date") or "") >= m[:10])
+    new_cases = [c for c in cases if (c.get("opened") or "") >= m]
+    new_disputes = [d for d in disputes if _at(d.get("create_time")) >= m and d["dispute_id"] not in held]
+    solved = [c for c in cases if c.get("status") != "open" and not c.get("dispute_id") and _closed_at(c) >= m]
+    st = staff_time(policy)
+    entries = [x for c in cases for x in c.get("timeline", []) if (x.get("at") or "") >= m]
+    written = sum(1 for x in entries if x.get("direction") == "out" and x.get("channel") != "call")
+    written += sum(1 for a in answers if (a or "") >= m)
+    call_min = sum(_num(x.get("minutes")) for x in entries if x.get("channel") == "call" and x.get("direction") in ("in", "out"))
+    minutes = written * st["reply_minutes"] + call_min
+    money = [x for c in cases for x in c.get("money", []) if (x.get("at") or "") >= m]
+    back_cases = round(sum(_num(x.get("amount")) for x in money if x.get("kind") in BACK), 2)
+    resolved = [d for d in disputes if d.get("status") == "RESOLVED" and _at(d.get("update_time") or d.get("create_time")) >= m]
+    back_paypal = round(sum(ledger.refunded(d) for d in resolved), 2)
+    hv = ledger.overview(disputes, orders, today, currency)["high_volume"]
+    standard, hv_fee = DISPUTE_FEE.get(currency, (0.0, 0.0))
+    fees = sum(hv_fee if hv["high_volume"] else standard if ledger.outcome(d) in ("lost_claim", "lost_no_reply") else 0
+               for d in resolved if escalated(d))
+    fees = round(fees + sum(_num(x.get("amount")) for x in money if x.get("kind") == "fee"), 2)
+    ex = ledger.exposure(disputes, today, hv["high_volume"], currency)
+    amount_of = _amounts(orders)
+    open_inq = [c for c in cases if c.get("status") == "open" and not c.get("dispute_id") and c.get("order_no")]
+    inq_stake = round(sum(max(0.0, amount_of.get(c["order_no"], 0.0)
+                              - sum(_num(x.get("amount")) for x in c.get("money", []) if x.get("kind") in BACK + ("replace",)))
+                          for c in open_inq), 2)
+    return {"from": m, "orders": ordered, "requests": len(new_cases) + len(new_disputes),
+            "requests_by_channel": _first_channels(new_cases, len(new_disputes)),
+            "solved_before_dispute": len(solved), "answers": written, "minutes": minutes,
+            "hourly_cost": st["hourly_cost"], "reply_minutes": st["reply_minutes"],
+            "staff_cost": round(minutes / 60 * st["hourly_cost"], 2),
+            "back_cases": back_cases, "back_paypal": back_paypal, "back": round(back_cases + back_paypal, 2),
+            "fees": fees, "open_disputes_most": ex["all_lost"], "open_inquiries_most": inq_stake,
+            "could_still_cost": round(ex["all_lost"] + inq_stake, 2), "high_volume": hv, "currency": currency}
+
+
+def _first_channels(new_cases: list, new_disputes: int) -> dict:
+    """How this month's requests first came in: each case by its first message's channel, a dispute with no
+    case by PayPal."""
+    out = {ch: 0 for ch in CHANNEL_ORDER}
+    for c in new_cases:
+        first = next((x["channel"] for x in sorted(c.get("timeline", []), key=lambda x: x.get("at") or "")
+                      if x.get("direction") == "in"), "paypal" if c.get("dispute_id") else None)
+        if first in out:
+            out[first] += 1
+    out["paypal"] += new_disputes
+    return out
