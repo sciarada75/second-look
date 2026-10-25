@@ -75,7 +75,7 @@ def test_closed_cases_say_who_handled_them():
     assert set(handled.values()) <= {"Giulia", "Marta", "Luca", "Sara"}
     # nobody signs a case the buyer withdrew or PayPal closed with no decision
     assert not any(ledger.outcome(closed[did]) in ("withdrew", "closed") for did in handled)
-    # agents send refunds up to 30 EUR: a bigger refund or accepted offer the shop sent is the manager's
+    # assistants send refunds up to 30 EUR: a bigger refund or accepted offer the shop sent is the head's
     big = [did for did in handled if ledger.outcome(closed[did]) in ("refunded", "settled_offer") and ledger.refunded(closed[did]) > 30]
     assert big and all(handled[did] == "Giulia" for did in big), [(did, handled[did]) for did in big]
 
@@ -138,6 +138,13 @@ def test_the_demo_requests_sort_by_rules_to_the_cases_the_film_follows():
         "ticketbook:2004": (True, "rules", "DEMOTX01828", "refund_missing")}  # Pablo: the order of DEMO-034
     paid = {o["order_no"]: o["paid_with"] for o in pp.other_orders()}
     assert paid == {"LP-90001": "card", "LP-90002": "bank"}
+
+
+def test_the_team_s_roles_are_the_shop_s_own_titles():
+    roles = {p["name"]: p["role"] for p in pp.shop["team"]["people"]}
+    assert roles == {"Giulia": "Head of customer care", "Marta": "Customer care assistant",
+                     "Luca": "Customer care assistant", "Sara": "Customer care assistant"}
+    assert set(pp.shop["team"]["roles"]) == {"Head of customer care", "Customer care assistant"}
 
 
 if __name__ == "__main__":

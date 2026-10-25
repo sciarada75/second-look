@@ -138,7 +138,7 @@ def test_the_case_page_shows_every_channel_every_role_and_the_cost_so_far():
     with morning():
         pablo = web.case_file_page("DEMO-C003", me="marta")
         assert "PayPal dispute" in pablo and "Pablo Martin, <i>customer</i>" in pablo
-        assert "Marta, <i>Customer care agent</i>, has this case." in pablo        # DEMO-034 is Marta's
+        assert "Marta, <i>Customer care assistant</i>, has this case." in pablo        # DEMO-034 is Marta's
         assert "Everything said, every channel" in pablo and "✉️" in pablo and "PayPal dispute opened" in pablo
         assert "Cost so far" in pablo and "estimated" in pablo and "2 (1 by email, 1 by PayPal)" in pablo
         assert 'href="/d/DEMO-034"' in pablo and "Pass to Giulia" in pablo          # the dispute's own buttons, here
@@ -155,7 +155,7 @@ def test_the_api_gives_a_case_as_its_page_shows_it():
         c = web.api_case_of("DEMO-C003")
         assert c["customer"] == {"name": "Pablo Martin", "email": "pablo.m576@example.com", "role": "customer"}
         assert c["channels"] == ["email", "paypal"] and c["dispute_id"] == "DEMO-034" and c["stage"] == "paypal_dispute"
-        assert c["assigned_to"] == {"id": "marta", "name": "Marta", "role": "Customer care agent"}
+        assert c["assigned_to"] == {"id": "marta", "name": "Marta", "role": "Customer care assistant"}
         assert c["at_stake"] == {"value": 89.0, "currency_code": "EUR"} and c["costs_so_far"]["estimated"] is True
         assert [x["channel"] for x in c["timeline"]] == ["email", "paypal", "paypal"]
         assert web.api_case_of("DEMO-C999") is None
@@ -335,7 +335,7 @@ def test_every_name_on_the_timeline_carries_its_role():
     assert "lena.vogel@example.com, <i>customer</i>" in lena                  # no name: the address, still the customer
     assert "Sophie, <i>customer</i>" in sophie                                # another spelling of her name
     assert "S. Durand, <i>customer</i>" in sophie                             # another address, joined by a person
-    assert "Marta, <i>Customer care agent</i>" in sophie
+    assert "Marta, <i>Customer care assistant</i>" in sophie
     assert "Second Look&#x27;s AI, <i>Second Look&#x27;s AI</i>" not in sophie
     assert "· Second Look&#x27;s AI ·" in sophie                              # nobody named: the AI says it wrote it
 

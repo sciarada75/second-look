@@ -86,9 +86,9 @@ from secondlook import team as team_mod  # noqa: E402
 from secondlook.demo import DemoPayPal  # noqa: E402
 from secondlook.guard import Decision, Judgment  # noqa: E402
 
-TEAM = {"roles": {"Customer care manager": {"refund_up_to": None}, "Customer care agent": {"refund_up_to": 30.0}},
-        "people": [{"id": "giulia", "name": "Giulia", "role": "Customer care manager"},
-                   {"id": "marta", "name": "Marta", "role": "Customer care agent"}]}
+TEAM = {"roles": {"Head of customer care": {"refund_up_to": None}, "Customer care assistant": {"refund_up_to": 30.0}},
+        "people": [{"id": "giulia", "name": "Giulia", "role": "Head of customer care"},
+                   {"id": "marta", "name": "Marta", "role": "Customer care assistant"}]}
 
 
 @contextmanager
@@ -262,7 +262,7 @@ def test_in_a_team_a_second_approval_after_sending_sends_nothing():
 
 
 def test_when_nobody_in_the_team_may_approve_it_stays_in_paypal():
-    capped = {"roles": {"Customer care manager": {"refund_up_to": 40.0}, "Customer care agent": {"refund_up_to": 30.0}},
+    capped = {"roles": {"Head of customer care": {"refund_up_to": 40.0}, "Customer care assistant": {"refund_up_to": 30.0}},
               "people": TEAM["people"]}
     with approval_bench(the_team=capped) as b:
         code, text = web.approve("X", "REFUND", "Hello", by="marta")

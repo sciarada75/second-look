@@ -28,12 +28,12 @@ SHOP = {
              "four people in customer care.",
     "team": {
         "currency": "EUR",
-        "roles": {"Customer care manager": {"refund_up_to": None},
-                  "Customer care agent": {"refund_up_to": 30.0}},
-        "people": [{"id": "giulia", "name": "Giulia", "role": "Customer care manager"},
-                   {"id": "marta", "name": "Marta", "role": "Customer care agent"},
-                   {"id": "luca", "name": "Luca", "role": "Customer care agent"},
-                   {"id": "sara", "name": "Sara", "role": "Customer care agent"}]},
+        "roles": {"Head of customer care": {"refund_up_to": None},
+                  "Customer care assistant": {"refund_up_to": 30.0}},
+        "people": [{"id": "giulia", "name": "Giulia", "role": "Head of customer care"},
+                   {"id": "marta", "name": "Marta", "role": "Customer care assistant"},
+                   {"id": "luca", "name": "Luca", "role": "Customer care assistant"},
+                   {"id": "sara", "name": "Sara", "role": "Customer care assistant"}]},
     "handling_time": "ships within 2 business days",
     "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
     "listings": {
@@ -378,8 +378,8 @@ for k in range(max(0, want_disputes)):
             refunded=round(o["amount"] * share, 2) if share else None)
 
 # Who handled each closed case (the team signs its work). Not part of PayPal's data: the shop's own record.
-# Nobody signs a case the buyer withdrew or PayPal closed with no decision. Agents send refunds up to 30 EUR,
-# so a bigger refund or accepted offer the shop sent is the manager's.
+# Nobody signs a case the buyer withdrew or PayPal closed with no decision. Assistants send refunds up to 30 EUR,
+# so a bigger refund or accepted offer the shop sent is the head of customer care's.
 handled_by = {}
 for x in disputes:
     ended = ledger.outcome(x)

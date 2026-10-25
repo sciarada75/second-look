@@ -7,10 +7,10 @@
   "team": {
    "currency": "EUR",
    "roles": {
-    "Customer care manager": {
+    "Head of customer care": {
      "refund_up_to": null
     },
-    "Customer care agent": {
+    "Customer care assistant": {
      "refund_up_to": 30.0
     }
    },
@@ -18,22 +18,22 @@
     {
      "id": "giulia",
      "name": "Giulia",
-     "role": "Customer care manager"
+     "role": "Head of customer care"
     },
     {
      "id": "marta",
      "name": "Marta",
-     "role": "Customer care agent"
+     "role": "Customer care assistant"
     },
     {
      "id": "luca",
      "name": "Luca",
-     "role": "Customer care agent"
+     "role": "Customer care assistant"
     },
     {
      "id": "sara",
      "name": "Sara",
-     "role": "Customer care agent"
+     "role": "Customer care assistant"
     }
    ]
   },

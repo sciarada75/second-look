@@ -6,10 +6,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secondlook import team  # noqa: E402
 
-T = {"roles": {"Customer care manager": {"refund_up_to": None}, "Customer care agent": {"refund_up_to": 30.0},
+T = {"roles": {"Head of customer care": {"refund_up_to": None}, "Customer care assistant": {"refund_up_to": 30.0},
                "Trainee": {}},
-     "people": [{"id": "giulia", "name": "Giulia", "role": "Customer care manager"},
-                {"id": "marta", "name": "Marta", "role": "Customer care agent"},
+     "people": [{"id": "giulia", "name": "Giulia", "role": "Head of customer care"},
+                {"id": "marta", "name": "Marta", "role": "Customer care assistant"},
                 {"id": "nico", "name": "Nico", "role": "Trainee"}]}
 
 
@@ -22,7 +22,7 @@ def test_a_person_may_send_money_up_to_their_role_and_no_further():
 
 def test_over_the_limit_the_case_goes_to_the_first_colleague_who_may_send_it():
     assert team.handoff_to(T, 89.0, exclude="marta")["id"] == "giulia"
-    only_agents = {"roles": T["roles"], "people": [T["people"][1], {"id": "luca", "name": "Luca", "role": "Customer care agent"}]}
+    only_agents = {"roles": T["roles"], "people": [T["people"][1], {"id": "luca", "name": "Luca", "role": "Customer care assistant"}]}
     assert team.handoff_to(only_agents, 89.0, exclude="marta") is None
 
 
@@ -49,7 +49,7 @@ def test_a_limit_that_is_not_a_number_sends_no_money():
 
 
 def test_a_team_without_roles_does_not_crash_and_sends_nothing():
-    bare = {"people": [{"id": "marta", "name": "Marta", "role": "Customer care agent"}]}
+    bare = {"people": [{"id": "marta", "name": "Marta", "role": "Customer care assistant"}]}
     assert not team.covers(bare, "marta", 1) and team.handoff_to(bare, 1, exclude=None) is None
 
 
