@@ -36,6 +36,15 @@ def item_state(kind: str | None, order: dict | None) -> str:
     return KEPT if kind in ("not_as_described", "wrong_size") else UNKNOWN
 
 
+def dispute_item(reason: str | None, order: dict | None = None) -> str:
+    """Where the item is, for a PayPal dispute no case of the shop tells about: back at the shop when the courier
+    brought its return there, else from what the buyer says (never received: lost; refund not processed: back)."""
+    ret = (order or {}).get("return") or {}
+    if ret.get("status") == "DELIVERED" and "shop" in str(ret.get("delivered_to") or "shop").lower():
+        return BACK
+    return {"MERCHANDISE_OR_SERVICE_NOT_RECEIVED": LOST, "CREDIT_NOT_PROCESSED": BACK}.get(reason, UNKNOWN)
+
+
 def _channel_at(c: dict, at: str) -> str:
     """The channel the shop's answer went out on when the money moved: the "out" entry of that minute, else the
     channel the customer last used before it."""
@@ -75,7 +84,7 @@ def dispute_events(d: dict, invoice: str | None, handled_by: str | None, high_vo
     if not back and not fee:
         return []
     tx = ((d.get("disputed_transactions") or [{}])[0]).get("seller_transaction_id") or ""
-    item = {"MERCHANDISE_OR_SERVICE_NOT_RECEIVED": LOST, "CREDIT_NOT_PROCESSED": BACK}.get(d.get("reason"), UNKNOWN)
+    item = dispute_item(d.get("reason"))
     return [{"date": (d.get("update_time") or d.get("create_time") or "")[:16], "kind": "PayPal refund" if back else "PayPal fee",
              "order_no": tx, "invoice_no": invoice or "", "amount": round(back, 2), "currency": cur, "fees": round(fee, 2),
              "item": item if back else "", "approved_by": handled_by or "", "channel": "paypal", "case_id": "",
@@ -87,10 +96,24 @@ def for_month(rows: list, month: str) -> list:
     return sorted((r for r in rows if str(r["date"]).startswith(month)), key=lambda r: (r["date"], r["kind"]))
 
 
+NUMBERS = ("amount", "fees")
+_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _text_cell(v) -> str:
+    """A text cell as a spreadsheet can't run it: one starting like a formula (=, +, -, @, a tab, a carriage
+    return) gets a leading apostrophe, and a line break inside a cell is a space (it would break the file)."""
+    t = "" if v is None else str(v)
+    if t.startswith(_FORMULA):
+        t = "'" + t
+    return t.replace("\r", " ").replace("\n", " ")
+
+
 def csv_text(rows: list) -> str:
     out = io.StringIO()
     w = csv.DictWriter(out, fieldnames=COLUMNS, extrasaction="ignore", lineterminator="\n")
     w.writeheader()
     for r in rows:
-        w.writerow({**r, "amount": f'{r["amount"]:.2f}', "fees": f'{r["fees"]:.2f}'})
+        w.writerow({**{k: _text_cell(r.get(k)) for k in COLUMNS if k not in NUMBERS},
+                    "amount": f'{r["amount"]:.2f}', "fees": f'{r["fees"]:.2f}'})
     return out.getvalue()

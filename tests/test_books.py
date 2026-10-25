@@ -528,6 +528,7 @@ def test_every_money_event_goes_live_to_the_bookkeeping_and_a_failure_never_stop
         with morning():
             cid = _refunded_paypal_order("b5:1")
             web.reconcile(cid, 0, "paid", "paypal", "giulia")
+        web.books_flush()                                               # posts go in the background
         got = box.received()
         assert [(x["kind"], x["status"], x["amount"], x["order_no"], x["approved_by"]) for x in got] == [
             ("refund", "sent to PayPal", 20.0, "DEMOTX00001", "Giulia"), ("refund", "paid", 20.0, "DEMOTX00001", "Giulia")]
@@ -540,6 +541,7 @@ def test_every_money_event_goes_live_to_the_bookkeeping_and_a_failure_never_stop
     root, web.ROOT = web.ROOT, Path(tempfile.mkdtemp())
     try:
         web.post_books({"kind": "refund", "case_id": "C9"})                  # must not raise
+        web.books_flush()
         assert "money C9" in (web.ROOT / ".tmp" / "books.log").read_text()
     finally:
         web.ROOT = root
@@ -615,6 +617,83 @@ def test_the_live_shop_reads_paypal_once_a_minute_not_once_a_page():
         web._LIVE.clear()
         web._LIVE.update(saved)
 
+
+# ---------- final review (26/10) ----------
+
+def test_a_cell_that_looks_like_a_formula_is_written_as_text():
+    row = {"date": "2026-10-19T09:30", "kind": "=1+1", "order_no": "@SUM(A1)", "invoice_no": '=HYPERLINK("x")',
+           "amount": -5.0, "currency": "EUR", "fees": 0.0, "item": "+cmd", "approved_by": "-Marta", "channel": "\tx",
+           "case_id": "\rC1", "dispute_id": "", "status": "logged"}
+    got = next(csv.DictReader(io.StringIO(books.csv_text([row]))))
+    assert (got["kind"], got["order_no"], got["invoice_no"]) == ("'=1+1", "'@SUM(A1)", "'=HYPERLINK(\"x\")")
+    assert (got["item"], got["approved_by"], got["channel"], got["case_id"]) == ("'+cmd", "'-Marta", "'\tx", "' C1")
+    # (a line break inside a cell would break the file: written as a space)
+    assert got["amount"] == "-5.00" and got["date"] == "2026-10-19T09:30" and got["status"] == "logged"
+
+
+def test_an_approval_never_waits_on_a_slow_bookkeeping():
+    import time
+    from http.server import BaseHTTPRequestHandler
+
+    class Slow(BaseHTTPRequestHandler):
+        def do_POST(self):
+            time.sleep(3)
+            self.send_response(204)
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    os.environ["SECONDLOOK_BOOKS_URL"] = f"http://127.0.0.1:{srv.server_address[1]}/hooks/secondlook?key=SECRET"
+    try:
+        with morning():
+            _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", "f2:1")
+            web.run_review(o["case_id"])
+            t0 = time.monotonic()
+            assert web.approve(o["case_id"], "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+            assert time.monotonic() - t0 < 1.5                                 # the books are told in the background
+            web.books_flush()
+    finally:
+        srv.shutdown()
+        del os.environ["SECONDLOOK_BOOKS_URL"]
+
+
+def test_a_completed_capture_s_pending_refund_counts_as_refunded():
+    class PP:
+        def get_link(self, href):
+            return {"id": "R9", "status": "PENDING", "amount": {"value": "5.00", "currency_code": "EUR"},
+                    "links": [{"rel": "up", "href": "https://api.example/v2/payments/captures/CAP1"}]}
+    cap = {"id": "CAP1", "status": "COMPLETED", "amount": {"value": "20.00", "currency_code": "EUR"},
+           "links": [{"rel": "refund", "method": "GET", "href": "https://api.example/v2/payments/refunds/R9"}]}
+    assert web.paypal_refunded(PP(), cap) == 5.0                           # COMPLETED, yet a refund is pending
+    assert web.paypal_refunded(PP(), {**cap, "links": []}) == 0.0          # nothing to follow: nothing refunded
+
+    class Down:
+        def get_link(self, href):
+            raise RuntimeError("PayPal 500")
+    assert web.paypal_refunded(Down(), cap) is None                        # couldn't read: not known, never 0
+
+
+def test_a_paypal_dispute_refund_reaches_the_books_with_its_invoice_its_item_and_its_case():
+    from bookbox import app as bookbox
+    box = bookbox.Bookbox(Path(tempfile.mkdtemp()) / "received.jsonl")
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), type("H", (bookbox.Handler,), {"box": box}))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    os.environ["SECONDLOOK_BOOKS_URL"] = f"http://127.0.0.1:{srv.server_address[1]}/hooks/secondlook"
+    try:
+        with morning():
+            store = web.case_store("demo")
+            before = {c["id"]: c.get("dispute_id") for c in store.all()}
+            assert web.approve("DEMO-034", "REFUND", "You're right: here is your refund.", by="giulia")[0] == 200
+            assert {c["id"]: c.get("dispute_id") for c in store.all()} == before       # read only: no case made or linked
+            web.books_flush()                                   # the row is made in the background, from this shop
+        row = next(x for x in box.received() if x.get("dispute_id") == "DEMO-034")
+        assert (row["kind"], row["order_no"], row["invoice_no"], row["item"], row["case_id"], row["approved_by"]) == (
+            "PayPal refund", "DEMOTX01828", "LP-INV-01828", books.BACK, "DEMO-C003", "Giulia")
+    finally:
+        srv.shutdown()
+        del os.environ["SECONDLOOK_BOOKS_URL"]
 
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]

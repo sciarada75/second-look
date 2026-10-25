@@ -525,14 +525,14 @@ def replacements_on_order(src: str, order_no: str | None, c: dict | None = None)
 def paypal_refunded(pp, cap: dict) -> float | None:
     """What PayPal already refunded on a capture, or None when it can't be told (never taken as nothing).
     A capture carries no refunded total of its own (Payments v2: that is on a refund, seller_payable_breakdown), so:
-    a total the capture does carry, if ever; else nothing when it is COMPLETED (any refund makes it
-    PARTIALLY_REFUNDED or REFUNDED); else the refunds its links lead to (its order's payments.refunds, each naming
-    its capture, or a refund itself), read one by one."""
+    a total the capture does carry, if ever; else the refunds its links lead to (its order's payments.refunds, each
+    naming its capture, or a refund itself), read one by one, PENDING ones counted; with none found, nothing when
+    the capture is COMPLETED, and not known otherwise. A link that can't be read: not known."""
     given = ((cap.get("seller_receivable_breakdown") or {}).get("total_refunded_amount") or {}).get("value")
     if given is not None:
         return _num(given)
-    if cap.get("status") == "COMPLETED":
-        return 0.0
+    # its links are followed even when it is COMPLETED: a refund still PENDING (an eCheck, an unfunded balance) may
+    # leave the capture COMPLETED. Nothing found where nothing could be: 0; partly refunded and nothing found: unknown
     total, found = 0.0, False
     for link in cap.get("links") or []:
         if (link.get("method") or "GET").upper() != "GET" or not link.get("href") or link.get("rel") not in (
@@ -554,7 +554,9 @@ def paypal_refunded(pp, cap: dict) -> float | None:
             if v is None:
                 return None
             total, found = total + v, True
-    return round(total, 2) if found else None
+    if found:
+        return round(total, 2)
+    return 0.0 if cap.get("status") == "COMPLETED" else None
 
 
 def _cases_on_order(src: str, order_no: str | None) -> list:
@@ -2076,20 +2078,66 @@ def invoice_of(src: str, o: dict | None) -> str | None:
     return f"LP-INV-{digits}" if src == "demo" and digits else None
 
 
-def post_books(event: dict) -> None:
+def post_books(event) -> None:
     """Second Look -> the shop's bookkeeping: POST one money event as JSON to SECONDLOOK_BOOKS_URL (Bookbox in the demo,
-    a made-up stand-in). Never blocks or breaks the person's action; a failure is logged, like notify()."""
+    a made-up stand-in). Never blocks or breaks the person's action; a failure is logged, like notify(). `event` is
+    the row, or a function that makes it (in the background too: reading the shop's orders may call PayPal)."""
     from urllib import request as rq
     url = os.environ.get("SECONDLOOK_BOOKS_URL")
     if not url:
         return
-    body = json.dumps({"event": "money", **event}, ensure_ascii=False, default=str).encode()
-    try:
-        rq.urlopen(rq.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"}), timeout=5)
-    except Exception as err:  # noqa: BLE001 - the books hear later from the CSV; the answer stands
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        with open(ROOT / ".tmp" / "books.log", "a") as f:
-            f.write(f"{datetime.utcnow():%Y-%m-%d %H:%M} money {event.get('case_id') or event.get('dispute_id')}: {err}\n")
+    root = ROOT
+
+    def send(before):
+        if before is not None:
+            before.join()                                   # in the order they happened
+        what = None
+        try:
+            row = event() if callable(event) else event
+            what = row.get("case_id") or row.get("dispute_id")
+            body = json.dumps({"event": "money", **row}, ensure_ascii=False, default=str).encode()
+            rq.urlopen(rq.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"}), timeout=5)
+        except Exception as err:  # noqa: BLE001 - the books hear later from the CSV; the answer stands
+            why = str(err).replace(url, "the books address").split("?key=")[0]     # never the address or its key
+            (root / ".tmp").mkdir(exist_ok=True)
+            with open(root / ".tmp" / "books.log", "a") as f:
+                f.write(f"{datetime.utcnow():%Y-%m-%d %H:%M} money {what}: {why}\n")
+    # in the background: an approval (under its case's lock) never waits on the bookkeeping
+    with _BOOKS_LOCK:
+        alive = [x for x in _BOOKS_POSTS if x.is_alive()]
+        t = threading.Thread(target=send, args=(alive[-1] if alive else None,), daemon=True)
+        _BOOKS_POSTS[:] = alive + [t]
+        t.start()
+
+
+_BOOKS_POSTS: list = []
+_BOOKS_LOCK = threading.Lock()
+
+
+def books_flush(timeout: float = 10.0) -> None:
+    """Wait for the bookkeeping posts still on their way (tests, and a server that is stopping)."""
+    with _BOOKS_LOCK:
+        posts = list(_BOOKS_POSTS)
+    for t in posts:
+        t.join(timeout)
+
+
+def _dispute_refund_row(did: str, d: dict, at: str, amount: float, cur: str, by: str) -> dict:
+    """The books row of a refund approved on a PayPal dispute: its order (the dispute's transaction), the order's
+    invoice number (the demo's stand-in; a live PayPal order holds none: "" = not on record), where the item is,
+    and the case it belongs to. Read only: the case it joined, or the open case on its order that nothing has
+    linked yet (as the morning screen finds it); no case is made or linked here."""
+    src, tx = shop_of_case(did), _tx_of(d) or ""
+    orders = shop_orders(src) if tx else []
+    o = next((x for x in orders if x.get("transaction_id") == tx), None)
+    path = CASE_FILES[src]
+    cases = cases_mod.CaseStore(path).all() if tx and path.exists() else []
+    c = today_mod.links(cases, [d], orders).get(did) if tx else find_case_of_dispute(did)
+    view = sort_mod.order_view(o) if o else None
+    item = books_mod.item_state((c.get("problem") or {}).get("kind"), view) if c else books_mod.dispute_item(d.get("reason"), view)
+    return {"date": at, "kind": "PayPal refund", "order_no": tx, "invoice_no": invoice_of(src, o) or "",
+            "amount": amount, "currency": cur, "fees": 0.0, "item": item, "approved_by": by, "channel": "paypal",
+            "case_id": (c or {}).get("id") or "", "dispute_id": did, "status": "sent to PayPal"}
 
 
 def _book_case_entry(src: str, cid: str, index: int) -> None:
@@ -3291,10 +3339,8 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         assignments_for(did).update(did, lambda a: {"to": who["id"], "handoff": None})
     notify("answer.sent", {**_about(did), "action": chosen, "what_happened": sent, "by": by_name})
     if not inquiry and chosen in ("REFUND", "PARTIAL_REFUND") and amount:
-        post_books({"date": now.strftime("%Y-%m-%dT%H:%M"), "kind": "PayPal refund", "order_no": _tx_of(case["dispute"]) or "",
-                    "invoice_no": "", "amount": round(amount, 2), "currency": cur, "fees": 0.0, "item": "",
-                    "approved_by": who["name"], "channel": "paypal", "case_id": (_about(did) or {}).get("case_id") or "",
-                    "dispute_id": did, "status": "sent to PayPal"})
+        d, at, name = case["dispute"], now.strftime("%Y-%m-%dT%H:%M"), who["name"]
+        post_books(lambda: _dispute_refund_row(did, d, at, round(amount, 2), cur, name))
     return 200, sent
 
 
