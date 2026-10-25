@@ -1,0 +1,7 @@
+{
+ "_comment": "Demo shop, made up: what the shop's phone system knows about one call. Written by demo/make_call.py.",
+ "recording": "2026-10-19-0831-sophie.wav",
+ "from_phone": "+39 051 555 0142",
+ "time": "2026-10-19T08:31:00Z",
+ "seconds": 34
+}

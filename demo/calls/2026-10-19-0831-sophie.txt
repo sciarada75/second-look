@@ -1,0 +1,5 @@
+Marta: Linen and Paper, this is Marta. How can I help?
+Sophie: Hello, this is Sophie Durand. I ordered a linen tablecloth, order LP-90001, and it still hasn't arrived. The tracking says delivered, but I have nothing.
+Marta: I'm sorry to hear that. Let me look into it, and I'll write to you by email today.
+Sophie: Thank you. I'll send you an email too, with the order number.
+Marta: Perfect. Have a good day, Sophie.
