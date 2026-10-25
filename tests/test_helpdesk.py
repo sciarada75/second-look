@@ -388,22 +388,26 @@ def test_http_the_injection_ticket_renders_as_text():
 # ---------- every ticket reaches a Second Look case (25/10) ----------
 FILED = {"case_id": "DEMO-C003", "filed": "already_received", "stage": "paypal_dispute",
          "sorted": {"by": "rules", "how": "Sorted by Second Look's rules: their one open case is on order DEMOTX01828."}}
-CASE_OF = {"case_id": "DEMO-C003", "stage_label": "PayPal dispute", "channels": ["email", "paypal"],
+CASE_OF = {"case_id": "DEMO-C003", "stage": "paypal_dispute", "stage_label": "PayPal dispute",
+           "channels": ["email", "paypal"], "channel_labels": ["email", "PayPal"],
            "dispute_id": "DEMO-034", "sorted": FILED["sorted"]}
 
 
 def test_the_ticket_shows_the_second_look_case_it_is_on():
     sl = FakeSL(filed=FILED, case_of=CASE_OF)
     html = bench(sl).ticket_page(2041, "marta")
-    assert "Case DEMO-C003" in html and "email + paypal" in html and "/c/DEMO-C003?as=marta" in html
+    assert "Case DEMO-C003" in html and "email + PayPal" in html and "/c/DEMO-C003?as=marta" in html
+    assert '<span class="pill paypal">PayPal dispute</span>' in html
     assert "their one open case" in html and ("file", 2041) in sl.calls
     assert "Defend with evidence" in html                       # the PayPal dispute's own block is still there
 
 
 def test_a_customer_who_paid_by_card_still_gets_their_case():
     html = bench(FakeSL(nobody=True, filed={**FILED, "case_id": "DEMO-C001", "stage": "inquiry"},
-                        case_of={**CASE_OF, "case_id": "DEMO-C001", "stage_label": "Shop inquiry", "dispute_id": None,
-                                 "channels": ["email"]})).ticket_page(2041, "marta")
+                        case_of={**CASE_OF, "case_id": "DEMO-C001", "stage": "inquiry", "stage_label": "Shop inquiry",
+                                 "dispute_id": None, "channels": ["email"], "channel_labels": ["email"]})
+                 ).ticket_page(2041, "marta")
+    assert '<span class="pill shop">Shop inquiry</span>' in html and "pill paypal" not in html
     assert "Case DEMO-C001" in html and "Shop inquiry" in html and "No PayPal orders or disputes" in html
 
 
@@ -445,6 +449,45 @@ def test_tickets_reach_second_look_when_it_starts_after_ticketbook():
     assert bench(Waking(asleep=99)).file_open_when_up(sleep=waits.append) == 0      # never up: gives up, no crash
     assert waits == [0.6, 1.2, 2.4, 4.8] and sum(waits) < 10
     assert "file_open_when_up" in Path(app.__file__).read_text().split("def serve(")[1]   # what serve() starts
+
+
+# ---------- quality review 3 (25/10) ----------
+
+def test_a_web_form_case_is_named_as_people_say_it():
+    form = {**CASE_OF, "case_id": "DEMO-C002", "stage": "inquiry", "stage_label": "Shop inquiry", "dispute_id": None,
+            "channels": ["form", "email"], "channel_labels": ["web form", "email"]}
+    html = bench(FakeSL(nobody=True, filed={**FILED, "case_id": "DEMO-C002", "stage": "inquiry"}, case_of=form)
+                 ).ticket_page(2041, "marta")
+    assert "web form + email" in html and "form + email" not in html.replace("web form + email", "")
+
+
+def test_a_server_error_on_one_ticket_does_not_stop_the_others():
+    from helpdesk.secondlook_client import ServerError
+
+    class OneBad(FakeSL):
+        def file_request(self, ticket):
+            if ticket.get("id") == 2041:
+                raise ServerError("Second Look answered 500")
+            return super().file_request(ticket)
+    two = {**TICKETS, "tickets": TICKETS["tickets"] + [{**TICKETS["tickets"][0], "id": 2043}]}
+    sl = OneBad(filed=FILED)
+    waits = []
+    assert bench(sl, two).file_open_when_up(sleep=waits.append) == 1 and ("file", 2043) in sl.calls
+    assert waits == []                                      # Second Look answered: no waiting for it to start
+    assert issubclass(ServerError, Unavailable)             # still "not answering properly" everywhere else
+
+
+def test_a_case_answer_of_the_wrong_shape_never_hides_the_paypal_dispute():
+    for sl in (FakeSL(filed=FILED, case_of=["not", "a", "case"]), FakeSL(filed="nonsense")):
+        html = bench(sl).ticket_page(2041, "marta")
+        assert "Defend with evidence" in html, html[:300]   # the dispute's own block is still there
+    from helpdesk.secondlook_client import ServerError
+
+    class FilingDown(FakeSL):
+        def file_request(self, ticket):
+            raise ServerError("Second Look answered 500")
+    html = bench(FilingDown(filed=FILED)).ticket_page(2041, "marta")
+    assert "Defend with evidence" in html and "couldn't read this ticket's case" in html
 
 
 if __name__ == "__main__":

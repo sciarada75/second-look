@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 
-from .secondlook_client import SecondLook, Unavailable
+from .secondlook_client import SecondLook, ServerError, Unavailable
 
 ROOT = Path(__file__).resolve().parent.parent
 e = html.escape
@@ -99,7 +99,7 @@ h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
 .case .amt{font-weight:600}
 .pill{font-size:12px;font-weight:500;padding:2px 9px;border-radius:999px}
 .pill.you{background:var(--warn-bg);color:var(--warn)} .pill.buyer{background:var(--ok-bg);color:var(--ok)}
-.pill.paypal{background:#E9ECF1;color:var(--soft)} .pill.claim{background:#EFE6F3;color:#6B3F80}
+.pill.paypal{background:#E9ECF1;color:var(--soft)} .pill.shop{background:#F1E6D6;color:#6E4F27} .pill.claim{background:#EFE6F3;color:#6B3F80}
 .rec{font-size:18px;font-weight:600;margin:10px 0 2px}
 .sl ul{margin:6px 0;padding-left:18px} .sl li{margin:3px 0}
 .group{margin-top:14px} .group h4{font-size:13px;font-weight:600;margin:0 0 4px}
@@ -400,6 +400,8 @@ class Helpdesk:
                 continue
             try:
                 n += self.sl.file_request(t) is not None
+            except ServerError:
+                continue            # it failed on this ticket only: the others still go; its panel tries again
             except Unavailable:
                 return n, False     # Second Look isn't running yet: each panel files its ticket when it opens
         return n, True
@@ -424,17 +426,22 @@ class Helpdesk:
         c = self.sl.case_of(str(filed["case_id"])) or {}
         if not isinstance(c, dict):
             raise ValueError("case is not an object")
-        came = " + ".join(str(x) for x in c.get("channels") or [])
+        # the channels as people say them ("email + PayPal", "web form"); an older Second Look sends only keys
+        came = " + ".join(str(x) for x in c.get("channel_labels") or c.get("channels") or [])
         stage = str(c.get("stage_label") or filed.get("stage") or "")
+        kind = "shop" if (c.get("stage") or filed.get("stage")) == "inquiry" else "paypal"
         how = str(((c.get("sorted") or filed.get("sorted")) or {}).get("how") or "")
         link = (f'<a class="open-sl" href="{e(self.secondlook_url())}/c/{e(quote(str(filed["case_id"])))}?as={e(quote(me["id"]))}" '
                 'target="_blank" rel="noopener">Open the case in Second Look</a>')
-        return (f'<div class="case"><div class="line"><span class="pill paypal">{e(stage)}</span>'
+        return (f'<div class="case"><div class="line"><span class="pill {kind}">{e(stage)}</span>'
                 f'<span>Case {e(str(filed["case_id"]))}</span>{f"<span>{e(came)}</span>" if came else ""}</div>'
                 f'<p class="soft">{e(how)}</p>{link}</div>')
 
     def _panel_body(self, t: dict, me: dict) -> str:
-        on_case = self._case_line(t, me)
+        try:
+            on_case = self._case_line(t, me)
+        except Exception:  # noqa: BLE001 - a case answer that fails never hides the customer or the dispute
+            on_case = "<p class=\"soft\">Second Look couldn't read this ticket's case just now.</p>"
         cu = self.sl.customer(t.get("from_email", ""))
         if cu is None:
             return on_case + "<p>No PayPal orders or disputes for this email in Second Look.</p>"

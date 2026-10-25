@@ -15,6 +15,10 @@ class Unavailable(Exception):
     """Second Look did not answer properly (not running, wrong address, timeout, a server error)."""
 
 
+class ServerError(Unavailable):
+    """Second Look is running but failed on this one request (it answered 5xx): the next request may work."""
+
+
 class SecondLook:
     def __init__(self, base_url: str = "http://127.0.0.1:8765", shop: str = "demo", timeout: float = 5):
         self.base, self.shop, self.timeout = base_url.rstrip("/"), shop, timeout
@@ -28,7 +32,7 @@ class SecondLook:
                 return r.status, json.loads(r.read() or b"null")
         except error.HTTPError as e:          # a 4xx still carries Second Look's JSON answer
             if e.code >= 500:
-                raise Unavailable(f"Second Look answered {e.code}") from e
+                raise ServerError(f"Second Look answered {e.code}") from e
             try:
                 return e.code, json.loads(e.read() or b"null")
             except ValueError:
