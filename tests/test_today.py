@@ -229,6 +229,35 @@ def test_the_morning_screen_over_http_and_as_data():
             srv.shutdown()
 
 
+def test_what_a_customer_or_the_ai_wrote_shows_as_text_and_says_whose_words_it_is():
+    import copy
+    bad = "<script>alert(1)</script>"
+    with morning():
+        _, o = web.receive("demo", {"channel": "email", "from": {"name": "N " + bad, "email": "who@nowhere.example"},
+                                    "subject": "S " + bad, "text": "Hello " + bad})
+        _, ai = web.receive("demo", {"channel": "email", "from": {"name": "Ann", "email": "ann@nowhere.example"},
+                                     "subject": "Sum " + bad, "text": "Hi"})
+        web.case_store("demo").update(ai["case_id"], lambda c: c["sorted"].update(by="ai"))   # as if the AI sorted it
+        real = web.shop_disputes
+
+        def with_text(src):
+            out = copy.deepcopy(real(src))
+            for d in out:
+                if d["dispute_id"] == "DEMO-036":
+                    d["messages"][0]["content"] = "B " + bad
+            return out
+        web.shop_disputes = with_text
+        try:
+            html_ = web.today_page("demo", "giulia")
+        finally:
+            web.shop_disputes = real
+    assert "<script>alert" not in html_.replace("<script>document", "")
+    assert "<b>N &lt;script&gt;alert(1)&lt;/script&gt;</b>" in html_
+    assert "they wrote: “B &lt;script&gt;alert(1)&lt;/script&gt;”" in html_          # a dispute row: the buyer's words
+    assert "they wrote: “S &lt;script&gt;" in html_
+    assert "Second Look's AI reads this as: Sum &lt;script&gt;" in html_                 # never as the customer's words
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

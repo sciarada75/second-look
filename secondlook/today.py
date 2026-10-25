@@ -106,6 +106,8 @@ def came_in(cases: list, disputes: list, orders: list, today: date, review_of=la
         rows.append({"case_id": c["id"], "dispute_id": c.get("dispute_id"), "link": f"/c/{c['id']}",
                      "decision_id": decision, "channels": chans, "who": c["customer"].get("name") or c["customer"].get("email"),
                      "summary": c["problem"].get("summary") or KIND_LABEL.get(c["problem"].get("kind"), ""),
+                     # whose words the summary is: Second Look's AI's reading, or the customer's own
+                     "summary_by": "ai" if (c.get("sorted") or {}).get("by") == "ai" else "customer",
                      "order_no": c.get("order_no"),
                      "amount": _num(d["dispute_amount"]["value"]) if d else amount_of.get(c.get("order_no"), 0.0),
                      "status": c.get("status"),
@@ -122,7 +124,8 @@ def came_in(cases: list, disputes: list, orders: list, today: date, review_of=la
             continue
         rows.append({"case_id": None, "dispute_id": d["dispute_id"], "link": f"/d/{d['dispute_id']}",
                      "decision_id": d["dispute_id"], "channels": ["paypal"], "who": _buyer_name(d),
-                     "summary": _first_message(d), "order_no": _tx(d), "amount": _num(d["dispute_amount"]["value"]),
+                     "summary": _first_message(d), "summary_by": "customer",
+                     "order_no": _tx(d), "amount": _num(d["dispute_amount"]["value"]),
                      "status": "open" if d.get("status") != "RESOLVED" else "closed", "first": wrote[0] if wrote else opened,
                      "days_left": ledger.days_left(d, today) if d.get("status") != "RESOLVED" else None,
                      "review": review_of(d["dispute_id"])})

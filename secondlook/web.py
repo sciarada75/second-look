@@ -1775,8 +1775,11 @@ def see_block(s: dict, q: str) -> str:
         due = f'<span class="due{" soft" if left is None else ""}">{e(when)}</span>'
         order = f' · order {e(r["order_no"])}' if r["order_no"] else " · no order"
         rows.append(f'<li><a href="{e(r["link"])}{q}"><span class="chan">{e(icons)}</span>'
-                    f'<span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · “{e(r["summary"])}”'
-                    f' · {r["amount"]:.2f} EUR{order}{" · closed" if r["status"] != "open" else ""}'
+                    f'<span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · '
+                    # the customer's own words, or Second Look's AI's reading of them: never one for the other
+                    + (f'Second Look\'s AI reads this as: {e(r["summary"])}' if r.get("summary_by") == "ai"
+                       else f'they wrote: “{e(r["summary"])}”')
+                    + f' · {r["amount"]:.2f} EUR{order}{" · closed" if r["status"] != "open" else ""}'
                     f'{_rec(r["review"])}</span>{due}</a></li>')
     listing = (f'<ol class="see">{"".join(rows)}</ol>' if rows else
                '<p class="empty">Nothing new since yesterday.</p>')
