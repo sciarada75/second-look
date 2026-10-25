@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import wave
 from pathlib import Path
 
 # Local whisper runs in its own Python (it needs packages Second Look doesn't): set SECONDLOOK_WHISPER_PYTHON to
@@ -24,6 +26,7 @@ _WHISPER = ("import sys, wave, numpy as np, mlx_whisper\n"
             "a = np.frombuffer(w.readframes(w.getnframes()), dtype='<i2').astype(np.float32) / 32768\n"
             "print(mlx_whisper.transcribe(a, path_or_hf_repo=sys.argv[2], language='en')['text'].strip())\n")
 SHIPPED = "transcript shipped with the demo"
+MAX_TEXT = 10000                    # a call's words are capped like an email's (POST /api/requests)
 WHISPERED = "transcribed on this computer (local whisper)"
 
 
@@ -37,9 +40,25 @@ def recordings(box: Path | None) -> list:
         try:
             m = json.loads(meta.read_text())
         except (OSError, ValueError):
+            _skip(meta, "not readable JSON")
             continue
-        wav = meta.with_name(str(m.get("recording") or meta.stem + ".wav"))
-        if not isinstance(m, dict) or not wav.is_file() or not m.get("from_phone") or not m.get("time"):
+        if not isinstance(m, dict):
+            _skip(meta, "not one JSON object")
+            continue
+        name = m.get("recording") or meta.stem + ".wav"
+        # the recording is a file in the box itself: a plain name, never a path elsewhere
+        if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):
+            _skip(meta, "its recording is not a file name in the call box")
+            continue
+        if not isinstance(m.get("from_phone"), (str, int)) or not isinstance(m.get("time"), str):
+            _skip(meta, "no caller's number or time")
+            continue
+        try:
+            wav = meta.with_name(name)
+        except ValueError:
+            _skip(meta, "its recording is not a file name in the call box")
+            continue
+        if not wav.is_file() or not str(m["from_phone"]).strip() or not m["time"].strip():
             continue
         seconds = m.get("seconds")
         out.append({"source_id": f"callbox:{meta.stem}", "wav": wav, "txt": meta.with_suffix(".txt"),
@@ -48,13 +67,29 @@ def recordings(box: Path | None) -> list:
     return sorted(out, key=lambda r: r["time"])
 
 
+def _skip(meta: Path, why: str) -> None:
+    """A record the call box can't use: said once on the server's log, and the call is left out, never guessed."""
+    print(f"call box: skipped {meta.name}: {why}", file=sys.stderr)
+
+
+def _seconds(wav: Path) -> float:
+    try:
+        with wave.open(str(wav)) as w:
+            return w.getnframes() / float(w.getframerate() or 1)
+    except (OSError, EOFError, wave.Error):
+        return 0.0
+
+
 def whisper(wav: Path, run=subprocess.run) -> str | None:
-    """The recording's words by local whisper, or None when it isn't installed, fails or hears nothing."""
+    """The recording's words by local whisper, or None when it isn't installed, fails or hears nothing. It runs
+    outside any page or API request (web.transcribe_calls, in the server's background), with a time limit of ten
+    times the recording's length (at least a minute, at most ten)."""
     if not WHISPER_PYTHON.is_file():
         return None
+    limit = int(min(600, max(60, 10 * round(_seconds(wav)))))
     try:
         r = run([str(WHISPER_PYTHON), "-c", _WHISPER, str(wav), WHISPER_MODEL], capture_output=True, text=True,
-                timeout=600, env={**os.environ, "HF_HUB_OFFLINE": "1"})
+                timeout=limit, env={**os.environ, "HF_HUB_OFFLINE": "1"})
     except (OSError, subprocess.SubprocessError):
         return None
     text = (r.stdout or "").strip() if r.returncode == 0 else ""
@@ -80,5 +115,5 @@ def as_request(rec: dict, transcribe=whisper) -> dict | None:
     if not text:
         return None
     return {"channel": "call", "from": {"name": None, "email": None, "phone": rec["from_phone"]}, "time": rec["time"],
-            "subject": "Phone call", "text": text, "source_id": rec["source_id"],
+            "subject": "Phone call", "text": text[:MAX_TEXT], "source_id": rec["source_id"],
             "minutes": round(rec["seconds"] / 60, 2), "transcript": how, "recording": rec["wav"].name}

@@ -36,6 +36,8 @@ LINES = [
 ]
 # How the transcript writes what was said (the spoken order number written as the shop writes it)
 WRITTEN = {"order L P nine zero zero zero one": "order LP-90001"}
+# Who each voice is, as every screen names a person: with their role (Decision 7)
+SPEAKER = {"Marta": "Marta (customer care assistant)", "Sophie": "Sophie (customer)"}
 
 
 def resample(audio, sr):
@@ -56,7 +58,7 @@ def main():
         said = words
         for spoken, written in WRITTEN.items():
             said = said.replace(spoken, written)
-        script.append(f"{who}: {said}")
+        script.append(f"{SPEAKER[who]}: {said}")
     audio = np.concatenate(parts)
     pcm = (np.clip(audio, -1, 1) * 32767).astype("<i2")
     (HERE / "calls").mkdir(exist_ok=True)

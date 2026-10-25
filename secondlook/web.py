@@ -20,6 +20,7 @@ import html
 import json
 import os
 import re
+import sys
 import threading
 from dataclasses import asdict, replace
 from datetime import datetime
@@ -325,19 +326,82 @@ def _file_request(store, src: str, req: dict, ai) -> tuple:
     return store.file(req, s, dispute=dispute)
 
 
+def transcriber_on() -> bool:
+    """Is there a way to turn a recording into words here: local whisper installed, or a stand-in set by a test."""
+    return TRANSCRIBE is not None and (TRANSCRIBE is not calls_mod.whisper or calls_mod.WHISPER_PYTHON.is_file())
+
+
+def _transcripts(src: str):
+    """What local whisper made of each recording, once: {source id: {mtime, status "done"/"failed", text}}. Kept
+    beside the shop's case file (.tmp/ for the demo, records/ for the live shop)."""
+    return team_mod.JsonFile(CASE_FILES[src].with_name(f"call-transcripts-{src}.json"))
+
+
+def _whispered(rec: dict, done: dict) -> dict | None:
+    """This recording's entry, if it was made from this very file (a recording replaced since is new)."""
+    x = done.get(rec["source_id"])
+    return x if isinstance(x, dict) and x.get("mtime") == rec["wav"].stat().st_mtime else None
+
+
+def transcribe_calls(src: str) -> int:
+    """The server's background work, never a page's or an API request's: local whisper on each recording of the
+    call box it hasn't heard yet, once. Its words, or "failed", are kept, so a recording is never transcribed twice
+    (a recording replaced in the box is new). Returns how many recordings it heard."""
+    if not transcriber_on() or not CALL_BOXES.get(src):
+        return 0
+    n = 0
+    store = _transcripts(src)
+    for rec in calls_mod.recordings(CALL_BOXES.get(src)):
+        if _whispered(rec, store.snapshot()):
+            continue
+        text = TRANSCRIBE(rec["wav"])
+        entry = {"mtime": rec["wav"].stat().st_mtime, "status": "done" if text else "failed", "text": text or None}
+        store.transact(lambda d, k=rec["source_id"], v=entry: d.update({k: v}))
+        n += 1
+    return n
+
+
 def file_calls(store, src: str) -> int:
     """Every recording in the shop's call box not filed yet becomes a request on the channel "call", sorted by the
-    caller's number like an email by its address (rules only: no AI call). Returns how many were filed. A call with
-    no words yet (no local whisper, no shipped transcript) waits in the box for the next look."""
+    caller's number like an email by its address (rules only: no AI call). It never runs a model: it files the
+    words local whisper already made in the background (transcribe_calls), else the transcript shipped beside the
+    recording; a call with neither waits. A call filed with its shipped words takes whisper's once they are
+    ready. Returns how many were filed."""
     n = 0
+    done = _transcripts(src).snapshot()
     for rec in calls_mod.recordings(CALL_BOXES.get(src)):
-        if store.by_source(rec["source_id"]):
+        w = _whispered(rec, done)
+        heard = w["text"] if w and w.get("status") == "done" and w.get("text") else None
+        cid = store.by_source(rec["source_id"])
+        if cid:
+            if heard:
+                _take_whisper_s_words(store, cid, rec["source_id"], heard)
             continue
-        req = calls_mod.as_request(rec, TRANSCRIBE)
+        req = calls_mod.as_request(rec, lambda wav, t=heard: t)
         if req:
             _file_request(store, src, req, ai=None)
             n += 1
     return n
+
+
+def _take_whisper_s_words(store, cid: str, sid: str, text: str) -> None:
+    """The call's entry, filed with the shipped words, takes local whisper's (and says so). Written once."""
+    c = store.get(cid) or {}
+    if not any(x.get("source_id") == sid and x.get("transcript") == calls_mod.SHIPPED for x in c.get("timeline", [])):
+        return
+
+    def take(x):
+        for e_ in x["timeline"]:
+            if e_.get("source_id") == sid and e_.get("transcript") == calls_mod.SHIPPED:
+                e_["text"], e_["transcript"] = text[:calls_mod.MAX_TEXT], calls_mod.WHISPERED
+    store.update(cid, take)
+
+
+def calls_waiting(store, src: str) -> int:
+    """Recordings in the box with no words yet: local whisper is on it (or failed, with nothing shipped beside)."""
+    done = _transcripts(src).snapshot()
+    return sum(1 for rec in calls_mod.recordings(CALL_BOXES.get(src))
+               if not store.by_source(rec["source_id"]) and not _whispered(rec, done))
 
 
 def case_store(src: str) -> cases_mod.CaseStore:
@@ -1797,12 +1861,14 @@ def today_view(src: str) -> dict:
     """The three blocks of the morning screen, as data (the page and GET /api/today show the same)."""
     demo = src == "demo"
     today = DemoPayPal().today if demo else datetime.utcnow().date()
+    waiting = 0
     if CALL_BOXES.get(src):
         file_calls(case_store(src), src)              # a call left in the box since the last look comes in now
+        waiting = calls_waiting(case_store(src), src) if transcriber_on() else 0
     cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
     t = team_for_src(src)
     assigned = {} if t.get("solo") else assignments_for("DEMO-" if demo else None).all()
-    return {"today": today, "team": t, "phone": bool(CALL_BOXES.get(src)),
+    return {"today": today, "team": t, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
             "see": today_mod.came_in(cases, disputes, orders, today, review_of=review_line),
             "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
             "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src))}
@@ -1865,8 +1931,10 @@ def _rec(r: dict | None) -> str:
     return f'<span class="rec">{tag} {e(r["text"])}</span>'
 
 
-def see_block(s: dict, q: str, phone: bool = False) -> str:
+def see_block(s: dict, q: str, phone: bool = False, pending: int = 0) -> str:
     chips = [f'<span class="chip ord">🛒 {s["orders"]:,} new order{"s" if s["orders"] != 1 else ""}</span>']
+    if pending:      # recordings local whisper is still on: they come in once it has their words
+        chips.append(f'<span class="chip off">📞 {pending} call{"s" if pending != 1 else ""} being transcribed</span>')
     for ch, word, n in today_mod.channel_words(s["counts"]):
         if ch == "paypal" and s.get("paypal_messages"):
             word = "PayPal disputes or new PayPal messages"     # it counts a buyer's new message on an older one too
@@ -1929,7 +1997,7 @@ def today_page(src: str, me: str | None = None) -> str:
     body = (f'<h1 class="page">Today at {e(name)}</h1>{about}'
             f'<p class="who">I see, I manage, I know: every channel, one place. The lists stay where they were: '
             f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
-            f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"])}</section>'
+            f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"], v["calls_pending"])}</section>'
             f'<section class="block">{manage_block(v["manage"], q)}</section>'
             f'<section class="block">{month_block(v["know"], v["today"])}'
             f'{claim_line_box(v["know"]["high_volume"], v["today"])}</section></div>')
@@ -3127,6 +3195,19 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def _transcribe_in_the_background(every: float = 30.0) -> None:
+    """The call box's own worker: local whisper on new recordings, outside every request, then a look again."""
+    import time
+    while True:
+        for src in CALL_BOXES:
+            try:
+                transcribe_calls(src)
+            except Exception as err:  # noqa: BLE001 - a recording that can't be heard never stops the server
+                print(f"call box ({src}): {err}", file=sys.stderr)
+        time.sleep(every)
+
+
 def serve(port: int = 8765) -> None:
     print(f"Second Look: http://127.0.0.1:{port}")
+    threading.Thread(target=_transcribe_in_the_background, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

@@ -30,14 +30,15 @@ def test_the_demo_call_box_holds_sophie_s_call_as_a_phone_system_leaves_it():
         assert (w.getframerate(), w.getnchannels(), w.getsampwidth()) == (16000, 1, 2)
         assert round(w.getnframes() / 16000) == rec["seconds"] == 34
     shipped = rec["txt"].read_text()
-    assert shipped.startswith("Marta: Linen and Paper") and "order LP-90001" in shipped and "Sophie:" in shipped
+    assert shipped.startswith("Marta (customer care assistant): Linen and Paper") and "order LP-90001" in shipped
+    assert "Sophie (customer):" in shipped
 
 
 def test_local_whisper_first_then_the_shipped_transcript_labelled_then_nothing():
     [rec] = calls.recordings(BOX)
     assert calls.transcript(rec, lambda wav: "Hello, this is Sophie.") == ("Hello, this is Sophie.", calls.WHISPERED)
     text, how = calls.transcript(rec, lambda wav: None)
-    assert how == "transcript shipped with the demo" and text.startswith("Marta:")
+    assert how == "transcript shipped with the demo" and text.startswith("Marta (customer care assistant):")
     box = Path(tempfile.mkdtemp())
     shutil.copy(rec["wav"], box / "a.wav")
     (box / "a.json").write_text(json.dumps({"recording": "a.wav", "from_phone": "+39 051 555 0142",
@@ -63,6 +64,7 @@ def test_whisper_runs_in_its_own_python_offline_and_any_failure_is_simply_no_tra
         assert calls.whisper(BOX / f"{SOPHIE}.wav", run=run) == "Hello there."
         cmd, kw = seen[0]
         assert cmd[0] == sys.executable and cmd[-1] == calls.WHISPER_MODEL and kw["env"]["HF_HUB_OFFLINE"] == "1"
+        assert kw["timeout"] == 340                                    # ten times the recording's 34 s, never 600 for it
         assert calls.whisper(BOX / f"{SOPHIE}.wav", run=lambda c, **k: subprocess.CompletedProcess(c, 1, "", "boom")) is None
 
         def broken(c, **k):
@@ -87,7 +89,9 @@ def test_a_call_is_sorted_by_the_caller_s_number_and_never_onto_two_customers():
     assert s["how"].startswith("Sorted by Second Look's rules: the caller's number is Sophie's")
     assert s["summary"] == "Phone call: says it never arrived"
     shared = sort_mod.sort({**call, "from": {"phone": "+43 1 555 0177"}}, orders, set())
-    assert not shared["settled"] and shared["how"].startswith("The caller's number is on none of the shop's orders")
+    assert not shared["settled"] and shared["customer"] is None
+    assert shared["how"] == "The caller's number is on more than one customer's orders: a person picks the order."
+    assert "Ann" not in shared["how"] and "Bob" not in shared["how"]
 
 
 @contextmanager
@@ -178,6 +182,83 @@ def test_the_shop_s_orders_and_courier_answer_through_the_api_labelled_made_up()
             assert get("/api/customers/sophie.durand@example.com?shop=demo")[1]["name"] == "Sophie Durand"
         finally:
             srv.shutdown()
+
+
+# ---------- quality and spec review (26/10): whisper never inside a request; the call box's own hygiene ----------
+
+def _box_with(name, meta, txt=None):
+    box = Path(tempfile.mkdtemp())
+    shutil.copy(BOX / f"{SOPHIE}.wav", box / f"{name}.wav")
+    (box / f"{name}.json").write_text(json.dumps({"recording": f"{name}.wav", **meta}))
+    if txt is not None:
+        (box / f"{name}.txt").write_text(txt)
+    return box
+
+
+def test_a_view_never_transcribes_a_failed_recording_waits_and_a_done_one_is_filed_on_the_next_view():
+    import os
+    asked = []
+    box = _box_with("call1", {"from_phone": "+1 555 000 1111", "time": "2026-10-25T09:00:00Z", "seconds": 90})
+    with morning(live_box=box):
+        web.TRANSCRIBE = lambda wav: (asked.append(wav), None)[1]          # whisper hears nothing
+        v = web.today_view("live")
+        assert asked == [] and v["calls_pending"] == 1 and web.case_store("live").all() == []
+        assert "📞 1 call being transcribed" in web.today_page("live")
+        assert web.transcribe_calls("live") == 1 and len(asked) == 1       # the background worker: one look
+        assert web.transcribe_calls("live") == 0 and len(asked) == 1       # failed: not tried again
+        for _ in range(3):
+            web.today_view("live")
+        assert len(asked) == 1 and web.case_store("live").all() == []      # no words, no guess: it waits
+        os.utime(box / "call1.wav", (2_000_000_000, 2_000_000_000))        # a new recording in its place
+        web.TRANSCRIBE = lambda wav: (asked.append(wav), "My order never arrived.")[1]
+        assert web.transcribe_calls("live") == 1 and len(asked) == 2
+        web.today_view("live")
+        [c] = web.case_store("live").all()
+        assert c["timeline"][0]["transcript"] == calls.WHISPERED and c["timeline"][0]["text"] == "My order never arrived."
+
+
+def test_the_demo_seeds_at_once_with_the_shipped_words_and_whisper_s_replace_them_when_ready():
+    asked = []
+    with morning():
+        web.TRANSCRIBE = lambda wav: (asked.append(wav), "Linen and paper, this is Marta. Order LP 90001.")[1]
+        c = web.case_store("demo").get("DEMO-C001")                         # the first page: no model in it
+        assert asked == [] and c["timeline"][0]["transcript"] == calls.SHIPPED
+        assert web.transcribe_calls("demo") == 1 and len(asked) == 1
+        web.today_view("demo")
+        call = web.case_store("demo").get("DEMO-C001")["timeline"][0]
+        assert call["transcript"] == calls.WHISPERED and call["text"].startswith("Linen and paper")
+        assert web.case_store("demo").get("DEMO-C001")["order_no"] == "LP-90001"   # sorted once, as it was
+        web.today_view("demo")
+        assert len(asked) == 1
+
+
+def test_a_malformed_record_in_the_call_box_is_skipped_never_guessed():
+    box = _box_with("good", {"from_phone": "+1 555 000 1111", "time": "2026-10-25T09:00:00Z", "seconds": 5},
+                    txt="Hello.")
+    (box / "list.json").write_text("[1, 2]")
+    (box / "path.json").write_text(json.dumps({"recording": "../good.wav", "from_phone": "1", "time": "2026"}))
+    (box / "deep.json").write_text(json.dumps({"recording": "sub/good.wav", "from_phone": "1", "time": "2026"}))
+    (box / "phone.json").write_text(json.dumps({"recording": "good.wav", "from_phone": ["x"], "time": "2026"}))
+    assert [r["source_id"] for r in calls.recordings(box)] == ["callbox:good"]
+    with morning(live_box=box):
+        web.today_view("live")
+        assert len(web.case_store("live").all()) == 1
+
+
+def test_a_call_s_words_are_capped_like_an_email_s():
+    box = _box_with("long", {"from_phone": "+1 555 000 1111", "time": "2026-10-25T09:00:00Z", "seconds": 5},
+                    txt="word " * 5000)
+    [rec] = calls.recordings(box)
+    assert len(calls.as_request(rec, lambda wav: None)["text"]) <= 10000
+
+
+def test_a_number_s_country_code_counts_when_both_sides_give_it():
+    orders = [{"order_no": "LP-1", "email": "sophie@example.com", "name": "Sophie", "phone": "+39 051 555 0142",
+               "time": "2026-10-12T10:00:00Z", "items": [{"item_name": "Linen tablecloth", "item_quantity": "1"}]}]
+    call = {"channel": "call", "subject": "Phone call", "text": "My tablecloth never came."}
+    assert not sort_mod.sort({**call, "from": {"phone": "+1 051 555 0142"}}, orders, set())["settled"]   # another country
+    assert sort_mod.sort({**call, "from": {"phone": "+39 051 555 0142"}}, orders, set())["order_no"] == "LP-1"
+    assert sort_mod.sort({**call, "from": {"phone": "051 555 0142"}}, orders, set())["order_no"] == "LP-1"  # no "+": 9 digits
 
 
 if __name__ == "__main__":

@@ -156,10 +156,11 @@ def deterministic(request: dict, orders: list, open_orders: set) -> dict:
     open case or an open PayPal dispute."""
     sender = _email((request.get("from") or {}).get("email"))
     # a phone call has a number, not an address: the customer whose orders carry that number, when exactly one does
-    phone = _phone((request.get("from") or {}).get("phone"))
-    whose = "the sender's address"
+    number = (request.get("from") or {}).get("phone")
+    phone = _phone(number)
+    whose, callers = "the sender's address", set()
     if not sender and phone:
-        callers = {_email(o.get("email")) for o in orders if _phone(o.get("phone")) == phone and o.get("email")}
+        callers = {_email(o.get("email")) for o in orders if _same_phone(o.get("phone"), number) and o.get("email")}
         sender, whose = (callers.pop() if len(callers) == 1 else ""), "the caller's number"
     said = "the call" if whose == "the caller's number" else "the message"
     text = _text(request)
@@ -168,6 +169,10 @@ def deterministic(request: dict, orders: list, open_orders: set) -> dict:
         # a call has no subject and two voices: its line says what it is about, in Second Look's words, not as a quote
         base["summary"] = f"Phone call: {KIND_LABEL[base['kind']][:1].lower()}{KIND_LABEL[base['kind']][1:]}"
     mine = [o for o in orders if sender and _email(o.get("email")) == sender]
+    if not mine and len(callers) > 1:
+        # one number on two customers' orders: never guessed between them, and neither is named
+        return {**base, "settled": False, "by": None, "customer": None, "order_no": None,
+                "how": "The caller's number is on more than one customer's orders: a person picks the order."}
     if not mine:
         return {**base, "settled": False, "by": None, "customer": None, "order_no": None,
                 "how": f"{whose[0].upper() + whose[1:]} is on none of the shop's orders: a person picks the order."}
@@ -205,6 +210,15 @@ def deterministic(request: dict, orders: list, open_orders: set) -> dict:
         return done(mine[0], f"their only order is {order_no(mine[0])}")
     return {**base, "settled": False, "by": None, "customer": customer, "order_no": None,
             "how": f"{customer['name']} has {len(mine)} orders and {said} doesn't say which one."}
+
+
+def _same_phone(a, b) -> bool:
+    """One number: with a country code on both sides ("+39 …", "+1 …"), every digit; otherwise the last nine."""
+    if not _phone(a) or not _phone(b):
+        return False
+    if str(a).strip().startswith("+") and str(b).strip().startswith("+"):
+        return "".join(ch for ch in str(a) if ch.isdigit()) == "".join(ch for ch in str(b) if ch.isdigit())
+    return _phone(a) == _phone(b)
 
 
 def _phone(x) -> str:
