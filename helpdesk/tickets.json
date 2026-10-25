@@ -34,6 +34,21 @@
    ]
   },
   {
+   "id": 2102,
+   "from_name": "Lena Vogel",
+   "from_email": "lena.vogel@example.com",
+   "subject": "Exchange: wrong size",
+   "status": "open",
+   "source": "form",
+   "messages": [
+    {
+     "from": "customer",
+     "at": "2026-10-19T21:10:00Z",
+     "text": "Order LP-90002: the linen shirt is too small. I ordered M but I need an L. Can I exchange it?"
+    }
+   ]
+  },
+  {
    "id": 2008,
    "from_name": "Pablo García",
    "from_email": "pablo.g1124@example.com",
@@ -58,6 +73,21 @@
      "from": "customer",
      "at": "2026-10-19T09:45:00Z",
      "text": "I sent the shirt back on 5 October and you got it on the 8th. I still have no refund."
+    }
+   ]
+  },
+  {
+   "id": 2101,
+   "from_name": "Sophie Durand",
+   "from_email": "sophie.durand@example.com",
+   "subject": "Tablecloth not arrived",
+   "status": "open",
+   "source": "email",
+   "messages": [
+    {
+     "from": "customer",
+     "at": "2026-10-19T08:52:00Z",
+     "text": "Hello, my linen tablecloth (order LP-90001) still hasn't arrived. The tracking says delivered, but I have nothing. Can you help? Sophie"
     }
    ]
   },

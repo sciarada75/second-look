@@ -57,6 +57,23 @@ def test_the_client_reads_and_approves_through_the_api():
         srv.shutdown()
 
 
+def test_the_client_files_a_ticket_and_reads_its_case():
+    srv, url, seen = fake_secondlook({("POST", "/api/requests"): (201, {"case_id": "DEMO-C003", "filed": "opened"}),
+                                      ("GET", "/api/cases/DEMO-C003"): (200, {"case_id": "DEMO-C003"})})
+    try:
+        sl = SecondLook(url)
+        t = {"id": 2004, "from_name": "Pablo Martin", "from_email": "pablo.m576@example.com", "subject": "Refund?",
+             "messages": [{"from": "customer", "at": "2026-10-19T09:45:00Z", "text": "Still no refund."}]}
+        assert sl.file_request(t)["case_id"] == "DEMO-C003" and sl.case_of("DEMO-C003") == {"case_id": "DEMO-C003"}
+        assert seen[0][2] == {"channel": "email", "source_id": "ticketbook:2004", "subject": "Refund?",
+                              "from": {"name": "Pablo Martin", "email": "pablo.m576@example.com"},
+                              "text": "Still no refund.", "time": "2026-10-19T09:45:00Z"}
+        sl.file_request({**t, "source": "form"})
+        assert seen[-1][2]["channel"] == "form" and sl.case_of("DEMO-C999") is None
+    finally:
+        srv.shutdown()
+
+
 def test_a_server_error_from_second_look_counts_as_not_answering():
     srv, url, _ = fake_secondlook({("GET", "/api/customers/x@example.com"): (500, {"error": "boom"})})
     try:
@@ -108,8 +125,9 @@ SHIRT = {**CASE, "dispute_id": "DEMO-034", "amount": {"value": "89.00", "currenc
 
 
 class FakeSL:
-    def __init__(self, case=CASE, customer=None, down=False, nobody=False):
+    def __init__(self, case=CASE, customer=None, down=False, nobody=False, filed=None, case_of=None):
         self.calls, self._case, self.down = [], case, down
+        self._filed, self._case_of = filed, case_of
         self._customer = None if nobody else customer if customer is not None else {
             "name": "Dario Vitale", "orders": 5, "disputes": [{"dispute_id": "DEMO-031", "outcome": "Open"}],
             "shop_dispute_rate": 0.02}
@@ -123,6 +141,17 @@ class FakeSL:
     def case(self, did, as_person=None):
         self.calls.append(("case", did, as_person))
         return self._case
+
+    def file_request(self, ticket):
+        if self.down:
+            from helpdesk.secondlook_client import Unavailable
+            raise Unavailable("down")
+        self.calls.append(("file", ticket.get("id")))
+        return self._filed
+
+    def case_of(self, case_id):
+        self.calls.append(("case_of", case_id))
+        return self._case_of
 
     def approve(self, did, action, message, by, review):
         self.calls.append(("approve", did, action, message, by, review))
@@ -219,7 +248,7 @@ def test_the_customer_line_counts_in_words():
     html = bench(FakeSL(customer=one)).ticket_page(2041, "marta")
     assert "1 order, 1 PayPal dispute" in html
     html = bench(FakeSL(nobody=True)).ticket_page(2041, "marta")
-    assert "No orders or PayPal disputes for this email in Second Look." in html
+    assert "No PayPal orders or disputes for this email in Second Look." in html
 
 
 def test_a_rules_baseline_review_is_never_shown_as_the_ai():
@@ -354,6 +383,45 @@ def test_http_the_injection_ticket_renders_as_text():
         assert f"<p>{html_escape(t['messages'][0]['text'])}</p>" in page
         inbox = s.ask("GET", "/?as=marta")[2]
         assert html_escape(t["messages"][0]["text"]) in inbox and "Approve as" not in page
+
+
+# ---------- every ticket reaches a Second Look case (25/10) ----------
+FILED = {"case_id": "DEMO-C003", "filed": "already_received", "stage": "paypal_dispute",
+         "sorted": {"by": "rules", "how": "Sorted by Second Look's rules: their one open case is on order DEMOTX01828."}}
+CASE_OF = {"case_id": "DEMO-C003", "stage_label": "PayPal dispute", "channels": ["email", "paypal"],
+           "dispute_id": "DEMO-034", "sorted": FILED["sorted"]}
+
+
+def test_the_ticket_shows_the_second_look_case_it_is_on():
+    sl = FakeSL(filed=FILED, case_of=CASE_OF)
+    html = bench(sl).ticket_page(2041, "marta")
+    assert "Case DEMO-C003" in html and "email + paypal" in html and "/c/DEMO-C003?as=marta" in html
+    assert "their one open case" in html and ("file", 2041) in sl.calls
+    assert "Defend with evidence" in html                       # the PayPal dispute's own block is still there
+
+
+def test_a_customer_who_paid_by_card_still_gets_their_case():
+    html = bench(FakeSL(nobody=True, filed={**FILED, "case_id": "DEMO-C001", "stage": "inquiry"},
+                        case_of={**CASE_OF, "case_id": "DEMO-C001", "stage_label": "Shop inquiry", "dispute_id": None,
+                                 "channels": ["email"]})).ticket_page(2041, "marta")
+    assert "Case DEMO-C001" in html and "Shop inquiry" in html and "No PayPal orders or disputes" in html
+
+
+def test_on_start_every_open_ticket_goes_to_second_look_and_second_look_down_is_no_crash():
+    two = {**TICKETS, "tickets": TICKETS["tickets"] + [{**TICKETS["tickets"][0], "id": 2042, "status": "solved"}]}
+    sl = FakeSL(filed=FILED)
+    assert bench(sl, two).file_open() == 1 and [c for c in sl.calls if c[0] == "file"] == [("file", 2041)]
+    assert bench(FakeSL(down=True), two).file_open() == 0
+
+
+def test_the_demo_tickets_say_what_the_demo_requests_say():
+    root = Path(__file__).resolve().parent.parent
+    shop = json.loads((root / "demo" / "shop.json").read_text())
+    tickets = {t["id"]: t for t in json.loads((root / "helpdesk" / "tickets.json").read_text())["tickets"]}
+    for r in shop["requests"]:
+        t = tickets[int(r["source_id"].split(":")[1])]
+        assert (t["from_email"], t["messages"][0]["text"], t["messages"][0]["at"]) == (r["from"]["email"], r["text"], r["time"])
+        assert t.get("source", "email") == r["channel"]
 
 
 if __name__ == "__main__":

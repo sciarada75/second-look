@@ -1,4 +1,4 @@
-"""The only code in Ticketbook that talks to Second Look: three calls of its public API.
+"""The only code in Ticketbook that talks to Second Look: five calls of its public API.
 
 Ticketbook decides nothing about money. It asks Second Look what a case is, what approving would do for
 this agent (`?as=`), and sends the agent's approval — Second Look applies its limits, exactly as on its
@@ -50,3 +50,17 @@ class SecondLook:
         code, data = self._call("POST", f"/api/disputes/{parse.quote(dispute_id, safe='')}/approve",
                                 {"action": action, "message": message, "by": by, "review": review})
         return code, (data or {}).get("result") or f"Second Look answered {code}."
+
+    def file_request(self, ticket: dict) -> dict | None:
+        """Hand Second Look one ticket's first message (POST /api/requests). Safe to repeat: Second Look files a
+        source id once. Returns its answer (case_id, filed, stage, sorted, dispute_id) or None when it refused."""
+        first = (ticket.get("messages") or [{}])[0]
+        code, data = self._call("POST", "/api/requests", {
+            "channel": ticket.get("source") or "email", "source_id": f"ticketbook:{ticket.get('id')}",
+            "from": {"name": ticket.get("from_name"), "email": ticket.get("from_email")},
+            "subject": ticket.get("subject") or "", "text": first.get("text") or "", "time": first.get("at")})
+        return data if code in (200, 201) and isinstance(data, dict) else None
+
+    def case_of(self, case_id: str) -> dict | None:
+        code, data = self._call("GET", "/api/cases/" + parse.quote(case_id, safe=""))
+        return data if code == 200 else None

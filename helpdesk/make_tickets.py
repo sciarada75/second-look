@@ -60,6 +60,17 @@ EVERYDAY = [("Change of address", "Hi, I moved last week. Could you send my orde
 for o, (subject, body) in zip(everyday, EVERYDAY):
     ticket(o, subject, body, o["time"], status="open" if subject != "Thank you!" else "solved")
 
+# What came in by email or the shop's web form with no PayPal dispute behind it: the demo's own requests
+# (demo/shop.json "requests"), each under the ticket id in its source id. Pablo's (ticketbook:2004) is the
+# DEMO-034 email above, in the same words.
+have = {t["id"] for t in tickets}
+for r in shop.get("requests", []):
+    tid = int(r["source_id"].split(":", 1)[1])
+    if tid in have:
+        continue
+    tickets.append({"id": tid, "from_name": r["from"]["name"], "from_email": r["from"]["email"], "subject": r["subject"],
+                    "status": "open", "source": r["channel"],
+                    "messages": [{"from": "customer", "at": r["time"], "text": r["text"]}]})
 tickets.sort(key=lambda t: t["messages"][0]["at"], reverse=True)
 (ROOT / "helpdesk" / "tickets.json").write_text(json.dumps(
     {"_comment": "Ticketbook, a made-up helpdesk: made-up emails from the demo shop's buyers. "

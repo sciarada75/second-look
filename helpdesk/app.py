@@ -344,7 +344,8 @@ class Helpdesk:
             rows.append(f'<a class="row" href="/t/{int(t["id"])}">{avatar(t.get("from_name", ""))}'
                         f'<span class="name">{e(t.get("from_name", ""))}<small>{e(t.get("from_email", ""))}</small></span>'
                         f'<span class="subj">{e(t.get("subject", ""))}<small>{e(first.get("text", ""))}</small></span>'
-                        f'<span><span class="chip {e(status)}">{e(status.capitalize())}</span></span>'
+                        f'<span><span class="chip {e(status)}">{e(status.capitalize())}</span>'
+                        f'{"<span class=chip>Web form</span>" if t.get("source") == "form" else ""}</span>'
                         f'<time>{e(when(first.get("at")))}</time></a>')
         body = (f'<h1>Inbox</h1><p class="meta">Emails to Linen &amp; Paper customer care, newest first.</p>'
                 f'<div class="list">{"".join(rows) or "<p class=row>No tickets.</p>"}</div>')
@@ -385,10 +386,43 @@ class Helpdesk:
         return (f'<section class="sl" aria-label="Second Look"><header>{SL_MARK}<span class="sl-name">Second Look</span>'
                 f'<small>PayPal disputes</small></header><div class="body">{body}</div></section>')
 
+    def file_open(self) -> int:
+        """Hand Second Look every open ticket, as a connected helpdesk does when mail arrives (here: when
+        Ticketbook starts). Second Look files each one once. Returns how many it took; never raises."""
+        n = 0
+        for t in self.tickets().get("tickets", []):
+            if t.get("status") != "open":
+                continue
+            try:
+                n += self.sl.file_request(t) is not None
+            except Unavailable:
+                return n            # Second Look isn't running yet: each panel files its ticket when it opens
+        return n
+
+    def _case_line(self, t: dict, me: dict) -> str:
+        """Which Second Look case this ticket is on: filed (again, harmlessly) when the panel opens."""
+        if t.get("status") != "open":
+            return ""
+        filed = self.sl.file_request(t)
+        if not isinstance(filed, dict) or not filed.get("case_id"):
+            return ""
+        c = self.sl.case_of(str(filed["case_id"])) or {}
+        if not isinstance(c, dict):
+            raise ValueError("case is not an object")
+        came = " + ".join(str(x) for x in c.get("channels") or [])
+        stage = str(c.get("stage_label") or filed.get("stage") or "")
+        how = str(((c.get("sorted") or filed.get("sorted")) or {}).get("how") or "")
+        link = (f'<a class="open-sl" href="{e(self.secondlook_url())}/c/{e(quote(str(filed["case_id"])))}?as={e(quote(me["id"]))}" '
+                'target="_blank" rel="noopener">Open the case in Second Look</a>')
+        return (f'<div class="case"><div class="line"><span class="pill paypal">{e(stage)}</span>'
+                f'<span>Case {e(str(filed["case_id"]))}</span>{f"<span>{e(came)}</span>" if came else ""}</div>'
+                f'<p class="soft">{e(how)}</p>{link}</div>')
+
     def _panel_body(self, t: dict, me: dict) -> str:
+        on_case = self._case_line(t, me)
         cu = self.sl.customer(t.get("from_email", ""))
         if cu is None:
-            return "<p>No orders or PayPal disputes for this email in Second Look.</p>"
+            return on_case + "<p>No PayPal orders or disputes for this email in Second Look.</p>"
         open_ids = self.open_disputes(cu)
         disputes = cu.get("disputes") or []
         line = f'{cu.get("name") or t.get("from_name", "")}: {plural(cu.get("orders"), "order")}, {plural(len(disputes), "PayPal dispute")}'
@@ -403,7 +437,7 @@ class Helpdesk:
         for did in open_ids:
             parts.append(self._case_block(did, me, int(t["id"])))
         parts.append(self.history(open_ids))
-        return "".join(parts)
+        return on_case + "".join(parts)
 
     def _case_block(self, did: str, me: dict, tid: int) -> str:
         link = (f'<a class="open-sl" href="{e(self.secondlook_url())}/d/{e(quote(did))}?as={e(quote(me["id"]))}" '
@@ -640,5 +674,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve(port: int = 8766, secondlook: str = "http://127.0.0.1:8765") -> None:
     Handler.hd = Helpdesk(ROOT / "helpdesk" / "tickets.json", ROOT / ".tmp" / "helpdesk-events.jsonl",
                           SecondLook(secondlook))
+    # Mail "arrives" when Ticketbook starts: every open ticket goes to Second Look, in the background.
+    threading.Thread(target=Handler.hd.file_open, daemon=True).start()
     print(f"Ticketbook: http://127.0.0.1:{port}", flush=True)
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

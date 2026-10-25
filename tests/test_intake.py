@@ -298,6 +298,24 @@ def test_an_order_number_typed_into_the_pick_form_comes_back_as_text():
             srv.server_close()
 
 
+def test_ticketbook_files_its_tickets_through_the_real_api():
+    from helpdesk.secondlook_client import SecondLook
+    root = Path(__file__).resolve().parent.parent
+    tickets = {t["id"]: t for t in json.loads((root / "helpdesk" / "tickets.json").read_text())["tickets"]}
+    with morning():
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            sl = SecondLook(f"http://127.0.0.1:{srv.server_address[1]}")
+            assert sl.file_request(tickets[2004])["filed"] == "already_received"     # Pablo's: in the morning's cases
+            assert sl.file_request(tickets[2102])["case_id"] == "DEMO-C002"          # Lena's web form
+            dario = sl.file_request(tickets[2001])
+            assert dario["filed"] == "opened" and dario["dispute_id"] == "DEMO-031"
+            assert sl.case_of(dario["case_id"])["channels"] == ["email", "paypal"]
+        finally:
+            srv.shutdown()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
