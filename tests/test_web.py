@@ -7,6 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secondlook import web  # noqa: E402
+# Cases are written to a temporary folder in every test here, never to this machine's .tmp/ (25/10).
+web.CASE_FILES = {"demo": Path(tempfile.mkdtemp()) / "cases-demo.json", "live": Path(tempfile.mkdtemp()) / "cases-live.json"}
 
 
 def case(buyer_messages=1, tracking=None):

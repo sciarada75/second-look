@@ -28,7 +28,7 @@ from pathlib import Path
 from datetime import timedelta
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
-from . import evidence as evidence_mod, ledger, team as team_mod
+from . import cases as cases_mod, evidence as evidence_mod, ledger, sort as sort_mod, team as team_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
 from .guard import may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
@@ -246,6 +246,114 @@ def by_for_post(t: dict, by: str | None) -> tuple[bool, str | None]:
         return True, None
     p = team_mod.person(t, by)
     return (True, p["id"]) if p else (False, None)
+
+
+# ---------- cases: one customer, one order, one problem, every channel ----------
+# Requests (email, web form) arrive through POST /api/requests, are sorted (secondlook/sort.py) and filed on
+# their case (secondlook/cases.py). One case file per shop. The demo shop's starts with the requests in
+# demo/shop.json, filed by the same code the first time it is read; the live shop's starts empty.
+CASE_FILES = {"demo": ROOT / ".tmp" / "cases-demo.json", "live": ROOT / "records" / "cases-live.json"}
+_SEEDING = threading.Lock()
+REQUEST_CHANNELS = ("email", "form")   # phone calls arrive in a later step; PayPal disputes are read from PayPal
+
+
+def shop_of_case(cid: str) -> str:
+    return "demo" if is_demo(cid) else "live"
+
+
+def shop_orders(src: str) -> list:
+    """Every order the shop holds, as stored: PayPal's (the demo's data, or Transaction Search on the live
+    sandbox) and, in the demo, the orders paid by card or bank. No PayPal keys: no live orders."""
+    if src == "demo":
+        pp = DemoPayPal()
+        return pp.orders() + pp.other_orders()
+    pp = client_from_env(ROOT)
+    if isinstance(pp, MockPayPal):
+        return []
+    try:
+        return evidence_mod._orders(pp, datetime.utcnow())
+    except RuntimeError:
+        return []
+
+
+def shop_disputes(src: str) -> list:
+    if src == "demo":
+        return DemoPayPal().disputes()
+    pp = client_from_env(ROOT)
+    if isinstance(pp, MockPayPal):
+        return []
+    try:
+        return evidence_mod.shop_disputes(pp, datetime.utcnow())
+    except RuntimeError:
+        return []
+
+
+def _tx_of(d: dict) -> str | None:
+    return ((d.get("disputed_transactions") or [{}])[0]).get("seller_transaction_id")
+
+
+def _file_request(store, src: str, req: dict, ai) -> tuple:
+    """Sort one request and put it on its case. A request already filed (same source id) is not sorted again,
+    so a system that sends it twice never pays for a second look by the AI."""
+    sid = req.get("source_id")
+    if sid and store.by_source(sid):
+        return store.get(store.by_source(sid)), "already_received"
+    orders, disputes = shop_orders(src), shop_disputes(src)
+    open_d = [d for d in disputes if d.get("status") != "RESOLVED"]
+    busy = {_tx_of(d) for d in open_d} | {c["order_no"] for c in store.all() if c["status"] == "open" and c.get("order_no")}
+    s = sort_mod.sort(req, orders, busy, ai=ai)
+    dispute = None
+    if s["settled"] and s["order_no"]:
+        o = next((x for x in orders if sort_mod.order_no(x) == s["order_no"]), None)
+        tx = o.get("transaction_id") if o else None
+        dispute = next((d for d in open_d if tx and _tx_of(d) == tx), None)
+    return store.file(req, s, dispute=dispute)
+
+
+def case_store(src: str) -> cases_mod.CaseStore:
+    path = CASE_FILES[src]
+    store = cases_mod.CaseStore(path, prefix="DEMO-" if src == "demo" else "")
+    if src == "demo":
+        with _SEEDING:
+            if not path.exists():
+                for r in DemoPayPal().requests():   # they sort by rules alone (tests/test_demo_shop.py): no AI call
+                    _file_request(store, "demo", r, ai=None)
+    return store
+
+
+def find_case_of_dispute(did: str) -> dict | None:
+    """The case a PayPal dispute belongs to, if another channel joined it. Reads only: never starts a case file."""
+    path = CASE_FILES[shop_of_case(did)]
+    return cases_mod.CaseStore(path).by_dispute(did) if path.exists() else None
+
+
+def receive(src: str, body) -> tuple:
+    """Another system -> Second Look: one request (an email, a web form), checked, sorted and filed on its case.
+    Returns (HTTP status, JSON): 201 filed, 200 already received (same source_id), 400 what is missing."""
+    def bad(why):
+        return 400, {"error": why}
+    if not isinstance(body, dict):
+        return bad("Send one JSON object.")
+    if body.get("channel") not in REQUEST_CHANNELS:
+        return bad('channel must be "email" or "form". Phone calls arrive in a later step; PayPal disputes are read from PayPal.')
+    sender = body.get("from")
+    if not isinstance(sender, dict) or not isinstance(sender.get("email"), str) or "@" not in sender["email"]:
+        return bad("from.email: the address the request came from.")
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip() or len(text) > 10000:
+        return bad("text: what the customer wrote (at most 10,000 characters).")
+    for k, most in (("subject", 300), ("source_id", 200), ("time", 40), ("order", 60)):
+        v = body.get(k)
+        if v is not None and (not isinstance(v, str) or len(v) > most):
+            return bad(f"{k}: text of at most {most} characters.")
+    name = sender.get("name")
+    req = {"channel": body["channel"], "text": text.strip(), "time": body.get("time"), "subject": body.get("subject") or "",
+           "source_id": body.get("source_id"), "order": body.get("order"),
+           "from": {"name": name.strip() if isinstance(name, str) else None, "email": sender["email"].strip()}}
+    c, how = _file_request(case_store(src), src, req, ai=sort_mod.read_with_ai if has_ai_key() else None)
+    return (200 if how == "already_received" else 201), {"case_id": c["id"], "filed": how, "stage": c["stage"],
+                                                          "sorted": c["sorted"], "dispute_id": c.get("dispute_id"),
+                                                          "page": f"/c/{c['id']}"}
 
 
 # ---------- the seller's rules ----------
@@ -1661,6 +1769,7 @@ class Handler(BaseHTTPRequestHandler):
     _cookie = None
     _person = None
     _film = False
+    _raw = b""
 
     def _jar(self) -> dict:
         return dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
@@ -1763,13 +1872,38 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             _REQUEST.qs = {}
 
+    def _same_site(self) -> bool:
+        """A browser page elsewhere must not post into Second Look: when a request says where it comes from
+        (Origin), it must be this server. Systems posting from their own server send no Origin."""
+        origin = self.headers.get("Origin")
+        port = self.server.server_address[1]
+        return not origin or urlparse(origin).netloc in (f"127.0.0.1:{port}", f"localhost:{port}")
+
+    def _request(self):
+        """POST /api/requests: one email or web form from another system (a helpdesk), filed on its case."""
+        if not self._same_site():
+            return self._json({"error": "Requests come from your own systems, not from a web page elsewhere."}, 403)
+        if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+            return self._json({"error": "Send JSON (Content-Type: application/json)."}, 415)
+        try:
+            data = json.loads(self._raw or b"null")
+        except ValueError:
+            return self._json({"error": "Not JSON."}, 400)
+        q = parse_qs(urlparse(self.path).query)
+        shop = (q.get("shop") or [""])[0] or self._jar().get("sl_shop", "demo")
+        code, out = receive("live" if shop == "live" else "demo", data)
+        return self._json(out, code)
+
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        self._raw = raw
         # keep_blank_values: an emptied reply box arrives empty, never as "use the AI's draft"
         form = parse_qs(raw.decode(), keep_blank_values=True) if not self.path.startswith("/api/") else {}
         try:
             me = None
+            if parts == ["api", "requests"]:
+                return self._request()
             if len(parts) == 3 and parts[0] == "d" and parts[2] in ("approve", "take"):
                 # The form says who it was shown to; it must be a real person of the case's own team.
                 ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
