@@ -784,6 +784,45 @@ def test_a_dispute_page_reads_the_shop_s_orders_only_for_a_refund_on_its_own_tra
         assert reads == []                                                     # another transaction: no order read
 
 
+def test_a_replacement_logged_on_the_case_is_held_against_the_paypal_dispute_that_opens_later():
+    clara = next(o for o in DemoPayPal().orders() if o["transaction_id"] == "DEMOTX01969")
+    claude = lambda c: Judgment("REPLACE", 0.9, "Faked.", draft_message="We'll send you another one.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        real = web.shop_disputes
+        web.shop_disputes = lambda src: [d for d in real(src) if d["dispute_id"] != "DEMO-039"]
+        try:
+            _, o = _ask(clara["email"], "Order DEMOTX01969: the bag arrived torn.", "goods:1")
+            cid = o["case_id"]
+            assert web.run_review(cid).action == "REPLACE"
+            assert web.approve(cid, "REPLACE", "We'll send you another one.", by="giulia")[0] == 200
+        finally:
+            web.shop_disputes = real
+        assert web.case_store("demo").get(cid)["dispute_id"] is None                 # no case view: not linked
+        rec = web._case("DEMO-039")["seller_records"]
+        assert rec["replacement_logged_on_case"] == cid and rec["replaced_so_far"] == 29.0
+        assert "refund_logged_on_case" not in rec                                    # goods, listed apart from refunds
+        page = web.case_page("DEMO-039", me="giulia")
+        assert (f'A replacement (29.00 EUR of goods) was already logged on case <a href="/c/{cid}">{cid}</a> on '
+                in page) and "by Giulia" in page and "Already replaced" in page
+        assert web.page_offer("DEMO-039", "giulia")["outcome"] == "out_of_date"
+        assert web.approve("DEMO-039", "REFUND", "Refunded.", by="giulia")[0] == 409
+        web.has_ai_key = lambda: False
+        dec = web.run_review("DEMO-039")
+        assert dec.action == "ASK_SELLER" and "replacement_logged_on_case" in dec.stops
+        assert web.approve("DEMO-039", dec.judgment.action, "x", by="giulia")[0] == 409
+    from secondlook.guard import may_approve
+    shaped = {"dispute_id": "DEMO-039", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+              "dispute_life_cycle_stage": "INQUIRY", "dispute_amount": {"value": "29.00", "currency_code": "EUR"},
+              "messages": []}
+    goods = {"replacement_logged_on_case": "DEMO-C004", "replaced_so_far": 29.0,
+             "already_replaced": "29.00 EUR of goods on 25 Oct 2026 by Giulia, on case DEMO-C004"}
+    for action in ("DEFEND", "REFUND", "PARTIAL_REFUND", "REPLACE"):
+        held = apply_policy(Judgment(action, 0.95, "x", partial_amount="5 EUR", draft_message="d"), POLICY, shaped, goods)
+        assert held.action == "ASK_SELLER" and "replacement_logged_on_case" in held.stops, action
+        assert not may_approve(held.action, "MESSAGE", held.judgment.action, held.stops), action
+    assert apply_policy(Judgment("MESSAGE", 0.9, "x"), POLICY, shaped, goods).action == "MESSAGE"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

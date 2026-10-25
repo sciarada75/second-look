@@ -349,6 +349,16 @@ def _logged_refund(c: dict | None) -> dict | None:
             "on": f"{when:%d %b %Y}" if when else "", "by": back[-1].get("by") or ""}
 
 
+def _logged_goods(c: dict | None) -> dict | None:
+    """The replacements a case has logged (goods that went out), summed, like _logged_refund: None if none."""
+    out = [m for m in (c or {}).get("money", []) if m.get("kind") == "replace"]
+    if not out:
+        return None
+    when = _t(out[-1].get("at"))
+    return {"case_id": c["id"], "amount": round(sum(_num(m.get("amount")) or 0 for m in out), 2),
+            "on": f"{when:%d %b %Y}" if when else "", "by": out[-1].get("by") or ""}
+
+
 def _said(r: dict, cur: str) -> str:
     """One logged refund in words: "10.00 EUR on 25 Oct 2026 by Giulia"."""
     return f'{r["amount"]:.2f} {cur}' + (f' on {r["on"]}' if r["on"] else "") + (f' by {r["by"]}' if r["by"] else "")
@@ -383,7 +393,7 @@ def _money_cases_for(did: str, dispute_of) -> list:
     path = CASE_FILES[src]
     if not path.exists():
         return []
-    paid = [c for c in cases_mod.CaseStore(path).all() if _logged_refund(c)]
+    paid = [c for c in cases_mod.CaseStore(path).all() if _logged_refund(c) or _logged_goods(c)]
     if not paid:
         return []
     joined = [c for c in paid if c.get("dispute_id") == did]
@@ -403,16 +413,27 @@ def _with_case_refund(did: str, case: dict) -> dict:
     """A PayPal dispute on an order whose cases already logged refunds (the shop answered by email before PayPal
     had it): its records say so, with the total and each case, for the judge, the page and the guard's rule 10.
     A dispute whose order has no logged refund is returned exactly as it was."""
-    rs = [_logged_refund(c) for c in _money_cases_for(did, lambda: case["dispute"])]
-    if not rs:
+    found = _money_cases_for(did, lambda: case["dispute"])
+    rs = [r for r in (_logged_refund(c) for c in found) if r]
+    gs = [g for g in (_logged_goods(c) for c in found) if g]       # replacements, listed apart from refunds
+    if not rs and not gs:
         return case
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
-    total = round(sum(r["amount"] for r in rs), 2)
-    each = "; ".join(f'{_said(r, cur)}, on case {r["case_id"]}' for r in rs)
-    records = {**case["seller_records"], "refund_logged_on_case": ", ".join(r["case_id"] for r in rs),
-               "refunded_so_far": total, "already_refunded": each if len(rs) == 1 else f"{total:.2f} {cur} in all: {each}",
-               "refunds_logged": [{**r, "currency": cur} for r in rs],
-               "sources": {**case["seller_records"].get("sources", {}), "already_refunded": "Your case record"}}
+    records = {**case["seller_records"], "sources": dict(case["seller_records"].get("sources", {}))}
+    if rs:
+        total = round(sum(r["amount"] for r in rs), 2)
+        each = "; ".join(f'{_said(r, cur)}, on case {r["case_id"]}' for r in rs)
+        records.update(refund_logged_on_case=", ".join(r["case_id"] for r in rs), refunded_so_far=total,
+                       already_refunded=each if len(rs) == 1 else f"{total:.2f} {cur} in all: {each}",
+                       refunds_logged=[{**r, "currency": cur} for r in rs])
+        records["sources"]["already_refunded"] = "Your case record"
+    if gs:
+        total = round(sum(g["amount"] for g in gs), 2)
+        each = "; ".join(f'{_said(g, cur).replace(f" {cur}", f" {cur} of goods", 1)}, on case {g["case_id"]}' for g in gs)
+        records.update(replacement_logged_on_case=", ".join(g["case_id"] for g in gs), replaced_so_far=total,
+                       already_replaced=each if len(gs) == 1 else f"{total:.2f} {cur} of goods in all: {each}",
+                       replacements_logged=[{**g, "currency": cur} for g in gs])
+        records["sources"]["already_replaced"] = "Your case record"
     return {**case, "seller_records": records}
 
 
@@ -885,7 +906,8 @@ def rules_page(flash: str = "", demo: bool = False, me: str | None = None) -> st
 CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the case to another stage",
            "amount": "the amount in dispute changed", "tracking": "tracking was added or changed",
            "ship_to": "PayPal now shows the buyer's address",
-           "case_refund": "a refund was logged on this order's case"}
+           "case_refund": "a refund was logged on this order's case",
+           "case_goods": "a replacement was logged on this order's case"}
 
 
 # The same, for a shop inquiry, in its own words; "who" is whose case it is (customer, order, first request).
@@ -906,6 +928,8 @@ def _seen(case: dict) -> dict:
         seen["return"] = d.get("exchange_cost")             # the returned item reached the shop since
     if r.get("refund_logged_on_case"):   # only then: a dispute whose case logged no money sees exactly what it saw
         seen["case_refund"] = r.get("refunded_so_far")
+    if r.get("replacement_logged_on_case"):
+        seen["case_goods"] = r.get("replaced_so_far")
     return seen
 
 
@@ -2067,15 +2091,22 @@ def judged_note(did: str, judged: str | None, sent: bool) -> str:
 
 
 def case_refund_note(r: dict) -> str:
-    """On a PayPal dispute's page: each refund the shop already logged on this order's cases, before PayPal had it."""
-    if not r.get("refund_logged_on_case"):
+    """On a PayPal dispute's page: each refund and each replacement the shop already logged on this order's cases,
+    before PayPal had it."""
+    if not r.get("refund_logged_on_case") and not r.get("replacement_logged_on_case"):
         return ""
-    each = " ".join(f'A refund of {x["amount"]:.2f} {e(x.get("currency", ""))} was already logged on case '
-                    f'<a href="/c/{e(x["case_id"])}">{e(x["case_id"])}</a>'
-                    f'{" on " + e(x["on"]) if x.get("on") else ""}{" by " + e(x["by"]) if x.get("by") else ""}.'
-                    for x in r.get("refunds_logged", []))
-    return (f'<p class="check-sender">{each} Check it before you answer PayPal: paying twice, or defending a refund '
-            'you promised, is never right.</p>')
+
+    def when(x):
+        return f'{" on " + e(x["on"]) if x.get("on") else ""}{" by " + e(x["by"]) if x.get("by") else ""}'
+
+    def case_link(x):
+        return f'<a href="/c/{e(x["case_id"])}">{e(x["case_id"])}</a>'
+    each = [f'A refund of {x["amount"]:.2f} {e(x.get("currency", ""))} was already logged on case {case_link(x)}{when(x)}.'
+            for x in r.get("refunds_logged", [])]
+    each += [f'A replacement ({x["amount"]:.2f} {e(x.get("currency", ""))} of goods) was already logged on case '
+             f'{case_link(x)}{when(x)}.' for x in r.get("replacements_logged", [])]
+    return (f'<p class="check-sender">{" ".join(each)} Check it before you answer PayPal: paying or sending twice, or '
+            'defending what you already gave, is never right.</p>')
 
 
 def part_of_case(did: str) -> str:
@@ -2281,6 +2312,7 @@ STOP_SAYS = {
     "already_refunded": "the order is already refunded in full",
     "already_replaced": "the order's value already went out as a replacement",
     "refund_logged_on_case": "a refund already logged on this order's case",
+    "replacement_logged_on_case": "a replacement already logged on this order's case",
 }
 
 
@@ -2289,7 +2321,8 @@ def _refused(dec: Decision | None, chosen: str, w: dict | None = None) -> str:
     or for the drafted question on "your call" (PayPal's rules, an unrecognised answer, a promised refund)."""
     w = w or _words(None)
     if dec and dec.action == "ASK_SELLER" and chosen == "MESSAGE":
-        why = [STOP_SAYS[s] for s in ("message_not_allowed", "unknown_action", "refund_logged_on_case") if s in dec.stops]
+        why = [STOP_SAYS[s] for s in ("message_not_allowed", "unknown_action", "refund_logged_on_case",
+                                      "replacement_logged_on_case") if s in dec.stops]
         if why:
             return (f"This message was held back: {', '.join(why)}. "
                     f"It can't be sent from here, by anyone. {w['decide']}")

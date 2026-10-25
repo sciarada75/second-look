@@ -266,6 +266,12 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
                      f"{records.get('already_refunded') or ''}. Check it before anything more is sent or defended.")
         action = "ASK_SELLER"
         stops.append("refund_logged_on_case")
+    # The same for goods: a replacement already sent on the order's case (a defence would deny it).
+    if records.get("replacement_logged_on_case") and (_subject() in MONEY or _subject() == "DEFEND"):
+        notes.append(f"A replacement was already logged on this order's case {records['replacement_logged_on_case']}: "
+                     f"{records.get('already_replaced') or ''}. Check it before anything more is sent or defended.")
+        action = "ASK_SELLER"
+        stops.append("replacement_logged_on_case")
 
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
@@ -285,7 +291,7 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
         # (`refund_logged_on_case`: the draft was a defence against a refund the shop already promised.)
         return (drafted_for not in MONEY and "message_not_allowed" not in stops and "unknown_action" not in stops
-                and "refund_logged_on_case" not in stops)
+                and "refund_logged_on_case" not in stops and "replacement_logged_on_case" not in stops)
     if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" and held_for_size_only(stops):
         return True
     return chosen == recommended
