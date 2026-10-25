@@ -199,7 +199,7 @@ def test_the_morning_screen_says_whose_names_and_roles_and_labels_every_estimate
                       "estimated: 23 written answers", "estimated from PayPal&#x27;s fee table", "at most 1,073.00 EUR",
                       "PayPal's high-volume line", 'href="/?shop=demo">Disputes and requests'):
             assert words in html_, words
-        assert "Export" not in html_                           # the accounting export comes with step 3, not a dead button
+        assert 'href="/books.csv?month=2026-10&shop=demo">Export for accounting (CSV, October 2026)' in html_
         nav = html_.split("<nav>")[1].split("</nav>")[0]
         assert '<a href="/today?shop=demo" aria-current="page">Today</a>' in nav
         overview = web.overview_page("demo", "giulia")

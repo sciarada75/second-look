@@ -1837,7 +1837,7 @@ def overview_page(src: str, me: str | None = None) -> str:
     meter = claim_line_box(hv, today, cur)      # the same box as the morning screen's
     # every channel this month, as the morning screen counts it: one function, one set of numbers, two places
     month = month_block(today_mod.month(shop_cases(src), disputes, shop_orders(src), today, _policy(),
-                                        sent_answers(src), cur), today)
+                                        sent_answers(src), cur), today, q)
     ex = ledger.exposure(disputes, today, hv["high_volume"], cur)
     top = max(ex["all_lost"], 1)
     bars = [("If you win them all", ex["all_won"], "pass",
@@ -2075,6 +2075,24 @@ def _book_case_entry(src: str, cid: str, index: int) -> None:
         post_books(rows[money.index(c["money"][index])])
 
 
+def books_rows(src: str) -> list:
+    """Every money event of the shop: its cases' (the demo's earlier cases included) and PayPal's resolved disputes'."""
+    orders = {sort_mod.order_no(o): o for o in shop_orders(src)}
+    rows = []
+    for c in shop_cases(src):
+        o = orders.get(c.get("order_no"))
+        rows += books_mod.case_events(c, sort_mod.order_view(o) if o else None, invoice_of(src, o))
+    demo = src == "demo"
+    handled = (DemoPayPal().raw.get("handled_by") or {}) if demo else {}
+    disputes = shop_disputes(src)
+    today = DemoPayPal().today if demo else datetime.utcnow().date()
+    hv = ledger.overview(disputes, list(orders.values()), today)["high_volume"]["high_volume"] if disputes else False
+    by_tx = {o.get("transaction_id"): o for o in orders.values() if o.get("transaction_id")}
+    for d in disputes:
+        rows += books_mod.dispute_events(d, invoice_of(src, by_tx.get(_tx_of(d))), handled.get(d["dispute_id"]), hv)
+    return rows
+
+
 RECONCILE = {"paid": "paid", "cancelled": "cancelled"}
 PAID_WITH = {"card": "by card", "bank": "by bank transfer", "paypal": "through PayPal"}
 
@@ -2253,7 +2271,7 @@ def claim_line_box(hv: dict, today, cur: str = "EUR") -> str:
             + '</p></section>')
 
 
-def month_block(k: dict, today) -> str:
+def month_block(k: dict, today, q: str = "") -> str:
     """I know: this month, every channel. The same block on the morning screen and on the Overview."""
     cur = k["currency"]
     m = lambda v: f"{v:,.2f} {cur}"  # noqa: E731
@@ -2277,8 +2295,11 @@ def month_block(k: dict, today) -> str:
     flag = (f'<p class="check-sender">{len(both)} order{"s" if len(both) != 1 else ""} counted on both sides: check '
             f'{"it was" if len(both) == 1 else "they were"} paid once ({e(", ".join(both))}): a refund logged on a case, '
             'and PayPal\'s.</p>' if both else "")
+    # the facts for the accountant, this month: every money event, with order, invoice, item, who and channel
+    export = (f'<p class="cardlink"><a class="export" href="/books.csv?month={today:%Y-%m}{"&" + q[1:] if q else ""}">'
+              f'Export for accounting (CSV, {today:%B %Y})</a> <span class="t-sub">the facts, never a credit note</span></p>')
     return (f'<h2>I know</h2><p class="t-sub">This month ({today:%B %Y}), every channel</p>'
-            f'<dl class="know">{trs}</dl>{flag}')
+            f'<dl class="know">{trs}</dl>{flag}{export}')
 
 
 def _rec(r: dict | None) -> str:
@@ -2360,7 +2381,7 @@ def today_page(src: str, me: str | None = None) -> str:
             f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
             f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"], v["calls_pending"], v["calls_failed"])}</section>'
             f'<section class="block">{manage_block(v["manage"], q)}</section>'
-            f'<section class="block">{month_block(v["know"], v["today"])}'
+            f'<section class="block">{month_block(v["know"], v["today"], q)}'
             f'{claim_line_box(v["know"]["high_volume"], v["today"])}</section></div>')
     return page(f"Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
 
@@ -3417,6 +3438,19 @@ class Handler(BaseHTTPRequestHandler):
             self._film = "film" in qs  # the demo film loads pages live: no fade-ins half-way through a frame
             if u.path == "/":
                 return self._send(inbox_page(src, me, (qs.get("view") or [""])[0]))
+            if u.path == "/books.csv":
+                bsrc = "live" if src == "live" else "demo"
+                default = (DemoPayPal().today if bsrc == "demo" else datetime.utcnow().date()).strftime("%Y-%m")
+                month = (qs.get("month") or [default])[0]
+                if not re.fullmatch(r"\d{4}-\d{2}", month):
+                    return self._send("month: YYYY-MM", 400)
+                b = books_mod.csv_text(books_mod.for_month(books_rows(bsrc), month)).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", f'attachment; filename="second-look-books-{month}.csv"')
+                self.send_header("Content-Length", str(len(b)))
+                self.end_headers()
+                return self.wfile.write(b)
             if u.path == "/today":
                 if src == "practice":
                     return self._redirect("/?practice=1")    # practice cases are a test bench, not a shop's morning

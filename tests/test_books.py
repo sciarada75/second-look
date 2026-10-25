@@ -563,6 +563,32 @@ def test_a_refund_paypal_turns_out_to_have_made_reaches_the_books_too():
     assert [(x["kind"], x["status"], x["amount"]) for x in posted] == [("refund", "paid", 20.0)]
 
 
+def test_the_month_s_books_export_as_csv_with_the_earlier_cases_and_paypal_s_outcomes():
+    with morning():
+        _refunded_paypal_order("b6:1")
+        rows = books.for_month(web.books_rows("demo"), "2026-10")
+        kinds = {r["kind"] for r in rows}
+        assert {"refund", "replacement", "PayPal refund"} <= kinds and all(r["date"].startswith("2026-10") for r in rows)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+            con.request("GET", "/books.csv?month=2026-10&shop=demo")
+            r = con.getresponse()
+            body = r.read().decode()
+            assert r.status == 200 and r.getheader("Content-Type").startswith("text/csv")
+            assert 'filename="second-look-books-2026-10.csv"' in r.getheader("Content-Disposition")
+            got = list(csv.DictReader(io.StringIO(body)))
+            assert len(got) == len(rows) and set(got[0]) == set(books.COLUMNS)
+            assert any(x["order_no"] == "DEMOTX00001" and x["status"] == "sent to PayPal" for x in got)
+            con.request("GET", "/books.csv?month=october&shop=demo")
+            r = con.getresponse()
+            r.read()
+            assert r.status == 400
+        finally:
+            srv.shutdown()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
