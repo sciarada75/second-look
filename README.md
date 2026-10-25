@@ -138,8 +138,13 @@ as the screen.
 | `POST /api/disputes/<id>/review` | ask for a review (Claude runs; a few cents). Without `ANTHROPIC_API_KEY` the rules baseline runs instead, and the review says `"judge": "rules"` |
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
-| `POST /api/requests` | `{"channel": "email" or "form", "from": {"name", "email"}, "text", "subject", "time", "order", "source_id"}`: one request from your helpdesk or web form. Second Look sorts it (rules first, its AI only for what they can't settle) and files it on its case: `201` with `case_id`, `filed` (`opened` or `joined`), `stage`, `sorted` and `dispute_id`; `200` with `"filed": "already_received"` when that `source_id` came before. JSON only (`415` otherwise); a request whose `Origin` is another site is refused (`403`) |
-| `GET /api/cases/<case id>` | one case as its page shows it: the customer (with their role), the order, the stage, the channels, who has it, every contact on every channel, and `costs_so_far` (estimated) |
+| `POST /api/requests` | `{"channel": "email" or "form", "from": {"name", "email"}, "text", "subject", "time", "order", "source_id"}`: one request from your helpdesk or web form. Second Look sorts it (rules first, its AI only for what they can't settle) and files it on its case: `201` with `case_id`, `filed` (`opened` or `joined`), `stage`, `sorted` and `dispute_id`; `200` with `"filed": "already_received"` when that `source_id` came before. JSON only (`415` otherwise), at most 1 MB (`413`) |
+| `GET /api/cases/<case id>` | one case as its page shows it: the customer (with their role), the order, the stage, the channels (`channels`, and `channel_labels` as people say them: "web form", "PayPal"), who has it, every contact on every channel (each with its `role`), and `costs_so_far` (estimated) |
+
+Every `POST`, through the API or from Second Look's own pages, is refused (`403`) when it says it comes
+from another site (its `Origin`, else its `Referer`): a web page elsewhere can't approve, pick an order
+or change your rules. Your own systems posting from their server (a helpdesk, `curl`) send neither and
+are fine. The check runs before the body is read; a body over 1 MB is refused (`413`).
 
 **Second Look → your systems**: set `SECONDLOOK_NOTIFY_URL` in `.env` and Second Look POSTs a small
 JSON event there when a review is ready (`review.ready`: case, recommended answer, confidence) and
