@@ -492,6 +492,20 @@ def test_a_refund_held_for_its_size_and_taken_by_a_person_reads_as_done():
         assert web._changes("DEMO-C001", web._case("DEMO-C001")) == ["the customer wrote again"]
 
 
+def test_a_case_is_closed_by_a_person_with_its_outcome_and_a_dispute_only_by_paypal():
+    with morning():
+        assert "Close this case" in web.case_file_page("DEMO-C001", me="marta")
+        assert web.close_case("DEMO-C001", "solved", None)[0] == 400
+        assert web.close_case("DEMO-C001", "won", "marta")[0] == 400
+        assert web.close_case("DEMO-C001", "solved", "marta") == (200, "Closed: solved before any dispute.")
+        c = web.case_store("demo").get("DEMO-C001")
+        assert (c["status"], c["outcome"], c["timeline"][-1]["text"]) == ("closed", "solved", "Closed by Marta: solved before any dispute.")
+        assert web.close_case("DEMO-C001", "solved", "marta")[0] == 409
+        assert web.close_case("DEMO-C003", "solved", "marta")[0] == 409            # Pablo's: a PayPal dispute
+        assert "/c/DEMO-C001" not in web.inbox_page("demo", "marta", "all")
+        assert web.take("DEMO-C002", "luca") == (200, "Luca took this case.")     # an open inquiry can be taken
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

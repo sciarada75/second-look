@@ -236,6 +236,9 @@ def _is_open_case(did: str) -> bool:
     """A cheap check that an id is a case of this shop, so nobody fills the assignments file with made-up ids.
     Demo: an open dispute in the demo data. Live: a case reviewed here, or an id shaped like PayPal's (asking
     PayPal on every Take it would cost a call; an id of the right shape that isn't open only adds a stale row)."""
+    if cases_mod.is_case_id(did):
+        c = case_store(shop_of_case(did)).get(did)
+        return bool(c) and c["status"] == "open" and not c.get("dispute_id")
     if is_demo(did):
         return any(d.get("dispute_id") == did and d.get("status") != "RESOLVED" for d in DemoPayPal().disputes())
     return (REVIEWS / f"{did}.json").exists() or bool(_PAYPAL_ID.fullmatch(did or ""))
@@ -645,6 +648,36 @@ def _about(did: str) -> dict:
         return {"case_id": did, "channel": reply_channel(c)}
     c = find_case_of_dispute(did)
     return {"dispute_id": did, "case_id": c["id"] if c else None, "channel": "paypal"}
+
+
+CLOSE_OUTCOMES = {"solved": "Solved before any dispute", "refunded": "Refunded", "replaced": "Replaced or exchanged",
+                  "withdrawn": "The customer withdrew"}
+
+
+def close_case(cid: str, outcome: str, by: str | None) -> tuple:
+    """A person closes an inquiry with its outcome. A case with a PayPal dispute is closed by PayPal, not here."""
+    if not cases_mod.is_case_id(cid):
+        return 404, "No such case."
+    store = case_store(shop_of_case(cid))
+    c = store.get(cid)
+    if c is None:
+        return 404, "No such case."
+    if c.get("dispute_id"):
+        return 409, "This case is a PayPal dispute: PayPal closes it."
+    if c["status"] != "open":
+        return 409, "This case is closed already."
+    if outcome not in CLOSE_OUTCOMES:
+        return 400, f"Outcome must be one of: {', '.join(CLOSE_OUTCOMES)}."
+    who = team_mod.person(team_for(cid), by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+
+    def close(x):
+        x["status"], x["outcome"] = "closed", outcome
+        x["timeline"].append(cases_mod.entry(None, reply_channel(x), "note",
+                                             f"Closed by {who['name']}: {CLOSE_OUTCOMES[outcome].lower()}.", who["name"]))
+    store.update(cid, close)
+    return 200, f"Closed: {CLOSE_OUTCOMES[outcome].lower()}."
 
 
 # ---------- the seller's rules ----------
@@ -1605,6 +1638,14 @@ def _pick_form(cid: str, me: str | None, how: str, question: bool = False) -> st
             f'<div class="approve"><button>This order</button>{none}</div></form>')
 
 
+def _close_form(cid: str, me: str | None) -> str:
+    by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+    opts = "".join(f'<option value="{e(k)}">{e(v)}</option>' for k, v in CLOSE_OUTCOMES.items())
+    return (f'<form class="pick" method="post" action="/c/{e(cid)}/close"><label for="outcome">Close this case</label>'
+            f'{by}<select id="outcome" name="outcome">{opts}</select><div class="approve"><button class="quiet">Close it</button>'
+            '<span>Only when it is settled: a new message from the customer opens a new case.</span></div></form>')
+
+
 def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     v = case_view(cid)
     demo = v is not None and v["src"] == "demo"
@@ -1651,7 +1692,8 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     else:
         case = _case(cid)
         left += f'<h2>What the evidence says</h2>{evidence(case["seller_records"], inquiry=True)}' if o else ""
-        right = review_column(cid, case, me, plain_owner=False)
+        right = (review_column(cid, case, me, plain_owner=False)
+                 + (_close_form(cid, me) if c["status"] == "open" else ""))
         if not c.get("order_no"):
             right += _pick_form(cid, me, "Sorted as a question with no order. If it is about one, say which.", question=True)
     body = (f'<div class="case"><section>{flash}{left}</section><section class="look">{right}{case_costs_block(v)}'
@@ -2606,6 +2648,12 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
                 code, text = take(parts[1], me)
                 return self._redirect(page_of(parts[1])) if code == 200 else self._send(text, code)
+            if len(parts) == 3 and parts[0] == "c" and parts[2] == "close":
+                ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
+                if not ok:
+                    return self._send("Choose who you are at the top of the page.", 400)
+                code, text = close_case(parts[1], form.get("outcome", [""])[0], me)
+                return self._redirect(f"/c/{parts[1]}") if code == 200 else self._send(text, code)
             if len(parts) == 4 and parts[:2] == ["api", "cases"] and parts[3] in ("review", "approve"):
                 return self._case_api(parts[2], parts[3], raw)
             # the API: the same review and the same approval, as JSON
