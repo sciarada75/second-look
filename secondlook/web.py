@@ -21,16 +21,16 @@ import json
 import os
 import re
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from datetime import timedelta
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
-from . import cases as cases_mod, evidence as evidence_mod, ledger, sort as sort_mod, team as team_mod
+from . import cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
-from .guard import may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
+from .guard import apply_policy, may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -74,6 +74,8 @@ e = html.escape
 # ---------- data ----------
 
 def _client(dispute_id: str | None = None):
+    if cases_mod.is_case_id(dispute_id):
+        raise RuntimeError("A shop inquiry has no PayPal client: its answers go through Outbox.")
     if is_demo(dispute_id):
         return DemoPayPal()
     if dispute_id and (ROOT / "cases" / f"{dispute_id}.json").exists():
@@ -82,6 +84,8 @@ def _client(dispute_id: str | None = None):
 
 
 def _case(dispute_id: str) -> dict:
+    if cases_mod.is_case_id(dispute_id):
+        return inquiry_case(dispute_id)
     from .__main__ import load_case  # same loader as the CLI
     return load_case(_client(dispute_id), dispute_id)
 
@@ -419,6 +423,85 @@ def api_case_of(cid: str) -> dict | None:
             "dispute_id": c.get("dispute_id"), "assigned_to": v["assigned_to"],
             "timeline": [{**x, "by": _who(v["team"], x)[0], "role": _who(v["team"], x)[1]} for x in v["timeline"]],
             "costs_so_far": v["costs"], "page": f"/c/{c['id']}"}
+
+
+# ---------- answering a shop inquiry: the same review, the same limits, the same approval ----------
+# An inquiry is reviewed, guarded and approved by the code PayPal disputes use (run_review, apply_policy,
+# page_offer, approve). inquiry_case() gives it the shape that code reads; Outbox is where an approved answer
+# goes. In this step nothing leaves Second Look: the reply is recorded on the case, signed, on the channel the
+# customer used, and the helpdesk hears answer.sent. Money is logged only (paying back by card, bank or
+# PayPal's refund API comes in a later step).
+OUTBOX_LOGS = {"demo": ROOT / ".tmp" / "actions-demo.jsonl", "live": ROOT / ".tmp" / "actions-inquiries.jsonl"}
+OUT_WORDS = {"email": "by email", "form": "by email, to the address on the web form", "call": "by email"}
+
+
+def reply_channel(c: dict) -> str:
+    """The channel an answer goes out on: the one the customer last wrote on."""
+    last = [x["channel"] for x in c.get("timeline", []) if x["direction"] == "in" and x["channel"] in OUT_WORDS]
+    return last[-1] if last else "email"
+
+
+def _live_shop() -> dict:
+    f = ROOT / "shop.json"
+    return json.loads(f.read_text()) if f.exists() else {}
+
+
+def inquiry_case(cid: str) -> dict:
+    """An inquiry as the review and the approval read a case: a "dispute" (the guard's input: the amount at stake
+    and the customer's messages, which the guard reads for hidden instructions), its "seller_records" (the order,
+    the courier, the shop's terms, each with its source) and the "inquiry" the inquiry judge reads."""
+    v = case_view(cid)
+    if v is None:
+        raise KeyError(f"No case {cid} in this shop.")
+    c, o = v["case"], v["order"] or {}
+    talk = [x for x in c["timeline"] if x["direction"] in ("in", "out")]
+    dispute = {"dispute_id": cid, "reason": "SHOP_INQUIRY", "status": "WAITING_FOR_SELLER_RESPONSE",
+               "dispute_life_cycle_stage": "SHOP_INQUIRY", "create_time": c["opened"],
+               "dispute_amount": {"value": f"{v['at_stake']:.2f}", "currency_code": v["currency"]},
+               "messages": [{"posted_by": "BUYER" if x["direction"] == "in" else "SELLER", "content": x["text"],
+                             "time_posted": x["at"]} for x in talk]}
+    records, sources = {}, {}
+    if o:
+        records.update(order_no=o["order_no"], order_date=o.get("time") or o.get("date"), paid_with=o["paid_with"],
+                       items=[{"name": i["name"], "qty": i["qty"], **({"size": i["size"]} if i.get("size") else {})}
+                              for i in o["items"]],
+                       ship_to=", ".join(x for x in (o.get("name"), o.get("ship_to")) if x) or None, tracking=o.get("tracking"))
+        for k in ("order_no", "order_date", "items", "paid_with", "ship_to"):
+            sources[k] = "Your orders"
+        sources["tracking"] = "Courier tracking" if o.get("tracking") else "Courier tracking (none on record)"
+    evidence_mod.add_shop_terms(records, sources, DemoPayPal().shop if v["src"] == "demo" else _live_shop())
+    records["sources"] = sources
+    ins = [x for x in talk if x["direction"] == "in"]
+    inquiry = {"case_id": cid, "channel": reply_channel(c), "customer": c["customer"].get("name"),
+               "problem_kind": c["problem"]["kind"], "summary": c["problem"]["summary"],
+               "messages": [{"at": x["at"], "channel": x["channel"], "from": x["by"], "direction": x["direction"],
+                             "text": x["text"]} for x in talk],
+               "last_message_at": ins[-1]["at"] if ins else None, "amount": v["at_stake"], "currency": v["currency"]}
+    return {"dispute": dispute, "seller_records": records, "inquiry": inquiry}
+
+
+def review_inquiry(cid: str, judge: str) -> Decision:
+    """Second Look's AI (or, with no key, the rules baseline) on an inquiry, then the guard, unchanged."""
+    c = case_store(shop_of_case(cid)).get(cid)
+    if not c or not c["sorted"]["by"]:
+        raise ValueError("Pick the order first: an unsorted request has no evidence to check.")
+    case = _case(cid)
+    policy = _policy()
+    case["seller_preferences"] = policy.get("seller_preferences", [])
+    j = judge_mod.INQUIRY_BACKENDS[judge](case)
+    if j.action == "DEFEND":  # there is no claim to defend in an inquiry: the guard routes an answer it doesn't know
+        j = replace(j, action="DEFEND_IS_FOR_PAYPAL_DISPUTES")
+    return apply_policy(j, policy, case["dispute"], case["seller_records"])
+
+
+def _about(did: str) -> dict:
+    """What a notification is about, so a helpdesk can put it on the right ticket: the case, and the channel
+    its answer uses. A PayPal dispute keeps its dispute_id, as before."""
+    if cases_mod.is_case_id(did):
+        c = case_store(shop_of_case(did)).get(did) or {}
+        return {"case_id": did, "channel": reply_channel(c)}
+    c = find_case_of_dispute(did)
+    return {"dispute_id": did, "case_id": c["id"] if c else None, "channel": "paypal"}
 
 
 # ---------- the seller's rules ----------
@@ -1800,7 +1883,7 @@ def run_review(did: str) -> Decision:
         return saved[0]  # answered, and nothing new since: keep the record (and don't pay for a review)
     # No key: the rules baseline instead of an error page. Saved as "rules", and labelled so on every screen.
     judge = "claude" if has_ai_key() else "rules"
-    dec = review(_client(did), did, judge)
+    dec = review_inquiry(did, judge) if cases_mod.is_case_id(did) else review(_client(did), did, judge)
     with _case_lock(did):  # never between an approval's read and its save
         case, saved = _case(did), _saved(did)
         if saved and saved[1] and not _changes(did, case):
@@ -1810,7 +1893,7 @@ def run_review(did: str) -> Decision:
         if not t.get("solo") and assignments_for(did).get(did)["handoff"]:
             # A colleague's note was about the old review: the case stays theirs, the note goes.
             assignments_for(did).update(did, lambda a: {**a, "handoff": None})
-    notify("review.ready", {"dispute_id": did, "recommended": dec.action, "confidence": dec.judgment.confidence,
+    notify("review.ready", {**_about(did), "recommended": dec.action, "confidence": dec.judgment.confidence,
                             "limits_changed_it": dec.overridden, "judge": judge})
     return dec
 

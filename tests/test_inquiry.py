@@ -57,6 +57,50 @@ def test_the_guard_runs_unchanged_on_an_inquiry():
     assert hidden.stops == ["injection"]
 
 
+@contextmanager
+def morning(ai_key=False, claude=None):
+    """The demo shop's real data and morning requests; its case file, assignments, reviews and logs in a temporary
+    folder; notifications collected; Second Look's AI absent, or faked. The real Claude judge and the real AI sort
+    fail the test if they are called."""
+    tmp = Path(tempfile.mkdtemp())
+    kept = (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+            sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"])
+    store = team_mod.Assignments(tmp / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
+    events = []
+
+    def no_paid_call(*a):
+        raise AssertionError("no paid AI call may run in this test")
+    try:
+        web.CASE_FILES = {"demo": tmp / "cases-demo.json", "live": tmp / "cases-live.json"}
+        web.OUTBOX_LOGS = {"demo": tmp / "actions-demo.jsonl", "live": tmp / "actions-live.jsonl"}
+        web.REVIEWS, web.SUGGESTED = tmp / "reviews", tmp / "suggested.json"
+        web.assignments_for = lambda did: store
+        web.has_ai_key = lambda: ai_key
+        web.notify = lambda event, payload: events.append((event, payload))
+        sort_mod.read_with_ai = no_paid_call
+        judge.INQUIRY_BACKENDS["claude"] = claude or no_paid_call
+        yield type("Bench", (), {"tmp": tmp, "events": events, "store": store})
+    finally:
+        (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+         sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"]) = kept
+
+
+def test_an_inquiry_is_reviewed_by_the_rules_without_a_key_and_the_guard_holds_lena_s_exchange():
+    with morning() as b:
+        dec = web.run_review("DEMO-C001")
+        assert dec.action == "MESSAGE" and web.judge_of("DEMO-C001") == "rules"
+        assert b.events[-1] == ("review.ready", {"case_id": "DEMO-C001", "channel": "email", "recommended": "MESSAGE",
+                                                 "confidence": 0.8, "limits_changed_it": False, "judge": "rules"})
+        lena = web.run_review("DEMO-C002")
+        assert lena.judgment.action == "REPLACE" and lena.action == "ASK_SELLER" and lena.stops == ["cap"]
+        code, out = web.receive("demo", {"channel": "email", "from": {"email": "x@nowhere.example"}, "text": "Hi?"})
+        try:
+            web.run_review(out["case_id"])
+            assert False, "an unsorted request has no evidence to check"
+        except ValueError as err:
+            assert "Pick the order first" in str(err)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
