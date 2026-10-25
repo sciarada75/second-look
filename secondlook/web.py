@@ -944,6 +944,7 @@ class Outbox:
                         "currency": cur}
             else:
                 sent = {"via": "for your payment provider (not connected)"}
+        index = len(c0.get("money", []))
 
         def change(c):
             c["timeline"].append(cases_mod.entry(None, ch, "out", text, self.by, ai=self.ai, action=action))
@@ -952,6 +953,8 @@ class Outbox:
             if self.request_id:       # a retry PayPal confirmed: its "not confirmed" mark is answered
                 c["unconfirmed"] = [x for x in c.get("unconfirmed", []) if x.get("request_id") != self.request_id]
         store.update(self.cid, change)
+        if money:
+            _book_case_entry(self.src, self.cid, index)
         log = OUTBOX_LOGS[self.src]
         log.parent.mkdir(parents=True, exist_ok=True)
         with open(log, "a", encoding="utf-8") as f:
@@ -1949,6 +1952,7 @@ def order_record(src: str, no: str | None) -> dict | None:
     return {"order_no": v["order_no"], "date": v["date"], "amount": v["amount"], "currency": v["currency"],
             "items": v["items"], "paid_with": v["paid_with"], "ship_to": v["ship_to"],
             "transaction_id": v["transaction_id"], "customer": {"name": v["name"], "email": v["email"]},
+            "invoice_no": invoice_of(src, o),
             "source": f"Orders: {STAND_IN}" if src == "demo" else "Orders: PayPal Transaction Search"}
 
 
@@ -2029,7 +2033,46 @@ def resolve_unconfirmed(cid: str, request_id: str, refunded: bool, by: str | Non
             store.update(cid, do)
         except ValueError:
             return 409, "Someone has answered this already."
+    if refunded:                                   # the refund PayPal made goes to the books, as it is now: paid
+        _book_case_entry(shop_of_case(cid), cid, len(store.get(cid)["money"]) - 1)
     return 200, (f"Recorded: PayPal refunded {amount:.2f} {cur}." if refunded else "Recorded: PayPal did not refund it.")
+
+
+def invoice_of(src: str, o: dict | None) -> str | None:
+    """The invoice number of an order: the shop's own when its orders system has one. In the demo, a made-up stand-in
+    number from the order's digits; the live shop's PayPal orders carry none (the accounting system knows it)."""
+    if not o:
+        return None
+    if o.get("invoice_no"):
+        return str(o["invoice_no"])
+    digits = "".join(ch for ch in str(sort_mod.order_no(o) or "") if ch.isdigit())
+    return f"LP-INV-{digits}" if src == "demo" and digits else None
+
+
+def post_books(event: dict) -> None:
+    """Second Look -> the shop's bookkeeping: POST one money event as JSON to SECONDLOOK_BOOKS_URL (Bookbox in the demo,
+    a made-up stand-in). Never blocks or breaks the person's action; a failure is logged, like notify()."""
+    from urllib import request as rq
+    url = os.environ.get("SECONDLOOK_BOOKS_URL")
+    if not url:
+        return
+    body = json.dumps({"event": "money", **event}, ensure_ascii=False, default=str).encode()
+    try:
+        rq.urlopen(rq.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"}), timeout=5)
+    except Exception as err:  # noqa: BLE001 - the books hear later from the CSV; the answer stands
+        (ROOT / ".tmp").mkdir(exist_ok=True)
+        with open(ROOT / ".tmp" / "books.log", "a") as f:
+            f.write(f"{datetime.utcnow():%Y-%m-%d %H:%M} money {event.get('case_id') or event.get('dispute_id')}: {err}\n")
+
+
+def _book_case_entry(src: str, cid: str, index: int) -> None:
+    """Post the books row of one money entry of a case, as it is now (logged, paid, cancelled)."""
+    c = case_store(src).get(cid)
+    o = _raw_order(src, c.get("order_no")) if c else None
+    rows = books_mod.case_events(c, sort_mod.order_view(o) if o else None, invoice_of(src, o)) if c else []
+    money = [m for m in c.get("money", []) if books_mod.KIND.get(m.get("kind"))] if c else []
+    if 0 <= index < len(c.get("money", [])) and c["money"][index] in money:
+        post_books(rows[money.index(c["money"][index])])
 
 
 RECONCILE = {"paid": "paid", "cancelled": "cancelled"}
@@ -2084,6 +2127,7 @@ def reconcile(cid: str, index, outcome: str, paid_with: str | None, by: str | No
             store.update(cid, mark)
         except ValueError as err:
             return 409, f"This refund is marked {err} already."
+    _book_case_entry(shop_of_case(cid), cid, i)
     return 200, ("Marked paid." if outcome == "paid" else "Marked cancelled: it no longer counts as money that went back.")
 
 
@@ -3196,6 +3240,11 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         # Sent by them: the case is theirs, and any handoff waiting on it is done.
         assignments_for(did).update(did, lambda a: {"to": who["id"], "handoff": None})
     notify("answer.sent", {**_about(did), "action": chosen, "what_happened": sent, "by": by_name})
+    if not inquiry and chosen in ("REFUND", "PARTIAL_REFUND") and amount:
+        post_books({"date": now.strftime("%Y-%m-%dT%H:%M"), "kind": "PayPal refund", "order_no": _tx_of(case["dispute"]) or "",
+                    "invoice_no": "", "amount": round(amount, 2), "currency": cur, "fees": 0.0, "item": "",
+                    "approved_by": who["name"], "channel": "paypal", "case_id": (_about(did) or {}).get("case_id") or "",
+                    "dispute_id": did, "status": "sent to PayPal"})
     return 200, sent
 
 

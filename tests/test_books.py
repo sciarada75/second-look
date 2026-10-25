@@ -517,6 +517,52 @@ def test_a_refund_is_marked_only_from_the_shop_s_own_page_by_a_named_person():
             srv.server_close()
 
 
+def test_every_money_event_goes_live_to_the_bookkeeping_and_a_failure_never_stops_the_answer():
+    from bookbox import app as bookbox
+    box = bookbox.Bookbox(Path(tempfile.mkdtemp()) / "received.jsonl")
+    handler = type("H", (bookbox.Handler,), {"box": box})
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    os.environ["SECONDLOOK_BOOKS_URL"] = f"http://127.0.0.1:{srv.server_address[1]}/hooks/secondlook"
+    try:
+        with morning():
+            cid = _refunded_paypal_order("b5:1")
+            web.reconcile(cid, 0, "paid", "paypal", "giulia")
+        got = box.received()
+        assert [(x["kind"], x["status"], x["amount"], x["order_no"], x["approved_by"]) for x in got] == [
+            ("refund", "sent to PayPal", 20.0, "DEMOTX00001", "Giulia"), ("refund", "paid", 20.0, "DEMOTX00001", "Giulia")]
+        assert got[0]["invoice_no"] == "LP-INV-00001" and got[0]["channel"] == "email" and got[0]["item"] == books.BACK
+        assert "What Bookbox received from Second Look" in box.page() and "LP-INV-00001" in box.page()
+    finally:
+        srv.shutdown()
+        del os.environ["SECONDLOOK_BOOKS_URL"]
+    os.environ["SECONDLOOK_BOOKS_URL"] = "http://127.0.0.1:9/nowhere"        # nothing listens there
+    root, web.ROOT = web.ROOT, Path(tempfile.mkdtemp())
+    try:
+        web.post_books({"kind": "refund", "case_id": "C9"})                  # must not raise
+        assert "money C9" in (web.ROOT / ".tmp" / "books.log").read_text()
+    finally:
+        web.ROOT = root
+        del os.environ["SECONDLOOK_BOOKS_URL"]
+
+
+def test_a_refund_paypal_turns_out_to_have_made_reaches_the_books_too():
+    posted = []
+    with morning():
+        cid = _sami_refund("u1:10")
+        real, kept = web.paypal_for, web.post_books
+        web.paypal_for = lambda src: _PayPal(fail=True)
+        web.post_books = lambda event: posted.append(event)
+        try:
+            web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
+            assert posted == []                                                # not confirmed: not in the books
+            req = web.case_store("demo").get(cid)["unconfirmed"][0]["request_id"]
+            web.resolve_unconfirmed(cid, req, True, "giulia")
+        finally:
+            web.paypal_for, web.post_books = real, kept
+    assert [(x["kind"], x["status"], x["amount"]) for x in posted] == [("refund", "paid", 20.0)]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
