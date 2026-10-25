@@ -35,6 +35,11 @@ new is that the shop catches problems **before** they become PayPal disputes, fo
    Sophie, Lena, *customers*. (Roles renamed from "Customer care manager / agent". The tablecloth
    customer is **Sophie**, not Anna: Anna sounded like the staff's Marta.)
 
+8. **An exchange counts its real cost once the item is back** (Claudia, 25/10, "b"): toward a
+   person's limit, an exchange counts the postage of the new parcel when the returned item has arrived
+   at the shop (courier or the shop's own record); until then it counts at full price. So Lena's
+   exchange is Marta's to approve. This is the one place the limits relax: own tests, own review.
+
 ## 1. One case, every channel
 
 - A **case** = one customer + one order + one problem. Every contact about it, through any channel,
