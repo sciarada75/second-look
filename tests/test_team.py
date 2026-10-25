@@ -140,6 +140,25 @@ def test_a_json_file_changes_under_one_lock_and_keeps_a_broken_file_aside():
     path.write_text("[1, 2]")
     assert f.snapshot() == {} and (path.parent / "c.json.corrupt").read_text() == "[1, 2]"
 
+def test_a_store_touched_from_inside_its_own_change_says_so_instead_of_hanging():
+    import threading
+    path = Path(tempfile.mkdtemp()) / "c.json"
+    f = team.JsonFile(path)
+    f.transact(lambda d: d.update(n=1))
+    got = []
+
+    def nested():
+        try:
+            f.transact(lambda d: f.snapshot())
+        except RuntimeError as err:
+            got.append(str(err))
+    t = threading.Thread(target=nested, daemon=True)
+    t.start()
+    t.join(3)
+    assert not t.is_alive(), "a change that read the store again waited on itself for ever"
+    assert got and "inside" in got[0]
+    assert f.snapshot() == {"n": 1}                                        # the lock is free again, nothing written
+
 
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]

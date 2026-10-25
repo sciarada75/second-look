@@ -90,7 +90,29 @@ def handoff_to(t: dict, amount: float, exclude: str | None) -> dict | None:
 
 # One lock for every store in this process: the web server answers requests on several threads, and two
 # approvals at once must not each read the file, change their own case and write back over the other's.
-_LOCK = threading.Lock()
+class _OneLock:
+    """A plain lock that knows which thread holds it. Taking it again on that same thread (a change that
+    reads or writes a store from inside its own transact) would wait on itself for ever: it raises instead.
+    Not a re-entrant lock on purpose: the inner write would be undone by the outer one."""
+
+    def __init__(self):
+        self._lock, self._owner = threading.Lock(), None
+
+    def __enter__(self):
+        if self._owner == threading.get_ident():
+            raise RuntimeError("A store was used from inside its own change (transact/update): "
+                               "read what you need before the change, or return it from the change.")
+        self._lock.acquire()
+        self._owner = threading.get_ident()
+        return self
+
+    def __exit__(self, *exc):
+        self._owner = None
+        self._lock.release()
+        return False
+
+
+_LOCK = _OneLock()
 
 
 def _shape(a) -> dict:
