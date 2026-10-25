@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import threading
+import time
 from dataclasses import asdict, replace
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -277,6 +278,31 @@ def shop_of_case(cid: str) -> str:
     return "demo" if is_demo(cid) else "live"
 
 
+# The live shop's orders and disputes, read from PayPal (several calls each): kept LIVE_TTL seconds, so one page
+# view, and the views right after it, read them once. The demo's are a file, read once already (demo._read).
+LIVE_TTL = 60.0
+_LIVE: dict = {}
+_LIVE_LOCK = threading.Lock()
+
+
+def _live_cached(key: str, read):
+    now = time.monotonic()
+    with _LIVE_LOCK:
+        hit = _LIVE.get(key)
+    if hit and now - hit[0] < LIVE_TTL:
+        return hit[1]
+    value = read()
+    with _LIVE_LOCK:
+        _LIVE[key] = (now, value)
+    return value
+
+
+def _live_forget() -> None:
+    """Something was just sent to PayPal: the next page reads the live shop afresh."""
+    with _LIVE_LOCK:
+        _LIVE.clear()
+
+
 def shop_orders(src: str) -> list:
     """Every order the shop holds, as stored: PayPal's (the demo's data, or Transaction Search on the live
     sandbox) and, in the demo, the orders paid by card or bank. No PayPal keys: no live orders."""
@@ -287,7 +313,7 @@ def shop_orders(src: str) -> list:
     if isinstance(pp, MockPayPal):
         return []
     try:
-        return evidence_mod._orders(pp, datetime.utcnow())
+        return _live_cached("orders", lambda: evidence_mod._orders(pp, datetime.utcnow()))
     except RuntimeError:
         return []
 
@@ -299,7 +325,7 @@ def shop_disputes(src: str) -> list:
     if isinstance(pp, MockPayPal):
         return []
     try:
-        return evidence_mod.shop_disputes(pp, datetime.utcnow())
+        return _live_cached("disputes", lambda: evidence_mod.shop_disputes(pp, datetime.utcnow()))
     except RuntimeError:
         return []
 
@@ -1672,7 +1698,8 @@ def _shop(src: str):
     if isinstance(pp, MockPayPal):
         raise RuntimeError("No PayPal keys in .env: the overview needs the live sandbox, or open the demo shop.")
     now = datetime.utcnow()
-    return pp, evidence_mod.shop_disputes(pp, now), evidence_mod._orders(pp, now), now.date()
+    return (pp, _live_cached("disputes", lambda: evidence_mod.shop_disputes(pp, now)),
+            _live_cached("orders", lambda: evidence_mod._orders(pp, now)), now.date())
 
 
 def in_view(view: str, a: dict, me: str | None) -> bool:
@@ -3220,6 +3247,8 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
             case_store(shop_of_case(did)).update(did, lambda c: c.update(
                 unconfirmed=[x for x in c.get("unconfirmed", []) if x.get("request_id") != rid] + [mark]))
         return 502, "PayPal didn't confirm the refund: check the payment in PayPal before trying again."
+    if not is_demo(did):
+        _live_forget()      # PayPal's side may have changed: the next page reads it afresh
     if result.get("amount") is not None:
         amount, cur = float(result["amount"]), result.get("currency") or cur     # what PayPal was asked to refund
     how = OUT_WORDS.get(result.get("channel"), "by email") if inquiry else ""

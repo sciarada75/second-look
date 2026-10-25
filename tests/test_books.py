@@ -589,6 +589,33 @@ def test_the_month_s_books_export_as_csv_with_the_earlier_cases_and_paypal_s_out
             srv.shutdown()
 
 
+def test_the_live_shop_reads_paypal_once_a_minute_not_once_a_page():
+    calls = []
+    kept = (web.client_from_env, web.evidence_mod._orders, web.evidence_mod.shop_disputes, web.LIVE_TTL, dict(web._LIVE))
+
+    class Live:
+        pass
+    try:
+        web._LIVE.clear()
+        web.client_from_env = lambda root: Live()
+        web.evidence_mod._orders = lambda pp, now: calls.append("orders") or [{"transaction_id": "T1"}]
+        web.evidence_mod.shop_disputes = lambda pp, now: calls.append("disputes") or []
+        assert web.shop_orders("live") == web.shop_orders("live") == [{"transaction_id": "T1"}]
+        web.shop_disputes("live")
+        web.shop_disputes("live")
+        assert calls == ["orders", "disputes"]                           # once each within a minute
+        web._live_forget()                                               # an answer just went to PayPal
+        web.shop_orders("live")
+        assert calls == ["orders", "disputes", "orders"]                 # read afresh
+        web.LIVE_TTL = 0.0
+        web.shop_disputes("live")
+        assert calls == ["orders", "disputes", "orders", "disputes"]     # stale: read again
+    finally:
+        web.client_from_env, web.evidence_mod._orders, web.evidence_mod.shop_disputes, web.LIVE_TTL, saved = kept
+        web._LIVE.clear()
+        web._LIVE.update(saved)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
