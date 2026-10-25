@@ -102,7 +102,9 @@ SCHEMA = {
     "additionalProperties": False,
 }
 
-USAGE = {"input_tokens": 0, "output_tokens": 0, "calls": 0}  # read by the eval to report cost
+# Every Claude call this process made through ask_claude (the judge's and the sort's alike): read by the
+# eval to report cost. The eval runs the judge only, so there it is the judge's cost.
+USAGE = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
 
 
 def _ask_seller(why: str) -> Judgment:
