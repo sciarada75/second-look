@@ -138,6 +138,26 @@ def _same(a: str | None, b: str | None) -> bool:
     return (a or "").strip().lower() == (b or "").strip().lower() and bool(a)
 
 
+def _open_of_dispute(cases: dict, dispute_id: str) -> dict | None:
+    """The OPEN case holding this PayPal dispute: a request joins only an open case (a closed one is history)."""
+    return next((c for c in cases.values() if c.get("dispute_id") == dispute_id and c["status"] == "open"), None)
+
+
+def _earlier(cases: dict, order_no: str | None, dispute_id: str | None) -> dict | None:
+    """The latest closed case on the same order (or the same PayPal dispute): a new case names it, so the
+    history of an order is never lost, and a refund it logged still counts (web.refunds_on_order)."""
+    old = [c for c in cases.values() if c["status"] != "open"
+           and ((order_no and c.get("order_no") == order_no) or (dispute_id and c.get("dispute_id") == dispute_id))]
+    return max(old, key=lambda c: c["opened"]) if old else None
+
+
+def _name_earlier(cases: dict, new: dict, dispute_id: str | None) -> None:
+    before = _earlier(cases, new.get("order_no"), dispute_id)
+    if before is not None and before["id"] != new["id"]:
+        new["earlier_case"] = before["id"]
+        before.setdefault("later_cases", []).append(new["id"])
+
+
 def _of_dispute(cases: dict, dispute_id: str) -> dict | None:
     """The case holding this PayPal dispute: an open one first (a closed case is history), else any."""
     held = [c for c in cases.values() if c.get("dispute_id") == dispute_id]
@@ -184,7 +204,7 @@ class CaseStore(JsonFile):
                         **{"from": {"name": sender.get("name"), "email": sender.get("email")}},
                         sorted={"by": sorting.get("by"), "how": sorting.get("how")})
             customer = sorting.get("customer") or {"name": sender.get("name"), "email": sender.get("email")}
-            target = _of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
+            target = _open_of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
             if target is None and sorting.get("settled"):
                 target = next((c for c in data["cases"].values() if c["status"] == "open" and c["sorted"]["by"]
                                and _same(c["customer"].get("email"), customer.get("email"))
@@ -210,6 +230,8 @@ class CaseStore(JsonFile):
                           "dispute_id": dispute["dispute_id"] if dispute else None,
                           "sorted": {"by": sorting.get("by") if sorting.get("settled") else None, "how": sorting.get("how")},
                           "opened": got["at"], "timeline": [got], "money": []}
+                # the order's earlier case, closed: named here and there, never joined
+                _name_earlier(data["cases"], target, dispute["dispute_id"] if dispute else None)
                 data["cases"][cid] = target
                 how = "opened"
             if sid:
@@ -281,7 +303,7 @@ class CaseStore(JsonFile):
             # a person may tie a message to someone else's order (a gift, a second account): it is recorded
             senders = {(x.get("from") or {}).get("email") for x in c["timeline"] if x["direction"] == "in"} - {None}
             elsewhere = any(not _same(s, customer["email"]) for s in senders)
-            target = _of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
+            target = _open_of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
             if target is None:
                 target = next((x for x in data["cases"].values() if x["id"] != cid and x["status"] == "open"
                                and x["sorted"]["by"] and _same(x["customer"].get("email"), customer["email"])
@@ -301,5 +323,7 @@ class CaseStore(JsonFile):
             c.update(customer=customer, order_no=order["order_no"], sorted={"by": "person", "how": how})
             if dispute:
                 c["dispute_id"], c["stage"] = dispute["dispute_id"], stage_for(dispute)
+            if not c.get("earlier_case"):
+                _name_earlier(data["cases"], c, dispute["dispute_id"] if dispute else None)
             return cid
         return self.transact(do)

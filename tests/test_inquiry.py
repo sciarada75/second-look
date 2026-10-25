@@ -647,6 +647,19 @@ def test_only_an_exchange_relaxes_and_never_past_a_trust_stop():
         assert not may_approve(dec.action, "REPLACE", "REPLACE", dec.stops), stop
 
 
+def test_both_pages_name_the_earlier_and_the_later_case():
+    with morning():
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", "e2:1")
+        a = o["case_id"]
+        assert web.close_case(a, "solved", "giulia")[0] == 200
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: it happened again.", "e2:2")
+        b = o["case_id"]
+        assert b != a and o["filed"] == "opened"
+        assert f'Earlier case: <a href="/c/{a}">{a}</a> (closed: solved before any dispute)' in web.case_file_page(b, me="giulia")
+        assert f'Later case: <a href="/c/{b}">{b}</a>' in web.case_file_page(a, me="giulia")
+        assert web.api_case_of(b)["earlier_case"] == a and web.api_case_of(a)["later_cases"] == [b]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

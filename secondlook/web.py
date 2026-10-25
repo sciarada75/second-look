@@ -505,6 +505,7 @@ def api_case_of(cid: str, as_person: str | None = None) -> dict | None:
             "customer": {**c["customer"], "role": "customer"}, "order": v["order"], "sorted": c["sorted"],
             "at_stake": {"value": v["at_stake"], "currency_code": v["currency"]}, "channels": v["channels"],
             "channel_labels": [cases_mod.CHANNEL_LABEL.get(ch, ch) for ch in v["channels"]],
+            "earlier_case": c.get("earlier_case"), "later_cases": c.get("later_cases", []),
             "dispute_id": c.get("dispute_id"), "assigned_to": v["assigned_to"],
             "timeline": [{**x, "by": _who(v["team"], x)[0], "role": _who(v["team"], x)[1]} for x in v["timeline"]],
             "costs_so_far": v["costs"], "page": f"/c/{c['id']}"}
@@ -1679,6 +1680,20 @@ def _pick_form(cid: str, me: str | None, how: str, question: bool = False) -> st
             f'<div class="approve"><button>This order</button>{none}</div></form>')
 
 
+def _related(c: dict) -> str:
+    """The order's earlier case (closed) and its later ones: one order's history, never merged."""
+    store = case_store(shop_of_case(c["id"]))
+    out = []
+    if c.get("earlier_case"):
+        before = store.get(c["earlier_case"]) or {}
+        how = CLOSE_OUTCOMES.get(before.get("outcome"), before.get("outcome") or "")
+        out.append(f'Earlier case: <a href="/c/{e(c["earlier_case"])}">{e(c["earlier_case"])}</a>'
+                   + (f' (closed: {e(how.lower())})' if how else ""))
+    for x in c.get("later_cases", []):
+        out.append(f'Later case: <a href="/c/{e(x)}">{e(x)}</a>')
+    return f'<p class="owner-line">{" · ".join(out)}.</p>' if out else ""
+
+
 def _close_form(cid: str, me: str | None) -> str:
     by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
     opts = "".join(f'<option value="{e(k)}">{e(v)}</option>' for k, v in CLOSE_OUTCOMES.items())
@@ -1721,7 +1736,7 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     left = (f'<a class="back" href="/{"?shop=demo" if demo else ""}">All disputes and requests</a>{stage}'
             f'<p class="claim{"" if c["sorted"].get("by") == "ai" else " quote"}">{e(case_summary(c))}</p>'
             f'<p class="who">{e(cust.get("name") or cust.get("email") or "")}, <i>customer</i> · {e(cust.get("email") or "")}<br>'
-            f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{check}{owner}'
+            f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{check}{owner}{_related(c)}'
             f'{timeline_block(v)}')
     if d:
         # A PayPal dispute now: PayPal's rules, and the dispute's own review and buttons, right here.

@@ -146,6 +146,26 @@ def test_a_dispute_already_on_a_case_is_never_linked_to_another_and_open_cases_c
     assert s.by_dispute("DEMO-034")["id"] == b["id"]
 
 
+def test_a_request_about_an_order_whose_case_is_closed_opens_a_new_case_that_names_the_earlier_one():
+    s = store()
+    a, _ = s.file(request(), SORTED)
+    s.update(a["id"], lambda c: c.update(status="closed", outcome="solved"))
+    b, how = s.file(request("It's still not here.", time="2026-10-21T09:00:00Z"), SORTED)
+    assert how == "opened" and b["id"] != a["id"] and b["earlier_case"] == a["id"]
+    assert s.get(a["id"])["later_cases"] == [b["id"]] and len(s.get(a["id"])["timeline"]) == 1   # untouched
+    c, how = s.file(request("And now?", time="2026-10-22T09:00:00Z"), SORTED)
+    assert how == "joined" and c["id"] == b["id"]                              # the open one is joined, as ever
+    # a closed case holding a PayPal dispute is never joined either: a new case, naming it
+    d, _ = s.file(request("No refund.", email="pablo.m576@example.com"),
+                  {**SORTED, "order_no": "DEMOTX01828", "customer": {"name": "Pablo", "email": "pablo.m576@example.com"}},
+                  dispute=DISPUTE)
+    s.update(d["id"], lambda x: x.update(status="closed", outcome="refunded"))
+    e2, how = s.file(request("Again.", email="pablo.m576@example.com", time="2026-10-23T09:00:00Z"),
+                     {**SORTED, "order_no": "DEMOTX01828", "customer": {"name": "Pablo", "email": "pablo.m576@example.com"}},
+                     dispute=DISPUTE)
+    assert how == "opened" and e2["id"] != d["id"] and e2["earlier_case"] == d["id"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
