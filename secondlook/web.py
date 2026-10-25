@@ -337,10 +337,19 @@ def _transcripts(src: str):
     return team_mod.JsonFile(CASE_FILES[src].with_name(f"call-transcripts-{src}.json"))
 
 
+def _wav_time(rec: dict) -> float | None:
+    """The recording's file time; None when it is gone (removed between the box's listing and now): skipped."""
+    try:
+        return rec["wav"].stat().st_mtime
+    except OSError:
+        return None
+
+
 def _whispered(rec: dict, done: dict) -> dict | None:
     """This recording's entry, if it was made from this very file (a recording replaced since is new)."""
     x = done.get(rec["source_id"])
-    return x if isinstance(x, dict) and x.get("mtime") == rec["wav"].stat().st_mtime else None
+    t = _wav_time(rec)
+    return x if t is not None and isinstance(x, dict) and x.get("mtime") == t else None
 
 
 def transcribe_calls(src: str) -> int:
@@ -352,10 +361,11 @@ def transcribe_calls(src: str) -> int:
     n = 0
     store = _transcripts(src)
     for rec in calls_mod.recordings(CALL_BOXES.get(src)):
-        if _whispered(rec, store.snapshot()):
+        t = _wav_time(rec)
+        if t is None or _whispered(rec, store.snapshot()):
             continue
         text = TRANSCRIBE(rec["wav"])
-        entry = {"mtime": rec["wav"].stat().st_mtime, "status": "done" if text else "failed", "text": text or None}
+        entry = {"mtime": t, "status": "done" if text else "failed", "text": text or None}
         store.transact(lambda d, k=rec["source_id"], v=entry: d.update({k: v}))
         n += 1
     return n
@@ -370,6 +380,8 @@ def file_calls(store, src: str) -> int:
     n = 0
     done = _transcripts(src).snapshot()
     for rec in calls_mod.recordings(CALL_BOXES.get(src)):
+        if _wav_time(rec) is None:
+            continue                                  # gone since the box was listed
         w = _whispered(rec, done)
         heard = w["text"] if w and w.get("status") == "done" and w.get("text") else None
         cid = store.by_source(rec["source_id"])
@@ -401,7 +413,20 @@ def calls_waiting(store, src: str) -> int:
     """Recordings in the box with no words yet: local whisper is on it (or failed, with nothing shipped beside)."""
     done = _transcripts(src).snapshot()
     return sum(1 for rec in calls_mod.recordings(CALL_BOXES.get(src))
-               if not store.by_source(rec["source_id"]) and not _whispered(rec, done))
+               if _wav_time(rec) is not None and not store.by_source(rec["source_id"]) and not _whispered(rec, done))
+
+
+def calls_failed(store, src: str) -> list:
+    """Recordings local whisper couldn't hear, with no transcript shipped beside them: never filed as words nobody
+    heard, and never lost either: the morning screen names each one, for a person to listen to."""
+    done = _transcripts(src).snapshot()
+    out = []
+    for rec in calls_mod.recordings(CALL_BOXES.get(src)):
+        w = _whispered(rec, done)
+        if w and w.get("status") == "failed" and not store.by_source(rec["source_id"]) \
+                and calls_mod.as_request(rec, lambda wav: None) is None:
+            out.append(rec["wav"].name)
+    return out
 
 
 def case_store(src: str) -> cases_mod.CaseStore:
@@ -1003,6 +1028,7 @@ CHANGED_INQUIRY = {"buyer_messages": "the customer wrote again", "stage": "the c
                    "amount": "the amount at stake changed (a refund was logged, or the order changed)",
                    "tracking": "the courier's tracking changed", "ship_to": "the delivery address changed",
                    "who": "the case is now about another customer or order",
+                   "words": "the customer's words changed (a call's transcript was updated)",
                    "return": "the returned item reached the shop"}
 
 
@@ -1013,6 +1039,9 @@ def _seen(case: dict) -> dict:
             "tracking": (r.get("tracking") or {}).get("tracking_number"), "ship_to": bool(r.get("ship_to"))}
     if case.get("inquiry"):
         seen["who"] = case["inquiry"].get("identity")
+        # what the customer said, in order: a call's words taken from local whisper after the review are new words
+        said = "\n".join(m.get("content") or "" for m in d.get("messages", []) if m.get("posted_by") == "BUYER")
+        seen["words"] = hashlib.sha256(said.encode("utf-8")).hexdigest()[:16]
         seen["return"] = d.get("exchange_cost")             # the returned item reached the shop since
     if r.get("refund_logged_on_case"):   # only then: a dispute whose case logged no money sees exactly what it saw
         seen["case_refund"] = r.get("refunded_so_far")
@@ -1028,7 +1057,10 @@ def _changes(dispute_id: str, case: dict) -> list:
         return ["this review was saved before Second Look tracked changes"]
     now = _seen(case)
     words = CHANGED_INQUIRY if cases_mod.is_case_id(dispute_id) else CHANGED
-    return [words[k] for k in words if seen.get(k) != now.get(k)]
+    out = [k for k in words if seen.get(k) != now.get(k)]
+    if "buyer_messages" in out and "words" in out:
+        out.remove("words")                           # a new message: "the customer wrote again" says it
+    return [words[k] for k in out]
 
 
 def _t(iso):
@@ -1861,14 +1893,16 @@ def today_view(src: str) -> dict:
     """The three blocks of the morning screen, as data (the page and GET /api/today show the same)."""
     demo = src == "demo"
     today = DemoPayPal().today if demo else datetime.utcnow().date()
-    waiting = 0
+    waiting, failed = 0, []
     if CALL_BOXES.get(src):
         file_calls(case_store(src), src)              # a call left in the box since the last look comes in now
         waiting = calls_waiting(case_store(src), src) if transcriber_on() else 0
+        failed = calls_failed(case_store(src), src)
     cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
     t = team_for_src(src)
     assigned = {} if t.get("solo") else assignments_for("DEMO-" if demo else None).all()
     return {"today": today, "team": t, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
+            "calls_failed": failed,
             "see": today_mod.came_in(cases, disputes, orders, today, review_of=review_line),
             "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
             "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src))}
@@ -1931,8 +1965,11 @@ def _rec(r: dict | None) -> str:
     return f'<span class="rec">{tag} {e(r["text"])}</span>'
 
 
-def see_block(s: dict, q: str, phone: bool = False, pending: int = 0) -> str:
+def see_block(s: dict, q: str, phone: bool = False, pending: int = 0, failed: list = ()) -> str:
     chips = [f'<span class="chip ord">🛒 {s["orders"]:,} new order{"s" if s["orders"] != 1 else ""}</span>']
+    if failed:       # whisper couldn't hear them and nothing was shipped beside them: a person listens
+        chips.append(f'<span class="chip off">📞 {len(failed)} call{"s" if len(failed) != 1 else ""} couldn\'t be '
+                     f'transcribed: listen to {"it" if len(failed) == 1 else "them"} ({e(", ".join(failed))})</span>')
     if pending:      # recordings local whisper is still on: they come in once it has their words
         chips.append(f'<span class="chip off">📞 {pending} call{"s" if pending != 1 else ""} being transcribed</span>')
     for ch, word, n in today_mod.channel_words(s["counts"]):
@@ -1997,7 +2034,7 @@ def today_page(src: str, me: str | None = None) -> str:
     body = (f'<h1 class="page">Today at {e(name)}</h1>{about}'
             f'<p class="who">I see, I manage, I know: every channel, one place. The lists stay where they were: '
             f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
-            f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"], v["calls_pending"])}</section>'
+            f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"], v["calls_pending"], v["calls_failed"])}</section>'
             f'<section class="block">{manage_block(v["manage"], q)}</section>'
             f'<section class="block">{month_block(v["know"], v["today"])}'
             f'{claim_line_box(v["know"]["high_volume"], v["today"])}</section></div>')
@@ -3016,7 +3053,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(today_page(src, me=me))
             if u.path == "/api/today":
                 v = today_view("live" if src == "live" else "demo")
-                return self._json({"today": v["today"], "see": v["see"], "manage": v["manage"], "know": v["know"]})
+                return self._json({"today": v["today"], "see": v["see"], "manage": v["manage"], "know": v["know"],
+                                   "calls": {"being_transcribed": v["calls_pending"], "not_transcribed": v["calls_failed"]}})
             if u.path == "/overview":
                 return self._send(overview_page(src, me=me))
             if u.path.startswith("/customer/"):

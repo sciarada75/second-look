@@ -261,6 +261,60 @@ def test_a_number_s_country_code_counts_when_both_sides_give_it():
     assert sort_mod.sort({**call, "from": {"phone": "051 555 0142"}}, orders, set())["order_no"] == "LP-1"  # no "+": 9 digits
 
 
+def test_a_call_s_new_words_make_its_review_out_of_date():
+    with morning():
+        web.TRANSCRIBE = lambda wav: "Linen and paper, this is Marta. Order LP 90001 never arrived."
+        web.case_store("demo")
+        web.run_review("DEMO-C001")                                        # reviewed on the shipped words
+        assert web._changes("DEMO-C001", web._case("DEMO-C001")) == []
+        web.transcribe_calls("demo")
+        web.today_view("demo")                                             # the call takes whisper's words
+        assert web._changes("DEMO-C001", web._case("DEMO-C001")) == [
+            "the customer's words changed (a call's transcript was updated)"]
+        assert web.approve("DEMO-C001", "MESSAGE", "It was left with your neighbour.", by="marta")[0] == 409
+        web.run_review("DEMO-C001")                                        # a fresh look, on the new words
+        assert web.approve("DEMO-C001", "MESSAGE", "It was left with your neighbour.", by="marta")[0] == 200
+        web.receive("demo", {"channel": "email", "from": {"name": "", "email": "sophie.durand@example.com"},
+                             "text": "Any news?", "source_id": "words:1"})
+        assert web._changes("DEMO-C001", web._case("DEMO-C001")) == ["the customer wrote again"]   # said once
+
+
+def test_a_call_whisper_couldn_t_hear_with_no_shipped_words_is_shown_not_lost():
+    box = _box_with("call<1>", {"from_phone": "+1 555 000 1111", "time": "2026-10-25T09:00:00Z", "seconds": 9})
+    with morning(live_box=box):
+        web.TRANSCRIBE = lambda wav: None
+        web.transcribe_calls("live")
+        v = web.today_view("live")
+        assert v["calls_failed"] == ["call<1>.wav"] and v["calls_pending"] == 0
+        page = web.today_page("live")
+        assert "📞 1 call couldn't be transcribed: listen to it (call&lt;1&gt;.wav)" in page     # the name escaped
+        assert web.case_store("live").all() == []
+
+
+def test_a_bad_record_is_logged_once_and_a_vanished_recording_is_skipped():
+    import contextlib
+    import io
+    box = _box_with("good", {"from_phone": "+1 555 000 1111", "time": "2026-10-25T09:00:00Z", "seconds": 5}, txt="Hi.")
+    (box / "bad.json").write_text("[1]")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        for _ in range(3):
+            calls.recordings(box)
+    assert err.getvalue().count("skipped bad.json") == 1
+    gone = {"source_id": "callbox:gone", "wav": box / "gone.wav", "txt": box / "gone.txt", "from_phone": "1",
+            "time": "2026-10-25T09:00:00Z", "seconds": 1.0}
+    kept = calls.recordings
+    with morning(live_box=box):
+        web.TRANSCRIBE = lambda wav: "words"
+        calls.recordings = lambda b: kept(b) + [gone]                      # listed, then removed before it is read
+        try:
+            assert web.transcribe_calls("live") == 1                        # the good one; the gone one skipped
+            web.today_view("live")
+            assert [c["timeline"][0]["source_id"] for c in web.case_store("live").all()] == ["callbox:good"]
+        finally:
+            calls.recordings = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

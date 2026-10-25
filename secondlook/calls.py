@@ -67,9 +67,19 @@ def recordings(box: Path | None) -> list:
     return sorted(out, key=lambda r: r["time"])
 
 
+_LOGGED: set = set()
+
+
 def _skip(meta: Path, why: str) -> None:
-    """A record the call box can't use: said once on the server's log, and the call is left out, never guessed."""
-    print(f"call box: skipped {meta.name}: {why}", file=sys.stderr)
+    """A record the call box can't use: said once on the server's log (once per version of the file, not on every
+    look), and the call is left out, never guessed."""
+    try:
+        key = (str(meta), meta.stat().st_mtime)
+    except OSError:
+        key = (str(meta), None)
+    if key not in _LOGGED:
+        _LOGGED.add(key)
+        print(f"call box: skipped {meta.name}: {why}", file=sys.stderr)
 
 
 def _seconds(wav: Path) -> float:
