@@ -180,10 +180,12 @@ dispute if one is opened later.
   against your shop's own terms and the evidence (the address that counts is the order's delivery
   address; the courier says where the parcel was left). It claims no legal or card-network rule. With no
   AI key, the rules baseline runs, labelled. Your limits apply after it, as for a dispute, and the same
-  team limits decide who may send it. The one place they relax: an exchange whose returned item is back
-  at the shop (the courier's record of the return, or the shop's own record that it arrived) counts the
-  new parcel's postage, from your costs; a refund always counts in full, and no limit ever goes past a
-  stop for trust.
+  team limits decide who may send it. The one place they relax: an exchange for a wrong size, once the
+  item sent back for that case is at the shop (the courier's record of the return, or the shop's own
+  record that it arrived), counts the new parcel's postage, from your costs, once. Anything else that
+  sends goods (a damaged item, a second replacement) counts their full value; a refund always counts
+  in full, refunds and replacements together never exceed the order's value, and no limit ever goes
+  past a stop for trust.
 - **The answer goes back on the customer's channel**: by email, or to the address on the web form,
   signed by the person who approved it, with `answer.sent` to your helpdesk. In this version nothing is
   sent from Second Look itself: your helpdesk sends the email. A refund on an inquiry is recorded on the
