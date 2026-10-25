@@ -98,8 +98,8 @@ def _shape(a) -> dict:
     return {"to": a.get("to"), "handoff": a.get("handoff")}
 
 
-class Assignments:
-    """Who each open case belongs to, and any handoff waiting on it. One JSON file per shop.
+class JsonFile:
+    """One JSON object in one file, shared by every thread of the server.
     A seed (the demo shop's starting state) is written only when the file doesn't exist yet.
     Writes go to a temporary file first, then replace the old one in one step, so a crash mid-write
     never leaves half a file. A file that isn't valid JSON is kept aside as <name>.corrupt, never
@@ -142,6 +142,25 @@ class Assignments:
         except BaseException:
             Path(tmp).unlink(missing_ok=True)
             raise
+
+    def snapshot(self) -> dict:
+        """The whole object as it is now (a copy: changing it changes nothing on disk)."""
+        with _LOCK:
+            return self._read()
+
+    def transact(self, fn):
+        """Read, change and write under one lock: fn(data) changes the object in place and returns what the
+        caller needs. Two writers never undo each other. Nothing is written when fn raises."""
+        with _LOCK:
+            data = self._read()
+            result = fn(data)
+            self._write(data)
+            return result
+
+
+class Assignments(JsonFile):
+    """Who each open case belongs to, and any handoff waiting on it. One JSON file per shop
+    (file handling: JsonFile)."""
 
     def all(self) -> dict:
         with _LOCK:

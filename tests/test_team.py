@@ -122,6 +122,25 @@ def test_outside_data_can_t_claim_to_be_a_team_of_one():
     assert not t.get("solo") and team.person(t, None) is None
 
 
+def test_a_json_file_changes_under_one_lock_and_keeps_a_broken_file_aside():
+    path = Path(tempfile.mkdtemp()) / "c.json"
+    f = team.JsonFile(path)
+    assert f.snapshot() == {} and f.transact(lambda d: d.setdefault("n", 1)) == 1
+    f.transact(lambda d: d.update(n=d["n"] + 1))
+    assert team.JsonFile(path).snapshot() == {"n": 2}
+
+    def half_done(d):
+        d["n"] = 99
+        raise ValueError("stopped half-way")
+    try:
+        f.transact(half_done)
+    except ValueError:
+        pass
+    assert f.snapshot() == {"n": 2}                      # a change that failed half-way is never written
+    path.write_text("[1, 2]")
+    assert f.snapshot() == {} and (path.parent / "c.json.corrupt").read_text() == "[1, 2]"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
