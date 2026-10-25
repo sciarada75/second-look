@@ -74,6 +74,22 @@ def test_whisper_runs_in_its_own_python_offline_and_any_failure_is_simply_no_tra
         calls.WHISPER_PYTHON = kept
 
 
+def test_a_call_is_sorted_by_the_caller_s_number_and_never_onto_two_customers():
+    orders = [{"order_no": "LP-1", "email": "sophie@example.com", "name": "Sophie", "phone": "+39 051 555 0142",
+               "time": "2026-10-12T10:00:00Z", "items": [{"item_name": "Linen tablecloth", "item_quantity": "1"}]},
+              {"order_no": "LP-2", "email": "ann@example.com", "name": "Ann", "phone": "+43 1 555 0177",
+               "time": "2026-10-12T10:00:00Z", "items": [{"item_name": "Linen shirt", "item_quantity": "1"}]},
+              {"order_no": "LP-3", "email": "bob@example.com", "name": "Bob", "phone": "+43 1 555 0177",
+               "time": "2026-10-12T10:00:00Z", "items": [{"item_name": "Art print", "item_quantity": "1"}]}]
+    call = {"channel": "call", "from": {"phone": "0515550142"}, "subject": "Phone call", "text": "My tablecloth never came."}
+    s = sort_mod.sort(call, orders, set())
+    assert s["settled"] and s["order_no"] == "LP-1" and s["customer"]["email"] == "sophie@example.com"
+    assert s["how"].startswith("Sorted by Second Look's rules: the caller's number is Sophie's")
+    assert s["summary"] == "Phone call: says it never arrived"
+    shared = sort_mod.sort({**call, "from": {"phone": "+43 1 555 0177"}}, orders, set())
+    assert not shared["settled"] and shared["how"].startswith("The caller's number is on none of the shop's orders")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

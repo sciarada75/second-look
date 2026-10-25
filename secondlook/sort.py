@@ -20,7 +20,7 @@ import json
 import re
 from functools import lru_cache
 
-from .cases import KINDS
+from .cases import KIND_LABEL, KINDS
 
 # The problem a message describes, by its words (English and Italian, as the demo shop's customers write).
 # First match wins, the most specific first: "I returned it and have no refund" is a refund, not a delivery.
@@ -155,31 +155,41 @@ def deterministic(request: dict, orders: list, open_orders: set) -> dict:
     `orders`: every order the shop holds (any payment method); `open_orders`: the order numbers that have an
     open case or an open PayPal dispute."""
     sender = _email((request.get("from") or {}).get("email"))
+    # a phone call has a number, not an address: the customer whose orders carry that number, when exactly one does
+    phone = _phone((request.get("from") or {}).get("phone"))
+    whose = "the sender's address"
+    if not sender and phone:
+        callers = {_email(o.get("email")) for o in orders if _phone(o.get("phone")) == phone and o.get("email")}
+        sender, whose = (callers.pop() if len(callers) == 1 else ""), "the caller's number"
+    said = "the call" if whose == "the caller's number" else "the message"
     text = _text(request)
     base = {"kind": problem_kind(text), "summary": summary(request.get("subject"), request.get("text"))}
+    if request.get("channel") == "call":
+        # a call has no subject and two voices: its line says what it is about, in Second Look's words, not as a quote
+        base["summary"] = f"Phone call: {KIND_LABEL[base['kind']][:1].lower()}{KIND_LABEL[base['kind']][1:]}"
     mine = [o for o in orders if sender and _email(o.get("email")) == sender]
     if not mine:
         return {**base, "settled": False, "by": None, "customer": None, "order_no": None,
-                "how": "The sender's address is on none of the shop's orders: a person picks the order."}
+                "how": f"{whose[0].upper() + whose[1:]} is on none of the shop's orders: a person picks the order."}
     last = max(mine, key=lambda o: o.get("time") or o.get("date") or "")
     customer = {"name": last.get("name"), "email": (last.get("email") or "").strip()}
 
     def done(o, how):
         return {**base, "settled": True, "by": "rules", "customer": customer, "order_no": order_no(o) if o else None,
-                "how": f"Sorted by Second Look's rules: the sender's address is {customer['name']}'s; {how}."}
+                "how": f"Sorted by Second Look's rules: {whose} is {customer['name']}'s; {how}."}
     # Someone else's order number in the message: never filed on theirs, nor guessed onto one of the sender's
     # (and the other customer is never named). Their whole number always; the last digits of their number
     # ("#03002", "DEMOTX 03002") when none of the sender's own orders fits them. A postcode that happens to
     # be those digits only means a person checks.
     other = [o for o in orders if _email(o.get("email")) != sender]
     elsewhere = {**base, "settled": False, "by": None, "customer": customer, "order_no": None, "quotes_other_order": True,
-                 "how": f"The sender's address is {customer['name']}'s, but the message quotes an order number that "
-                        f"isn't on this sender's orders: a person checks."}
+                 "how": f"{whose[0].upper() + whose[1:]} is {customer['name']}'s, but {said} quotes an order number "
+                        f"that isn't on this sender's orders: a person checks."}
     if any(_quoted(o, text, whole=True) for o in other):
         return elsewhere
     quoted = [o for o in mine if _quoted(o, text)]
     if len(quoted) == 1:
-        return done(quoted[0], f"the message quotes order {order_no(quoted[0])}")
+        return done(quoted[0], f"{said} quotes order {order_no(quoted[0])}")
     if not quoted and any(_quoted(o, text) for o in other):
         return elsewhere
     open_mine = [o for o in mine if order_no(o) in open_orders]
@@ -190,11 +200,17 @@ def deterministic(request: dict, orders: list, open_orders: set) -> dict:
     if base["kind"] == "question":
         return done(None, "a question, so no order is needed")
     if len(best) == 1:
-        return done(best[0], f"the message names {matched_item(best[0], text)}, on order {order_no(best[0])}")
+        return done(best[0], f"{said} names {matched_item(best[0], text)}, on order {order_no(best[0])}")
     if len(mine) == 1:
         return done(mine[0], f"their only order is {order_no(mine[0])}")
     return {**base, "settled": False, "by": None, "customer": customer, "order_no": None,
-            "how": f"{customer['name']} has {len(mine)} orders and the message doesn't say which one."}
+            "how": f"{customer['name']} has {len(mine)} orders and {said} doesn't say which one."}
+
+
+def _phone(x) -> str:
+    """A phone number by its digits alone, the last nine ("+39 051 555 0142" and "0515550142" are one number)."""
+    digits = "".join(ch for ch in str(x or "") if ch.isdigit())
+    return digits[-9:] if len(digits) >= 6 else ""
 
 
 def _text(request: dict) -> str:
