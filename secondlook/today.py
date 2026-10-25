@@ -59,6 +59,12 @@ def _first_message(d: dict) -> str:
     return next((m.get("content", "") for m in d.get("messages", []) if m.get("posted_by") == "BUYER"), "")
 
 
+def _buyer_since(d: dict, start: str) -> list:
+    """When the buyer wrote on a PayPal dispute since `start` (an older dispute's new message came in too)."""
+    return sorted(_at(m.get("time_posted")) for m in d.get("messages", [])
+                  if m.get("posted_by") == "BUYER" and _at(m.get("time_posted")) >= start)
+
+
 def _dispute_of_case(cases: list) -> dict:
     """Dispute id -> the case holding it: the open one first (a closed case is history)."""
     out = {}
@@ -88,7 +94,8 @@ def came_in(cases: list, disputes: list, orders: list, today: date, review_of=la
         if d is not None and held.get(d["dispute_id"]) is not c:
             d = None                                   # the dispute's row is its open case's, not this old one's
         new_dispute = d is not None and _at(d.get("create_time")) >= start
-        if not ins and not new_dispute:
+        wrote = _buyer_since(d, start) if d is not None and not new_dispute else []
+        if not ins and not new_dispute and not wrote:
             continue
         for x in ins:
             counts[x["channel"]] = counts.get(x["channel"], 0) + (x["channel"] != "paypal")
@@ -101,20 +108,22 @@ def came_in(cases: list, disputes: list, orders: list, today: date, review_of=la
                      "summary": c["problem"].get("summary") or KIND_LABEL.get(c["problem"].get("kind"), ""),
                      "order_no": c.get("order_no"),
                      "amount": _num(d["dispute_amount"]["value"]) if d else amount_of.get(c.get("order_no"), 0.0),
-                     "status": c.get("status"), "first": min([x["at"] for x in ins] + ([_at(d.get("create_time"))] if new_dispute else [])),
+                     "status": c.get("status"),
+                     "first": min([x["at"] for x in ins] + ([_at(d.get("create_time"))] if new_dispute else []) + wrote),
                      "days_left": ledger.days_left(d, today) if d is not None and d.get("status") != "RESOLVED" else None,
                      "review": review_of(decision)})
     for d in disputes:
         opened = _at(d.get("create_time"))
-        if opened < start:
+        wrote = [] if opened >= start else _buyer_since(d, start)
+        if opened < start and not wrote:
             continue
-        counts["paypal"] += 1
+        counts["paypal"] += 1 if opened >= start else len(wrote)   # a dispute opened, or a buyer's new message
         if d["dispute_id"] in held:
             continue
         rows.append({"case_id": None, "dispute_id": d["dispute_id"], "link": f"/d/{d['dispute_id']}",
                      "decision_id": d["dispute_id"], "channels": ["paypal"], "who": _buyer_name(d),
                      "summary": _first_message(d), "order_no": _tx(d), "amount": _num(d["dispute_amount"]["value"]),
-                     "status": "open" if d.get("status") != "RESOLVED" else "closed", "first": opened,
+                     "status": "open" if d.get("status") != "RESOLVED" else "closed", "first": wrote[0] if wrote else opened,
                      "days_left": ledger.days_left(d, today) if d.get("status") != "RESOLVED" else None,
                      "review": review_of(d["dispute_id"])})
     rows.sort(key=lambda r: (r["days_left"] is None, r["days_left"] if r["days_left"] is not None else 0, r["first"]))

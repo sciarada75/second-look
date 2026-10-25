@@ -171,6 +171,22 @@ def test_what_the_team_does_this_morning_shows_at_once():
             ("DEMO-034", "Marta", "Customer care assistant", "Giulia", "Head of customer care")]
 
 
+def test_a_buyer_s_new_message_on_an_older_dispute_came_in_too():
+    old = dispute("D4", "2026-10-10T09:00:00Z")
+    old["messages"].append({"posted_by": "BUYER", "content": "Still nothing.", "time_posted": "2026-10-19T12:00:00Z"})
+    held = dispute("D5", "2026-10-11T09:00:00Z")
+    held["messages"] += [{"posted_by": "BUYER", "content": "Hello?", "time_posted": "2026-10-20T08:00:00Z"},
+                         {"posted_by": "SELLER", "content": "We're on it.", "time_posted": "2026-10-20T09:00:00Z"}]
+    quiet = dispute("D6", "2026-10-12T09:00:00Z")
+    quiet["messages"].append({"posted_by": "SELLER", "content": "Tracking attached.", "time_posted": "2026-10-19T09:00:00Z"})
+    cases = [case("C5", ("2026-10-11T08:00", "email", "in"), dispute_id="D5")]
+    s = today.came_in(cases, [old, held, quiet], [], TODAY)
+    assert s["counts"]["paypal"] == 2                                     # one new buyer message on each
+    assert sorted(r["link"] for r in s["rows"]) == ["/c/C5", "/d/D4"]      # a seller's message is not "came in"
+    c5 = next(r for r in s["rows"] if r["link"] == "/c/C5")
+    assert c5["channels"] == ["paypal"] and c5["first"] == "2026-10-20T08:00"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
