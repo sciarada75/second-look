@@ -476,6 +476,47 @@ def test_the_answer_about_an_unconfirmed_refund_comes_only_from_the_shop_s_own_p
             srv.server_close()
 
 
+def test_the_case_page_shows_its_money_and_the_reconcile_form():
+    with morning():
+        cid = _refunded_paypal_order("b4:1")
+        page = web.case_file_page(cid, me="giulia")
+        assert "Money on this case" in page and "Refund 20.00 EUR" in page and "sent to PayPal" in page
+        assert f'action="/c/{cid}/money"' in page and "Mark paid" in page
+        assert "It never went out: cancel" not in page          # through PayPal: only paid (review 26/10)
+        web.reconcile(cid, 0, "paid", "paypal", "giulia")
+        page = web.case_file_page(cid, me="giulia")
+        assert "paid through PayPal" in page and "Mark paid" not in page
+    with morning():
+        cid = _card_refund("20.00 EUR")                         # a card refund: paid, or it never went out
+        assert "It never went out: cancel" in web.case_file_page(cid, me="giulia")
+
+
+def test_a_refund_is_marked_only_from_the_shop_s_own_page_by_a_named_person():
+    from urllib.parse import urlencode
+    with morning():
+        cid = _refunded_paypal_order("b4:2")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            def post(body, **headers):
+                con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+                con.request("POST", f"/c/{cid}/money", body=urlencode(body),
+                            headers={"Content-Type": "application/x-www-form-urlencoded", **headers})
+                r = con.getresponse()
+                return r.status, r.read().decode()
+            here = f"http://127.0.0.1:{srv.server_address[1]}"
+            mark = {"by": "marta", "i": "0", "outcome": "paid", "paid_with": "paypal"}
+            assert post(mark, Origin="http://evil.example")[0] == 403
+            assert post({**mark, "by": "nobody"}, Origin=here)[0] == 400
+            code, text = post({**mark, "outcome": "cancelled"}, Origin=here)
+            assert code == 409 and "went through PayPal" in text                    # B1, through the form too
+            assert post(mark, Origin=here)[0] == 303
+            assert web.case_store("demo").get(cid)["money"][0]["status"] == "paid"
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

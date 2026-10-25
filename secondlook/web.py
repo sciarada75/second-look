@@ -2087,6 +2087,38 @@ def reconcile(cid: str, index, outcome: str, paid_with: str | None, by: str | No
     return 200, ("Marked paid." if outcome == "paid" else "Marked cancelled: it no longer counts as money that went back.")
 
 
+def money_block(v: dict, me: str | None) -> str:
+    """The case's money: each refund, replacement and fee logged on it, and, on a refund still only logged, the two
+    things a person can say about it afterwards (paid, cancelled)."""
+    c, cur = v["case"], v["currency"]
+    rows = []
+    by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+    for i, m in enumerate(c.get("money", [])):
+        kind = books_mod.KIND.get(m.get("kind"))
+        if not kind:
+            continue
+        status = m.get("status") or "logged"
+        line = (f'<b>{e(kind.capitalize())} {float(m.get("amount") or 0):.2f} {e(m.get("currency") or cur)}</b> · {e(str(m.get("by") or ""))} · '
+                f'{e(_when(m.get("at") or ""))} · {e(status)}'
+                + (f' {e(PAID_WITH.get(m.get("paid_with"), ""))}' if status == "paid" else "")
+                + (f' · {e(m["via"])}' if m.get("via") else ""))
+        form = ""
+        if m.get("kind") in ("refund", "partial_refund") and status in ("logged", "sent to PayPal"):
+            opts = "".join(f'<option value="{k}">{e(v_)}</option>' for k, v_ in PAID_WITH.items())
+            # a refund PayPal made can only be marked paid (reconcile refuses to cancel it): no cancel button for it
+            through_paypal = bool(m.get("refund_id")) or m.get("via") == "PayPal refund API"
+            form = (f'<form class="pick" method="post" action="/c/{e(c["id"])}/money">{by}'
+                    f'<input type="hidden" name="i" value="{i}"><select name="paid_with" aria-label="Paid how">{opts}</select>'
+                    '<div class="approve"><button class="quiet" name="outcome" value="paid">Mark paid</button>'
+                    + ('' if through_paypal else
+                       '<button class="quiet" name="outcome" value="cancelled">It never went out: cancel</button>')
+                    + '</div></form>')
+        rows.append(f'<li>{line}{form}</li>')
+    if not rows:
+        return ""
+    return f'<section class="costs"><h2>Money on this case</h2><ul class="see">{"".join(rows)}</ul></section>'
+
+
 # ---------- the morning screen: "I see, I manage, I know" (secondlook/today.py does the counting) ----------
 
 def shop_cases(src: str) -> list:
@@ -2468,7 +2500,7 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
                  + (_close_form(cid, me) if c["status"] == "open" else ""))
         if not c.get("order_no"):
             right += _pick_form(cid, me, "Sorted as a question with no order. If it is about one, say which.", question=True)
-    body = (f'<div class="case"><section>{flash}{left}</section><section class="look">{right}{case_costs_block(v)}'
+    body = (f'<div class="case"><section>{flash}{left}</section><section class="look">{right}{money_block(v, me)}{case_costs_block(v)}'
             f'<p class="cardlink"><a href="/api/cases/{e(cid)}">This case as data (API)</a></p></section></div>')
     # the tab's name: the customer's own words, or the case id when the line is Second Look's AI's reading
     title = (f"Case {c['id']}" if c["sorted"].get("by") == "ai" else c["problem"]["summary"][:40]
@@ -3499,6 +3531,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send("Choose who you are at the top of the page.", 400)
                 code, text = resolve_unconfirmed(parts[1], form.get("request_id", [""])[0],
                                                  form.get("refunded", [""])[0] == "yes", me)
+                return self._redirect(f"/c/{parts[1]}") if code == 200 else self._send(e(text), code)
+            if len(parts) == 3 and parts[0] == "c" and parts[2] == "money":
+                ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
+                if not ok:
+                    return self._send("Choose who you are at the top of the page.", 400)
+                code, text = reconcile(parts[1], form.get("i", [""])[0], form.get("outcome", [""])[0],
+                                       form.get("paid_with", [None])[0], me)
                 return self._redirect(f"/c/{parts[1]}") if code == 200 else self._send(e(text), code)
             if len(parts) == 3 and parts[0] == "c" and parts[2] == "close":
                 ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
