@@ -140,7 +140,7 @@ def test_sophie_s_answer_goes_out_by_email_signed_by_marta_and_only_once():
         assert web.case_view("DEMO-C001")["costs"]["replies"] == 1
 
 
-def lena_s_return(status):
+def lena_s_return(status, **more):
     """The shop's orders with Lena's return in another state (None: no return on record)."""
     real = web.shop_orders
 
@@ -150,7 +150,7 @@ def lena_s_return(status):
             if o.get("order_no") == "LP-90002":
                 o = {k: v for k, v in o.items() if k != "return"}
                 if status:
-                    o["return"] = {"carrier": "Local courier", "tracking_number": "LC90002RT", "status": status}
+                    o["return"] = {"carrier": "Local courier", "tracking_number": "LC90002RT", "status": status, **more}
             out.append(o)
         return out
     return orders
@@ -676,6 +676,36 @@ def test_a_case_page_that_does_not_exist_answers_404():
         finally:
             srv.shutdown()
             srv.server_close()
+
+
+def test_the_case_page_shows_the_outcome_paypal_gave_its_dispute():
+    import copy
+    with morning():
+        real = web.shop_disputes
+
+        def resolved(src):
+            out = copy.deepcopy(real(src))
+            for d in out:
+                if d["dispute_id"] == "DEMO-034":
+                    d.update(status="RESOLVED", dispute_outcome={"outcome_code": "RESOLVED_SELLER_FAVOUR"})
+            return out
+        web.case_store("demo")
+        web.shop_disputes = resolved
+        page = web.case_file_page("DEMO-C003", me="marta")
+        c = web.case_store("demo").get("DEMO-C003")
+    assert (c["status"], c["outcome"]) == ("closed", "won")
+    assert "Closed: PayPal resolved DEMO-034: defended, and won." in page and "Closed by PayPal: defended, and won" in page
+    assert "Close this case" not in page
+
+
+def test_a_return_the_shop_recorded_itself_counts_like_the_courier_s():
+    with morning():
+        web.case_store("demo")
+        web.shop_orders = lena_s_return("IN_TRANSIT", received_at_shop="2026-10-20T09:00:00Z")
+        dec = web.run_review("DEMO-C002")
+        assert dec.action == "REPLACE" and dec.stops == []
+        o = web.page_offer("DEMO-C002", "marta")
+        assert o["outcome"] == "send" and o["amount"] == 4.9                    # the shop's own record: Marta's
 
 
 if __name__ == "__main__":

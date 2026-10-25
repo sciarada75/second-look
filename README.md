@@ -181,13 +181,16 @@ dispute if one is opened later.
   address; the courier says where the parcel was left). It claims no legal or card-network rule. With no
   AI key, the rules baseline runs, labelled. Your limits apply after it, as for a dispute, and the same
   team limits decide who may send it. The one place they relax: an exchange whose returned item is back
-  at the shop (the courier's record of the return) counts the new parcel's postage, from your costs; a
-  refund always counts in full, and no limit ever goes past a stop for trust.
+  at the shop (the courier's record of the return, or the shop's own record that it arrived) counts the
+  new parcel's postage, from your costs; a refund always counts in full, and no limit ever goes past a
+  stop for trust.
 - **The answer goes back on the customer's channel**: by email, or to the address on the web form,
   signed by the person who approved it, with `answer.sent` to your helpdesk. In this version nothing is
   sent from Second Look itself: your helpdesk sends the email. A refund on an inquiry is recorded on the
   case and logged, never moved. A person closes a settled case with its outcome (solved before any
-  dispute, refunded, replaced or exchanged, withdrawn). A new request about that order opens a new case
+  dispute, refunded, replaced or exchanged, withdrawn). A case with a PayPal dispute is closed by PayPal:
+  when PayPal resolves the dispute, the case closes with PayPal's outcome (defended and won, refunded,
+  the customer withdrew, …), recorded on its timeline. A new request about that order opens a new case
   that names the earlier one.
 - **An order is refunded once.** Every refund logged on an order counts, from every case on it: a
   customer who writes again gets a fresh look, not a second refund, and a partial refund is capped at

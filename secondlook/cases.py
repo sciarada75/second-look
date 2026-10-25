@@ -22,7 +22,7 @@ import re
 from datetime import datetime
 
 from .costs import escalated
-from .ledger import REASON_SHORT
+from .ledger import REASON_SHORT, outcome as paypal_outcome
 from .team import JsonFile
 
 STAGES = ("inquiry", "paypal_dispute", "paypal_claim")
@@ -37,6 +37,20 @@ KIND_LABEL = {"not_received": "Says it never arrived", "not_as_described": "Says
 CASE_ID = re.compile(r"(?:DEMO-)?C\d{3,}")
 # Staff time, when the shop's rules (policy.json "staff_time") don't say: an estimate, always labelled so.
 STAFF_DEFAULTS = {"hourly_cost": 25.0, "reply_minutes": 6}
+
+
+# How a case ends when PayPal resolves its dispute: ledger.outcome() reads PayPal's outcome_code and reason (the
+# same reading the Overview uses); these are the case's words for each of its answers.
+OUTCOME_SAYS = {"won": "defended, and won", "lost_claim": "defended, and lost at claim",
+                "lost_no_reply": "lost: no reply in time", "refunded": "refunded", "settled_offer": "settled with an offer",
+                "covered": "PayPal covered it", "withdrew": "the customer withdrew", "closed": "closed with no decision"}
+
+
+def outcome_says(c: dict, person_outcomes: dict | None = None) -> str:
+    """A closed case's outcome in words: PayPal's (OUTCOME_SAYS), or one a person chose (`person_outcomes`)."""
+    if c.get("closed_by") == "PayPal":
+        return OUTCOME_SAYS.get(c.get("outcome"), str(c.get("outcome") or ""))
+    return ((person_outcomes or {}).get(c.get("outcome")) or str(c.get("outcome") or "")).lower()
 
 
 def is_case_id(x) -> bool:
@@ -267,7 +281,8 @@ class CaseStore(JsonFile):
                     continue
                 if c.get("dispute_id"):
                     d = by_id.get(c["dispute_id"])
-                    if d and c["stage"] != stage_for(d):
+                    # PayPal resolved it: the case closes with PayPal's outcome (a person never closes a dispute)
+                    if d and (d.get("status") == "RESOLVED" or c["stage"] != stage_for(d)):
                         out.append((c["id"], d))
                     continue
                 tx = (orders.get(c.get("order_no")) or {}).get("transaction_id")
@@ -281,7 +296,14 @@ class CaseStore(JsonFile):
         def do(data):
             todo = changes(data)
             for cid, d in todo:
-                data["cases"][cid]["dispute_id"], data["cases"][cid]["stage"] = d["dispute_id"], stage_for(d)
+                c = data["cases"][cid]
+                c["dispute_id"], c["stage"] = d["dispute_id"], stage_for(d)
+                if d.get("status") == "RESOLVED":
+                    key = paypal_outcome(d)
+                    c.update(status="closed", outcome=key, closed_by="PayPal")
+                    c["timeline"].append(entry(d.get("update_time"), "paypal", "note",
+                                               f"Closed: PayPal resolved {d['dispute_id']}: {OUTCOME_SAYS.get(key, key)}.",
+                                               "PayPal", dispute_id=d["dispute_id"]))
             return len(todo)
         return self.transact(do)
 

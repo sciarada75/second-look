@@ -34,7 +34,10 @@ KIND_WORDS = [
      r"\bsizes?\b|\btaglia\b"),
     ("not_as_described", r"\bdamaged\b|\bbroken\b|\bcracked\b|\bstain(s|ed)?\b|\btorn\b|\bpulled thread|\bcame apart\b"
                          r"|\bfaulty\b|\bdefect(s|ive)?\b|\bwrong colou?r\b|\bnot as described\b|\bdifferent from\b"
-                         r"|\bdanneggiat|\brott[oa]\b", None),
+                         r"|\bdanneggiat|\brott[oa]\b"
+                         # a part that came off or tore: "the button came off", "a seam ripped", "si è staccato"
+                         r"|\bcame off\b|\bfell off\b|\bfalling apart\b|\bripped\b|\bmissing (a |the |one )?button"
+                         r"|\bbuttons? (is |was |are )?missing\b|\bstaccat|\bstrappat|\bscucit", None),
     ("not_received", r"\bnever (arrived|came|got)\b|(\bnot|n't) (yet )?(arrived|received|come)\b|\bnot here\b"
                      r"|\bwhere is (my|the)\b|\bnon (è )?(ancora )?(mai )?arrivat|\bmai arrivat", r"\btracking\b|\blost\b"),
 ]

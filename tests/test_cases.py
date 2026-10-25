@@ -166,6 +166,29 @@ def test_a_request_about_an_order_whose_case_is_closed_opens_a_new_case_that_nam
     assert how == "opened" and e2["id"] != d["id"] and e2["earlier_case"] == d["id"]
 
 
+def test_a_case_closes_with_paypal_s_outcome_when_paypal_resolves_its_dispute():
+    s = store()
+    c, _ = s.file(request("No refund.", email="pablo.m576@example.com"),
+                  {**SORTED, "order_no": "DEMOTX01828", "customer": {"name": "Pablo", "email": "pablo.m576@example.com"}},
+                  dispute=DISPUTE)
+    orders = {"DEMOTX01828": {"order_no": "DEMOTX01828", "transaction_id": "DEMOTX01828"}}
+    for code, reason, key in (("RESOLVED_SELLER_FAVOUR", "", "won"), ("CANCELED_BY_BUYER", "", "withdrew"),
+                              ("RESOLVED_BUYER_FAVOUR", "", "refunded")):
+        t = store()
+        x, _ = t.file(request("No refund.", email="pablo.m576@example.com"),
+                      {**SORTED, "order_no": "DEMOTX01828", "customer": {"name": "Pablo", "email": "pablo.m576@example.com"}},
+                      dispute=DISPUTE)
+        done = {**DISPUTE, "status": "RESOLVED", "dispute_outcome": {"outcome_code": code, "outcome_reason": reason}}
+        assert t.link_disputes([done], orders) == 1
+        y = t.get(x["id"])
+        assert (y["status"], y["outcome"], y["closed_by"]) == ("closed", key, "PayPal"), code
+        note = y["timeline"][-1]
+        assert (note["direction"], note["by"], note["channel"]) == ("note", "PayPal", "paypal")
+        assert note["text"] == f"Closed: PayPal resolved DEMO-034: {cases.OUTCOME_SAYS[key]}."
+        assert t.link_disputes([done], orders) == 0                                # once: no second note, no write
+    assert s.link_disputes([DISPUTE], orders) == 0 and s.get(c["id"])["status"] == "open"   # still open: nothing
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

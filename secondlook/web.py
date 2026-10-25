@@ -1686,9 +1686,9 @@ def _related(c: dict) -> str:
     out = []
     if c.get("earlier_case"):
         before = store.get(c["earlier_case"]) or {}
-        how = CLOSE_OUTCOMES.get(before.get("outcome"), before.get("outcome") or "")
+        how = cases_mod.outcome_says(before, CLOSE_OUTCOMES) if before.get("outcome") else ""
         out.append(f'Earlier case: <a href="/c/{e(c["earlier_case"])}">{e(c["earlier_case"])}</a>'
-                   + (f' (closed: {e(how.lower())})' if how else ""))
+                   + (f' (closed: {e(how)})' if how else ""))
     for x in c.get("later_cases", []):
         out.append(f'Later case: <a href="/c/{e(x)}">{e(x)}</a>')
     return f'<p class="owner-line">{" · ".join(out)}.</p>' if out else ""
@@ -1712,7 +1712,8 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     stage = f'<span class="pill {"shop" if c["stage"] == "inquiry" else "onclaim" if c["stage"] == "paypal_claim" else "paypal"}">' \
             f'{e(cases_mod.STAGE_LABEL[c["stage"]])}</span>'
     if c["status"] != "open":
-        stage += f'<span class="pill buyer">Closed: {e(str(c["outcome"] or ""))}</span>'
+        stage += (f'<span class="pill buyer">Closed{" by PayPal" if c.get("closed_by") == "PayPal" else ""}: '
+                  f'{e(cases_mod.outcome_says(c, CLOSE_OUTCOMES))}</span>')
     cust = c["customer"]
     items = ", ".join(f'{i["name"]} × {i["qty"]}' + (f' (size {i["size"]})' if i.get("size") else "") for i in (o or {}).get("items", []))
     paid = {"paypal": "PayPal", "card": "card", "bank": "bank transfer"}.get((o or {}).get("paid_with"), (o or {}).get("paid_with"))

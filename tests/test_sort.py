@@ -221,6 +221,16 @@ def test_digits_of_someone_else_s_order_number_are_a_person_s_call_unless_one_of
     assert s["order_no"] == "LP-90001" and "only order" in s["how"]         # digits nobody's order ends with
 
 
+def test_damage_words_sort_as_damage_on_the_sender_s_order():
+    for text in ("The button came off.", "A button fell off after one wash.", "One button is missing.",
+                 "The seam ripped.", "The bag is falling apart.", "Si è staccato un bottone.", "La borsa è strappata.",
+                 "La camicia è scucita."):
+        assert sort.problem_kind(text) == "not_as_described", text
+    s = sort.sort(req("The button came off.", "sophie.durand@example.com"), ORDERS, set(), ai=no_ai)
+    assert s["settled"] and s["order_no"] == "LP-90001" and s["kind"] == "not_as_described" and "only order" in s["how"]
+    assert sort.problem_kind("Can I buy a spare button?") == "question"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
