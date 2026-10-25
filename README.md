@@ -138,6 +138,8 @@ as the screen.
 | `POST /api/disputes/<id>/review` | ask for a review (Claude runs; a few cents). Without `ANTHROPIC_API_KEY` the rules baseline runs instead, and the review says `"judge": "rules"` |
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
+| `POST /api/requests` | `{"channel": "email" or "form", "from": {"name", "email"}, "text", "subject", "time", "order", "source_id"}`: one request from your helpdesk or web form. Second Look sorts it (rules first, its AI only for what they can't settle) and files it on its case: `201` with `case_id`, `filed` (`opened` or `joined`), `stage`, `sorted` and `dispute_id`; `200` with `"filed": "already_received"` when that `source_id` came before. JSON only (`415` otherwise); a request whose `Origin` is another site is refused (`403`) |
+| `GET /api/cases/<case id>` | one case as its page shows it: the customer (with their role), the order, the stage, the channels, who has it, every contact on every channel, and `costs_so_far` (estimated) |
 
 **Second Look → your systems**: set `SECONDLOOK_NOTIFY_URL` in `.env` and Second Look POSTs a small
 JSON event there when a review is ready (`review.ready`: case, recommended answer, confidence) and
@@ -145,6 +147,29 @@ when an answer is sent (`answer.sent`, with who sent it), and in a team when a c
 (`case.handed_off`). A failed notification is logged and never blocks the answer.
 
 Add `?shop=demo` or `?practice=1` to try any of it on the demo shop or the practice cases, without keys.
+
+## One case, every channel
+
+A complaint about a purchase usually reaches the shop first, by email or its web form, long before
+anyone goes to PayPal. So Second Look keeps one **case** per customer, order and problem, and every
+contact about it joins that case, whatever the channel: an email, the web form, and the PayPal
+dispute if one is opened later.
+
+- **Sorting** (`secondlook/sort.py`): the sender's address finds the customer; an order number in the
+  message, their one open case, the item they name or their only order finds the order. Only what that
+  can't settle goes to Second Look's AI (about a cent), and code checks its answer against the sender's
+  own orders. A message from an address no order carries is never tied to an order by Second Look:
+  a person picks the order on the case page. A message quoting another customer's order number goes
+  to a person too, and the other customer is never named.
+- **The case page** (`/c/<case id>`): the problem, the stage (shop inquiry, PayPal dispute, PayPal claim),
+  what is at stake, the customer, the channels, who has it, everything said on every channel, and what
+  the case has cost so far: contacts, staff time (each written answer counts the minutes your rules set,
+  at your hourly cost: `policy.json` → `staff_time`), fees and money moved. Staff time is always an
+  estimate, and the page says so.
+- **PayPal disputes work as before.** A dispute becomes part of a case when another channel joins it;
+  its review and its answer stay the dispute's own, under PayPal's rules.
+- **Not built yet:** reviewing and answering a shop inquiry (the next step), phone calls, card and bank
+  refunds. Orders paid by card or bank are the demo shop's own made-up records.
 
 ## See it inside a helpdesk: Ticketbook (made up)
 
@@ -158,6 +183,8 @@ colleague, or not allowed, and why), and the approval goes through the same limi
     SECONDLOOK_NOTIFY_URL=http://127.0.0.1:8766/hooks/secondlook python3 -m secondlook serve
     python3 -m helpdesk serve          # http://127.0.0.1:8766  (switch agent with ?as=luca)
 
+When it starts, Ticketbook hands every open ticket to Second Look (`POST /api/requests`), as a connected
+helpdesk would when mail arrives; each ticket's panel names the Second Look case it is on.
 Second Look's notifications (`answer.sent`, `case.handed_off`, `review.ready`) appear in the ticket's history.
 The tickets are made-up emails from the demo shop's buyers (`python3 helpdesk/make_tickets.py`).
 
@@ -256,6 +283,11 @@ the moment its case changes.
   with Marta's note. Switch to Giulia (`&as=giulia`) and she sends it.
 - **The overview** (http://127.0.0.1:8765/overview?shop=demo): the last 90 days, money kept and given
   back, dispute fees, and every open case with the days left and what PayPal does if nobody answers.
+- **Requests by email and web form**, under the disputes. Sophie, a customer who paid by card, writes
+  that her tablecloth never arrived (http://127.0.0.1:8765/c/DEMO-C001?shop=demo): her email is sorted
+  to her order by rules, and the case shows every contact, who has it and what it has cost so far
+  (estimated). Pablo emailed and then opened PayPal dispute DEMO-034: one case, two channels
+  (http://127.0.0.1:8765/c/DEMO-C003?shop=demo).
 
 Approving in the demo shop sends nothing to anyone: it is logged in `.tmp/actions-demo.jsonl`, and
 the page says "Demo shop: logged, not sent to PayPal."
