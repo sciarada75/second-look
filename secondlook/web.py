@@ -8,12 +8,17 @@ recommendation, the guard's notes, a reply you can edit → Approve sends exactl
 
 A review is cached in .tmp/reviews/ so reloading never pays twice, and Approve executes the cached
 decision: the seller approves what is on the screen, not a fresh answer.
+
+Without a key, nothing breaks: the demo shop's open cases start from the reviews Claude made of them, shipped
+in demo/reviews/, and "Take a second look" runs the rules baseline (secondlook/judge.py `rules`) instead of
+Claude, labelled as such on the page and in the API (`judge`). The guard runs after either judge.
 """
 from __future__ import annotations
 
 import hashlib
 import html
 import json
+import os
 import re
 import threading
 from dataclasses import asdict
@@ -30,6 +35,12 @@ from .paypal import MockPayPal, client_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
 REVIEWS = ROOT / ".tmp" / "reviews"
+# Claude's reviews of the demo shop's open cases, shipped with the repo so a fresh clone with no AI key shows
+# them (a judge of the hackathon has no key). Read only, and only for a DEMO-* case with no review of its own
+# in REVIEWS: a fresh look or an approval saves there, so a shipped file is never written. A shipped review
+# goes out of date exactly as a cached one does: it carries what it saw (`seen`).
+SHIPPED = ROOT / "demo" / "reviews"
+_DEMO_ID = re.compile(r"DEMO-\d+")
 
 REASON = {
     "MERCHANDISE_OR_SERVICE_NOT_RECEIVED": "Says it never arrived",
@@ -75,9 +86,44 @@ def _case(dispute_id: str) -> dict:
     return load_case(_client(dispute_id), dispute_id)
 
 
-def _saved(dispute_id: str):
+def _review_file(dispute_id: str) -> Path | None:
+    """Where this case's review is: its own (.tmp/reviews/), else for a demo case the shipped one, else none."""
     f = REVIEWS / f"{dispute_id}.json"
-    if not f.exists():
+    if f.exists():
+        return f
+    if _DEMO_ID.fullmatch(dispute_id or "") and (SHIPPED / f"{dispute_id}.json").exists():
+        return SHIPPED / f"{dispute_id}.json"
+    return None
+
+
+def _raw(dispute_id: str) -> dict | None:
+    f = _review_file(dispute_id)
+    try:
+        return json.loads(f.read_text()) if f else None
+    except (OSError, ValueError):
+        return None
+
+
+def is_shipped(dispute_id: str) -> bool:
+    """The review on screen is one that ships with the demo, not one made on this machine."""
+    f = _review_file(dispute_id)
+    return bool(f) and f.parent == SHIPPED
+
+
+def judge_of(dispute_id: str) -> str | None:
+    """Which judge wrote the review: "claude" or "rules" (the baseline, when no ANTHROPIC_API_KEY is set).
+    Reviews saved before this was recorded were all Claude's: the web ran no other judge."""
+    raw = _raw(dispute_id)
+    return (raw.get("judge") or "claude") if raw is not None else None
+
+
+def has_ai_key() -> bool:
+    return bool(os.getenv("ANTHROPIC_API_KEY"))
+
+
+def _saved(dispute_id: str):
+    f = _review_file(dispute_id)
+    if not f:
         return None
     raw = json.loads(f.read_text())
     return Decision(action=raw["action"], reasons=raw["reasons"], judgment=Judgment(**raw["judgment"]),
@@ -87,28 +133,27 @@ def _saved(dispute_id: str):
 def review_mark(dispute_id: str) -> str:
     """A short fingerprint of the review a page or a system was shown: what was recommended, what the AI said,
     its amount and draft, and the case it saw. An approval that carries one is refused if the review changed."""
-    try:
-        raw = json.loads((REVIEWS / f"{dispute_id}.json").read_text())
-    except (OSError, ValueError):
+    raw = _raw(dispute_id)
+    if raw is None:
         return ""
     j = raw.get("judgment") or {}
     basis = [raw.get("action"), j.get("action"), j.get("partial_amount"), j.get("draft_message"), raw.get("seen")]
+    if raw.get("judge"):  # only when recorded: the marks of reviews saved before it stay as they were
+        basis.append(raw["judge"])
     return hashlib.sha256(json.dumps(basis, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
 
 
 def _saved_by(dispute_id: str) -> dict:
     """Who sent the answer and when, as saved with it (empty before teams existed, or for a solo seller)."""
-    try:
-        raw = json.loads((REVIEWS / f"{dispute_id}.json").read_text())
-    except (OSError, ValueError):
-        return {}
-    return {"by": raw.get("by"), "at": raw.get("at")}
+    raw = _raw(dispute_id)
+    return {"by": raw.get("by"), "at": raw.get("at")} if raw is not None else {}
 
 
-def _save(dispute_id: str, d: Decision, sent=None, seen=None, by=None, at=None) -> None:
+def _save(dispute_id: str, d: Decision, sent=None, seen=None, by=None, at=None, judge=None) -> None:
     REVIEWS.mkdir(parents=True, exist_ok=True)
+    extra = {"judge": judge} if judge else {}
     (REVIEWS / f"{dispute_id}.json").write_text(json.dumps({**asdict(d), "sent": sent, "seen": seen,
-                                                            "by": by, "at": at}, ensure_ascii=False))
+                                                            "by": by, "at": at, **extra}, ensure_ascii=False))
 
 
 # ---------- the team ----------
@@ -337,8 +382,8 @@ def _seen(case: dict) -> dict:
 
 
 def _changes(dispute_id: str, case: dict) -> list:
-    f = REVIEWS / f"{dispute_id}.json"
-    seen = json.loads(f.read_text()).get("seen") if f.exists() else None
+    raw = _raw(dispute_id)  # a shipped demo review is judged by what it saw, like any other
+    seen = raw.get("seen") if raw is not None else None
     if seen is None:
         return ["this review was saved before Second Look tracked changes"]
     now = _seen(case)
@@ -625,6 +670,9 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 .talk b{{display:block;font-size:14px;font-weight:500;color:var(--soft)}} .talk q{{quotes:none;font-family:Newsreader,Georgia,serif;font-style:italic;font-size:19px}}
 .talk li.buyer{{border-color:var(--fail)}} .talk li.you{{border-color:var(--ink)}} .talk li.proof{{border-color:var(--pass)}}
 .stale{{padding:14px 18px;background:#FBF3E4;border-left:4px solid var(--incon);margin:0 0 14px}}
+.judged{{padding:14px 18px;background:#ECEEEF;border-left:4px solid var(--unclear);margin:0 0 18px;font-size:16px}}
+.judged b{{display:block;margin-bottom:4px}} .judged form{{margin-top:10px}}
+.judged button{{font:700 15px "Schibsted Grotesk",sans-serif;padding:8px 16px;border:0;background:var(--ink);color:var(--paper);cursor:pointer}}
 .back{{display:block;margin-bottom:18px;color:var(--soft)}} .draft summary{{cursor:pointer;color:var(--soft)}} .draft p{{color:var(--soft)}}
 /* demo label, deadlines, costs */
 .mode.demo{{background:var(--kraft-bg);color:#6E4F27;border-left:3px solid var(--kraft);padding:2px 10px;font-weight:500}}
@@ -1206,6 +1254,33 @@ def page_offer(did: str, me: str | None, case: dict | None = None) -> dict:
                 f"Approve: {ACTION.get(dec.action, dec.action).lower()}", "Your reply to the buyer", True)
 
 
+# No ANTHROPIC_API_KEY: the page says so before the review and on it, and never passes the rules off as the AI.
+HOW_TO_KEY = ('To have Claude review it, put an Anthropic API key in <code>.env</code> as ANTHROPIC_API_KEY '
+              '(README, "Try it") and start Second Look again.')
+# What the rules baseline (judge.rules) reads: nothing else.
+RULES_LOOK = "the dispute reason, the tracking status and whether the buyer sent photos"
+NO_KEY_RUN = ('<p><b>No AI key is set,</b> so this runs the rules baseline, not Claude: the simple rules the eval '
+              f'measures Claude against. It looks only at {RULES_LOOK}, and runs none of the '
+              'ten checks. Your limits still apply after it, as they do for Claude. Nothing is sent until you approve. '
+              + HOW_TO_KEY + '</p><button>Take a second look (rules baseline)</button>')
+
+
+def judged_note(did: str, judged: str | None, sent: bool) -> str:
+    """Who wrote the review on screen, when it isn't a review Claude made on this machine."""
+    if judged == "rules":
+        why = ("This review ran without an Anthropic API key." if has_ai_key()
+               else "No AI key is set, so Second Look ran its rules baseline instead of Claude.")
+        again = (f'<form method="post" action="/d/{e(did)}/review"><button>Take a second look with Claude</button></form>'
+                 if has_ai_key() and not sent else "" if has_ai_key() else f"<span>{HOW_TO_KEY}</span>")
+        return (f'<div class="judged"><b>Rules baseline, not the AI.</b>{e(why)} It looks only at {RULES_LOOK}, '
+                f'the way a simple automation would. Your limits were applied after it, as '
+                f'they are for Claude. {again}</div>')
+    if judged and is_shipped(did):
+        return ('<p class="conf">Reviewed by Claude ahead of time: this review ships with the demo shop, so it shows '
+                'without an AI key. It goes out of date like any other if the case changes.</p>')
+    return ""
+
+
 def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     case = _case(dispute_id)
     d, r = case["dispute"], case["seller_records"]
@@ -1271,10 +1346,11 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
         right = owner + banner + costs
     elif not saved:
         # the dispute id goes in by replace(), not format(): the script below has braces of its own
-        right = owner + banner + costs + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
-                 '<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
+        intro = ('<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
                  'would run, and recommends one answer. Nothing is sent until you approve.</p>'
-                 '<button>Take a second look</button></form>'
+                 '<button>Take a second look</button>') if has_ai_key() else NO_KEY_RUN
+        right = owner + banner + costs + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
+                 + intro + '</form>'
                  '<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.querySelector("button");'
                  'b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>').replace("DISPUTE_ID", e(dispute_id))
     else:
@@ -1289,8 +1365,12 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
                      f'<ul>{"".join(f"<li>{e(plain(n))}</li>" for n in dec.reasons)}</ul></div>')
         amount = f' ({e(j.partial_amount)})' if dec.action == "PARTIAL_REFUND" and j.partial_amount else ""
         lead, rest = first_sentences(j.reasoning)
-        verdict = (f'<section class="verdict"><h3>{e(ACTION.get(dec.action, dec.action))}{amount}</h3>'
-                   f'<p class="conf">Confidence {j.confidence:.0%}. {e(ACTION_SAYS.get(dec.action, ""))}</p>'
+        judged = judge_of(dispute_id)
+        conf = (f"Confidence {j.confidence:.0%}." if judged != "rules"
+                else f"A fixed rule, not a measured confidence ({j.confidence:.0%}).")
+        verdict = (judged_note(dispute_id, judged, bool(sent))
+                   + f'<section class="verdict"><h3>{e(ACTION.get(dec.action, dec.action))}{amount}</h3>'
+                   f'<p class="conf">{e(conf)} {e(ACTION_SAYS.get(dec.action, ""))}</p>'
                    f'<p>{e(lead)}</p>'
                    + (f'<details><summary>Full reasoning</summary><p>{e(rest)}</p></details>' if rest else "")
                    + f'{guard}</section>')
@@ -1298,7 +1378,7 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
         if via == "stale":
             action_part = done + (f'<form class="run" method="post" action="/d/{e(dispute_id)}/review"><div class="stale">'
                            f'<b>This answer is out of date:</b> {e("; ".join(o["reasons"]))}.</div>'
-                           f'<button>Take a fresh look</button></form>'
+                           f'<button>Take a fresh look{"" if has_ai_key() else " (rules baseline: no AI key is set)"}</button></form>'
                            '<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.'
                            'querySelector("button");b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>')
         elif via == "sent":
@@ -1318,7 +1398,9 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
                            f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(o["draft"])}</p></details>')
         else:
             action_part = ""
-        right = f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{checks(j)}'
+        ten = checks(j) or (f'<p class="na-line">The rules baseline runs none of the ten checks: it looks only at {RULES_LOOK}. '
+                            'Claude runs them.</p>' if judged == "rules" else "")
+        right = f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{ten}'
     body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
     return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
 
@@ -1349,18 +1431,20 @@ def run_review(did: str) -> Decision:
     saved = _saved(did)
     if saved and saved[1] and not _changes(did, _case(did)):
         return saved[0]  # answered, and nothing new since: keep the record (and don't pay for a review)
-    dec = review(_client(did), did, "claude")
+    # No key: the rules baseline instead of an error page. Saved as "rules", and labelled so on every screen.
+    judge = "claude" if has_ai_key() else "rules"
+    dec = review(_client(did), did, judge)
     with _case_lock(did):  # never between an approval's read and its save
         case, saved = _case(did), _saved(did)
         if saved and saved[1] and not _changes(did, case):
             return saved[0]  # sent while the judge was reading: the sent record stays
-        _save(did, dec, seen=_seen(case))
+        _save(did, dec, seen=_seen(case), judge=judge)
         t = team_for(did)
         if not t.get("solo") and assignments_for(did).get(did)["handoff"]:
             # A colleague's note was about the old review: the case stays theirs, the note goes.
             assignments_for(did).update(did, lambda a: {**a, "handoff": None})
     notify("review.ready", {"dispute_id": did, "recommended": dec.action, "confidence": dec.judgment.confidence,
-                            "limits_changed_it": dec.overridden})
+                            "limits_changed_it": dec.overridden, "judge": judge})
     return dec
 
 
@@ -1479,7 +1563,8 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
     dec.action = chosen  # "your call": a question, or the answer held back only for its size
     if message is not None:
         dec.judgment.draft_message = message
-    seen = json.loads((REVIEWS / f"{did}.json").read_text()).get("seen")
+    raw = _raw(did) or {}  # the case's own review, or the shipped demo one it starts from
+    seen, judged = raw.get("seen"), raw.get("judge")
     result = execute(_client(did), dec, case["dispute"], case["seller_records"])
     sent = {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
             else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
@@ -1496,7 +1581,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
     by_name = None if t.get("solo") else who["name"]
-    _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"))
+    _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged)
     if not t.get("solo"):
         # Sent by them: the case is theirs, and any handoff waiting on it is done.
         assignments_for(did).update(did, lambda a: {"to": who["id"], "handoff": None})
@@ -1523,7 +1608,9 @@ def api_case(did: str, as_person: str | None = None) -> dict:
                          "checks": [{**c, "group": _bucket(c), "label": CHECKS.get(c.get("id"), c.get("id"))}
                                     for c in dec.judgment.checks if isinstance(c, dict) and "id" in c and "result" in c],
                          "sent": sent, "by": _saved_by(did).get("by"), "out_of_date": _changes(did, case),
-                         "mark": review_mark(did)}
+                         "mark": review_mark(did),
+                         # "claude", or "rules": the baseline that runs when no ANTHROPIC_API_KEY is set
+                         "judge": judge_of(did), "shipped_with_demo": is_shipped(did)}
     if not team_for(did).get("solo"):
         a = assignments_for(did).get(did)
         out["assigned_to"], out["handoff"] = a["to"], a["handoff"]

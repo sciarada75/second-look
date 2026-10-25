@@ -558,11 +558,9 @@ def test_the_customer_card_and_the_evidence_count_the_shop_rate_the_same_way():
     assert f"Your shop: {evidence_rate:.1%}." in web.customer_page("DEMODARIOV7Q", "demo")
 
 def test_the_api_says_what_approving_would_do_for_a_person():
-    # Earlier tests point web.REVIEWS at temporary folders: read the real saved reviews here, then put it back.
-    kept, web.REVIEWS = web.REVIEWS, web.ROOT / ".tmp" / "reviews"
+    # No review of this machine's: DEMO-034 starts from the review shipped in demo/reviews/, as on a fresh clone.
+    kept, web.REVIEWS = web.REVIEWS, Path(tempfile.mkdtemp())
     try:
-        if not web._saved("DEMO-034"):
-            return  # needs the saved review of DEMO-034 (made 23/10); skip on a fresh clone
         marta = web.api_case("DEMO-034", as_person="marta")["for_person"]
         giulia = web.api_case("DEMO-034", as_person="giulia")["for_person"]
         assert marta["outcome"] == "pass" and marta["to"] == "Giulia" and marta["action"] == "REFUND"
@@ -698,6 +696,114 @@ def test_a_page_is_marked_with_the_section_it_says_not_one_guessed_from_its_text
     assert current(web.page("Your rules | Second Look", "", body, here="rules"))[0].startswith("Your rules")
     with demo_team({}):
         assert current(web.inbox_page("demo", "giulia", "mine")) == ["Disputes"]
+
+
+# ---------- a fresh clone with no keys (a hackathon judge) ----------
+# 24/10: on a fresh clone every demo case said "Not reviewed yet" (the reviews lived only in the gitignored
+# .tmp/reviews/), and "Take a second look" was an error page without ANTHROPIC_API_KEY.
+
+@contextmanager
+def no_reviews_here(ai_key=False):
+    """No review of this machine's (an empty .tmp/reviews/), the real shipped demo reviews, a demo team that
+    writes no real file, and an AI key present or not. The real Claude judge fails the test if it is called."""
+    from secondlook import judge as judge_mod
+    kept = web.REVIEWS, web.SHIPPED, web.has_ai_key, web.notify, judge_mod.BACKENDS["claude"]
+    tmp = Path(tempfile.mkdtemp())
+
+    def no_paid_call(case):
+        raise AssertionError("the Claude judge must not run in this test")
+    try:
+        web.REVIEWS = tmp / "reviews"
+        web.has_ai_key = lambda: ai_key
+        web.notify = lambda event, payload: None
+        judge_mod.BACKENDS["claude"] = no_paid_call
+        with demo_team({}) as store:
+            yield SimpleNamespace(tmp=tmp, store=store)
+    finally:
+        web.REVIEWS, web.SHIPPED, web.has_ai_key, web.notify, judge_mod.BACKENDS["claude"] = kept
+
+
+def test_a_demo_case_starts_from_its_shipped_review_and_goes_out_of_date_like_any_other():
+    with no_reviews_here() as b:
+        web.SHIPPED = b.tmp / "shipped"
+        web.SHIPPED.mkdir()
+        c = case()
+        j = Judgment("DEFEND", 0.9, "why", draft_message="Hello")
+        shipped = json.dumps({**web.asdict(Decision("DEFEND", [], j, False, [])), "sent": None, "seen": web._seen(c)})
+        (web.SHIPPED / "DEMO-001.json").write_text(shipped)
+        (web.SHIPPED / "X.json").write_text(shipped)
+        assert web._saved("DEMO-001")[0].action == "DEFEND" and web.is_shipped("DEMO-001")
+        assert web.judge_of("DEMO-001") == "claude" and web.review_mark("DEMO-001")
+        assert web._changes("DEMO-001", c) == []
+        assert web._changes("DEMO-001", case(buyer_messages=2)) == ["the buyer wrote again"]   # stale, same test
+        assert web._saved("X") is None and not web.is_shipped("X")      # only demo cases start from a shipped one
+        web._save("DEMO-001", Decision("REFUND", [], j, False, []), seen=web._seen(c))
+        assert web._saved("DEMO-001")[0].action == "REFUND" and not web.is_shipped("DEMO-001")  # its own wins
+        assert (web.SHIPPED / "DEMO-001.json").read_text() == shipped                         # never written
+
+
+def test_on_a_fresh_clone_the_demo_cases_show_claude_s_reviews_and_the_team_s_buttons():
+    with no_reviews_here():
+        for did in ("DEMO-031", "DEMO-034"):
+            assert web.is_shipped(did) and web._changes(did, web._case(did)) == []   # the demo data they saw
+        for who in ("giulia", "marta"):
+            o = web.page_offer("DEMO-031", who)
+            assert o["outcome"] == "send" and o["action"] == "DEFEND"
+        page = web.case_page("DEMO-031", me="marta")
+        assert "Approve: defend with evidence" in page and "Reviewed by Claude ahead of time" in page
+        assert "Not reviewed yet" not in page and "Rules baseline" not in page
+        marta = web.page_offer("DEMO-034", "marta")
+        assert marta["outcome"] == "pass" and marta["to"] == "Giulia" and marta["action"] == "REFUND"
+        assert "Pass to Giulia" in web.case_page("DEMO-034", me="marta")
+        assert web.page_offer("DEMO-034", "giulia")["outcome"] == "send"
+        api = web.api_case("DEMO-031")["review"]
+        assert api["judge"] == "claude" and api["shipped_with_demo"] is True
+
+
+def test_approving_a_shipped_demo_review_only_logs_and_never_writes_the_shipped_file():
+    with no_reviews_here() as b:
+        kept_client = web._client
+        log = b.tmp / "actions-demo.jsonl"
+        web._client = lambda did=None: DemoPayPal(log=log)
+        try:
+            before = (web.SHIPPED / "DEMO-031.json").read_text()
+            code, text = web.approve("DEMO-031", "DEFEND", "Hello Dario", by="marta",
+                                     review=web.review_mark("DEMO-031"))
+            assert code == 200 and "(Demo shop: logged, not sent to PayPal.)" in text
+            assert [json.loads(x)["action"] for x in log.read_text().splitlines()] == ["provide-evidence", "send-message"]
+            assert (web.SHIPPED / "DEMO-031.json").read_text() == before
+            assert web._saved("DEMO-031")[1] == text and not web.is_shipped("DEMO-031")
+            assert web.approve("DEMO-031", "DEFEND", "Again", by="giulia")[1] == text   # sent once
+        finally:
+            web._client = kept_client
+
+
+def test_without_an_ai_key_the_review_is_the_rules_baseline_labelled_and_guarded():
+    with no_reviews_here(ai_key=False):
+        before = web.case_page("PP-D-004")      # a practice case: a team of one, no shipped review
+        assert "No AI key is set" in before and "Take a second look (rules baseline)" in before
+        assert ".env" in before and "runs the ten checks a dispute specialist" not in before
+        dec = web.run_review("PP-D-004")        # the rules say REPLACE at 0.70; the guard holds it back
+        assert dec.judgment.action == "REPLACE" and dec.action == "ASK_SELLER" and dec.overridden
+        assert web.judge_of("PP-D-004") == "rules" and web.api_case("PP-D-004")["review"]["judge"] == "rules"
+        page = web.case_page("PP-D-004")
+        assert "Rules baseline, not the AI." in page and "No AI key is set" in page and ".env" in page
+        assert "Your limits changed the answer" in page and "not a measured confidence" in page
+        assert "runs none of the ten checks" in page and "Confidence 70%" not in page
+        assert "Take a second look with Claude" not in page
+
+
+def test_with_an_ai_key_the_review_is_claude_s_and_a_rules_review_can_be_redone_with_it():
+    from secondlook import judge as judge_mod
+    with no_reviews_here(ai_key=False):
+        web.run_review("PP-D-004")
+        web.has_ai_key = lambda: True           # a key added later, then Second Look started again
+        page = web.case_page("PP-D-004")
+        assert "This review ran without an Anthropic API key." in page and "Take a second look with Claude" in page
+        judge_mod.BACKENDS["claude"] = lambda c: Judgment("DEFEND", 0.9, "Claude, faked: no call is made.",
+                                                          draft_message="Hello")
+        web.run_review("PP-D-004")
+        assert web.judge_of("PP-D-004") == "claude" and "Rules baseline" not in web.case_page("PP-D-004")
 
 
 if __name__ == "__main__":

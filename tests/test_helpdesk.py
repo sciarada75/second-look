@@ -222,6 +222,12 @@ def test_the_customer_line_counts_in_words():
     assert "No orders or PayPal disputes for this email in Second Look." in html
 
 
+def test_a_rules_baseline_review_is_never_shown_as_the_ai():
+    html = bench(FakeSL(case={**SHIRT, "review": {**SHIRT["review"], "judge": "rules"}})).ticket_page(2041, "marta")
+    assert "Rules baseline, not the AI" in html and "The AI&#x27;s own answer" not in html and "Confidence" not in html
+    assert "Confidence" in bench(FakeSL(case=SHIRT)).ticket_page(2041, "marta")
+
+
 def test_limits_notes_that_are_not_a_list_are_ignored():
     html = bench(FakeSL(case={**CASE, "review": {**CASE["review"], "limits_notes": "abc"}})).ticket_page(2041, "marta")
     assert "<li>a</li>" not in html

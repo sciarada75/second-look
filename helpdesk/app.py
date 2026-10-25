@@ -429,9 +429,12 @@ class Helpdesk:
         # The decision first (what Second Look recommends, and the one button it allows), then the why.
         out = [head, f'<p class="rec">{e(words(r.get("recommended")))}</p>']
         conf = r.get("confidence")
-        sub = f"Confidence {float(conf):.0%}." if isinstance(conf, (int, float)) else ""
+        rules = r.get("judge") == "rules"  # Second Look's rules baseline (no AI key set): never shown as the AI
+        sub = ("Rules baseline, not the AI: Second Look has no AI key set." if rules
+               else f"Confidence {float(conf):.0%}." if isinstance(conf, (int, float)) else "")
         if r.get("recommended") == "ASK_SELLER" and r.get("ai_said") and r.get("ai_said") != "ASK_SELLER":
-            sub += f' The AI\'s own answer: {words(r["ai_said"]).lower()}.'
+            whose = "rules'" if rules else "AI's"
+            sub += f' The {whose} own answer: {words(r["ai_said"]).lower()}.'
         if sub:
             out.append(f'<p class="soft">{e(sub.strip())}</p>')
         notes = r.get("limits_notes")
