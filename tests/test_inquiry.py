@@ -172,6 +172,18 @@ def test_a_refund_on_an_inquiry_is_logged_never_moved_and_counted_in_the_cost():
         assert '<span class="ai-tag">Second Look\'s AI</span>' in web.case_file_page("DEMO-C001", me="marta")
 
 
+def test_the_api_gives_the_case_s_review_and_what_approving_would_do():
+    with morning():
+        web.run_review("DEMO-C002")
+        c = web.api_case_of("DEMO-C002", as_person="marta")
+        assert c["decision_id"] == "DEMO-C002" and c["review"]["judge"] == "rules"
+        assert c["for_person"]["outcome"] == "pass" and c["for_person"]["to"] == "Giulia"
+        assert c["review"]["checks"] == [] and c["review"]["recommended"] == "ASK_SELLER"
+        pablo = web.api_case_of("DEMO-C003", as_person="giulia")
+        assert pablo["decision_id"] == "DEMO-034" and pablo["for_person"]["outcome"] == "send"   # the dispute's own
+        assert "for_person" not in web.api_case_of("DEMO-C003")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

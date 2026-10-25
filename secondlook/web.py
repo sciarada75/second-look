@@ -409,13 +409,19 @@ def pick_order(cid: str, order_no: str, by: str | None) -> tuple:
     return 200, store.pick_order(cid, sort_mod.order_view(o), who["name"], dispute=d)
 
 
-def api_case_of(cid: str) -> dict | None:
-    """Other systems -> Second Look: one case as data, what its page shows."""
+def api_case_of(cid: str, as_person: str | None = None) -> dict | None:
+    """Other systems -> Second Look: one case as data, what its page shows. `review` and, with ?as=, `for_person`
+    are the case's decision's (its PayPal dispute, else the inquiry), the same as GET /api/disputes/<decision_id>."""
     v = case_view(cid)
     if v is None:
         return None
     c = v["case"]
-    return {"case_id": c["id"], "stage": c["stage"], "stage_label": cases_mod.STAGE_LABEL[c["stage"]],
+    decision = {}
+    if c["sorted"]["by"]:
+        full = api_case(v["decision_id"], as_person=as_person)
+        decision = {k: full[k] for k in ("review", "for_person", "handoff") if k in full}
+    return {**decision, "decision_id": v["decision_id"],
+            "case_id": c["id"], "stage": c["stage"], "stage_label": cases_mod.STAGE_LABEL[c["stage"]],
             "status": c["status"], "outcome": c["outcome"], "problem": c["problem"],
             "customer": {**c["customer"], "role": "customer"}, "order": v["order"], "sorted": c["sorted"],
             "at_stake": {"value": v["at_stake"], "currency_code": v["currency"]}, "channels": v["channels"],
@@ -2304,7 +2310,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(api_case(unquote(u.path[len("/api/disputes/"):].strip("/")),
                                            as_person=(qs.get("as") or [None])[0]))
             if u.path.startswith("/api/cases/"):
-                cv = api_case_of(unquote(u.path[len("/api/cases/"):].strip("/")))
+                cv = api_case_of(unquote(u.path[len("/api/cases/"):].strip("/")), as_person=(qs.get("as") or [None])[0])
                 return self._json(cv if cv else {"error": "unknown case"}, 200 if cv else 404)
             if u.path.startswith("/c/"):
                 return self._send(case_file_page(u.path[3:].strip("/"), me=me))
@@ -2329,6 +2335,24 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(err)
         finally:
             _REQUEST.qs = {}
+
+    def _case_api(self, cid: str, what: str, raw: bytes):
+        """POST /api/cases/<id>/review and /approve: the case's decision (its PayPal dispute, else the inquiry
+        itself) through the same run_review() and approve() as the page."""
+        c = case_store(shop_of_case(cid)).get(cid) if cases_mod.is_case_id(cid) else None
+        if c is None:
+            return self._json({"error": "unknown case"}, 404)
+        decision = c.get("dispute_id") or cid
+        if what == "review":
+            try:
+                run_review(decision)
+            except ValueError as err:
+                return self._json({"case_id": cid, "error": str(err)}, 409)
+            return self._json(api_case_of(cid))
+        data = json.loads(raw or b"{}")
+        code, text = approve(decision, data.get("action", ""), data.get("message"), data.get("rule", ""),
+                             by=data.get("by"), review=data.get("review"))
+        return self._json({"case_id": cid, "decision_id": decision, "result": text}, code)
 
     def _same_site(self) -> bool:
         """A browser page elsewhere must not post into Second Look: when a request says where it comes from
@@ -2417,6 +2441,8 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
                 code, text = take(parts[1], me)
                 return self._redirect(page_of(parts[1])) if code == 200 else self._send(text, code)
+            if len(parts) == 4 and parts[:2] == ["api", "cases"] and parts[3] in ("review", "approve"):
+                return self._case_api(parts[2], parts[3], raw)
             # the API: the same review and the same approval, as JSON
             if len(parts) == 4 and parts[:2] == ["api", "disputes"] and parts[3] in ("review", "approve"):
                 did = parts[2]
