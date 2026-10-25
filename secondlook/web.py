@@ -2575,7 +2575,9 @@ class Handler(BaseHTTPRequestHandler):
                 cv = api_case_of(unquote(u.path[len("/api/cases/"):].strip("/")), as_person=(qs.get("as") or [None])[0])
                 return self._json(cv if cv else {"error": "unknown case"}, 200 if cv else 404)
             if u.path.startswith("/c/"):
-                return self._send(case_file_page(u.path[3:].strip("/"), me=me))
+                cid = u.path[3:].strip("/")
+                known = cases_mod.is_case_id(cid) and case_store(shop_of_case(cid)).get(cid) is not None
+                return self._send(case_file_page(cid, me=me), 200 if known else 404)
             if u.path.startswith("/api/customers/"):
                 # the integration: a CRM or helpdesk asks for a customer's record by email or PayPal payer id
                 cu = customer_json(unquote(u.path[len("/api/customers/"):].strip("/")), src)

@@ -660,6 +660,24 @@ def test_both_pages_name_the_earlier_and_the_later_case():
         assert web.api_case_of(b)["earlier_case"] == a and web.api_case_of(a)["later_cases"] == [b]
 
 
+def test_a_case_page_that_does_not_exist_answers_404():
+    from http.client import HTTPConnection
+    with morning():
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            for path, want in (("/c/DEMO-C999", 404), ("/c/nonsense", 404), ("/c/C001", 404), ("/c/DEMO-C001", 200)):
+                con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+                con.request("GET", path + "?shop=demo&as=marta")
+                r = con.getresponse()
+                body = r.read().decode()
+                assert r.status == want, (path, r.status)
+                assert want == 200 or "No case with that id" in body
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
