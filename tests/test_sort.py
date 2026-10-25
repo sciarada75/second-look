@@ -207,6 +207,20 @@ def test_addresses_match_without_spaces_or_capitals_and_the_ai_gets_a_capped_tex
     assert len(seen[0]) < 5000
 
 
+def test_digits_of_someone_else_s_order_number_are_a_person_s_call_unless_one_of_the_sender_s_fits():
+    for text in ("Order DEMOTX 03002 hasn't arrived.", "#03002 hasn't arrived.", "Re: order-DEMOTX03002, not arrived."):
+        s = sort.sort(req(text, "sophie.durand@example.com"), ORDERS, set(), ai=no_ai)
+        assert not s["settled"] and s["order_no"] is None, text
+        assert s["how"].endswith("the message quotes an order number that isn't on this sender's orders: a person checks.")
+        assert "Ada" not in s["how"] and "03002" not in s["how"]
+    s = sort.sort(req("#03002 is broken.", "ada.r@example.com"), ORDERS, set(), ai=no_ai)
+    assert s["settled"] and s["order_no"] == "DEMOTX03002"                  # her own digits: her own order
+    s = sort.sort(req("Re: order-LP-90001, not arrived.", "sophie.durand@example.com"), ORDERS, set(), ai=no_ai)
+    assert s["order_no"] == "LP-90001" and "quotes order LP-90001" in s["how"]
+    s = sort.sort(req("Order 77777 hasn't arrived.", "sophie.durand@example.com"), ORDERS, set(), ai=no_ai)
+    assert s["order_no"] == "LP-90001" and "only order" in s["how"]         # digits nobody's order ends with
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

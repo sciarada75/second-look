@@ -3,7 +3,8 @@
 Deterministic first, in this order:
   1. the sender's address -> the customer (an address no order carries: nobody, and nothing is guessed);
   2. an order number of theirs quoted in the message (or given by the sending system) -> that order;
-     someone else's whole order number in it -> a person checks (and the other customer is never named);
+     someone else's order number in it (whole, or its last digits when none of theirs fits) -> a person
+     checks (and the other customer is never named);
   3. their one open case or open PayPal dispute, when the message names no other item ("any news?");
   4. a question (nothing about a problem with an order) needs no order: the sender is enough;
   5. the item the message names, when it fits one of their orders best;
@@ -80,15 +81,20 @@ _TOKEN = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 
 @lru_cache(maxsize=64)
 def _numbers(text: str) -> tuple:
-    """What in a text can quote an order: its whole words ("lp-90001", "demotx01828"), and its runs of five
-    digits or more that are not part of a date or a time ("2026-10-05", "05/10/2026" quote nothing)."""
+    """What in a text can quote an order: its whole words ("lp-90001", "demotx01828", and each hyphen-joined
+    part of a longer word: "order-demotx01828" holds "demotx01828"), and its runs of five digits or more that
+    are not part of a date or a time ("2026-10-05", "05/10/2026" quote nothing)."""
     t = text.lower()
     runs = set()
     for m in re.finditer(r"\d+", t):
         before, after = t[max(0, m.start() - 2):m.start()], t[m.end():m.end() + 2]
         if len(m.group()) >= 5 and not re.fullmatch(r"\d[-/.:]", before) and not re.fullmatch(r"[-/.:]\d", after):
             runs.add(m.group())
-    return frozenset(re.findall(_TOKEN, t)), frozenset(runs)
+    words = set()
+    for w in re.findall(_TOKEN, t):
+        parts = w.split("-")
+        words.update("-".join(parts[i:j]) for i in range(len(parts)) for j in range(i + 1, len(parts) + 1))
+    return frozenset(words), frozenset(runs)
 
 
 def _quoted(o: dict, text: str, whole: bool = False) -> bool:
@@ -157,16 +163,21 @@ def deterministic(request: dict, orders: list, open_orders: set) -> dict:
     def done(o, how):
         return {**base, "settled": True, "by": "rules", "customer": customer, "order_no": order_no(o) if o else None,
                 "how": f"Sorted by Second Look's rules: the sender's address is {customer['name']}'s; {how}."}
-    # Someone else's whole order number in the message: never filed on theirs, nor guessed onto one of the
-    # sender's (and the other customer is never named). A bare run of digits is not enough to say it is
-    # someone else's order: postcodes and phone numbers are runs of digits too.
-    if any(_email(o.get("email")) != sender and _quoted(o, text, whole=True) for o in orders):
-        return {**base, "settled": False, "by": None, "customer": customer, "order_no": None, "quotes_other_order": True,
-                "how": f"The sender's address is {customer['name']}'s, but the message quotes an order number that "
-                       f"isn't on this sender's orders: a person checks."}
+    # Someone else's order number in the message: never filed on theirs, nor guessed onto one of the sender's
+    # (and the other customer is never named). Their whole number always; the last digits of their number
+    # ("#03002", "DEMOTX 03002") when none of the sender's own orders fits them. A postcode that happens to
+    # be those digits only means a person checks.
+    other = [o for o in orders if _email(o.get("email")) != sender]
+    elsewhere = {**base, "settled": False, "by": None, "customer": customer, "order_no": None, "quotes_other_order": True,
+                 "how": f"The sender's address is {customer['name']}'s, but the message quotes an order number that "
+                        f"isn't on this sender's orders: a person checks."}
+    if any(_quoted(o, text, whole=True) for o in other):
+        return elsewhere
     quoted = [o for o in mine if _quoted(o, text)]
     if len(quoted) == 1:
         return done(quoted[0], f"the message quotes order {order_no(quoted[0])}")
+    if not quoted and any(_quoted(o, text) for o in other):
+        return elsewhere
     open_mine = [o for o in mine if order_no(o) in open_orders]
     best = named(mine, text)
     if len(open_mine) == 1 and (not best or open_mine[0] in best):
