@@ -300,7 +300,8 @@ class CaseStore(JsonFile):
                 c["dispute_id"], c["stage"] = d["dispute_id"], stage_for(d)
                 if d.get("status") == "RESOLVED":
                     key = paypal_outcome(d)
-                    c.update(status="closed", outcome=key, closed_by="PayPal")
+                    c.update(status="closed", outcome=key, closed_by="PayPal",
+                             closed_at=minute(d.get("update_time") or d.get("create_time")))
                     c["timeline"].append(entry(d.get("update_time"), "paypal", "note",
                                                f"Closed: PayPal resolved {d['dispute_id']}: {OUTCOME_SAYS.get(key, key)}.",
                                                "PayPal", dispute_id=d["dispute_id"]))

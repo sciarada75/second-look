@@ -105,6 +105,72 @@ def test_i_know_this_month_every_channel_in_money_and_hours():
     assert k["could_still_cost"] == 118.0
 
 
+@contextmanager
+def morning():
+    """The demo shop's real data, its case file, assignments, reviews and logs in a temporary folder, no AI key,
+    notifications dropped. The real Claude judge and the real AI sort fail the test if they are called."""
+    tmp = Path(tempfile.mkdtemp())
+    kept = (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+            sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], judge.BACKENDS["claude"], demo_mod.ACTION_LOG)
+    store = team_mod.Assignments(tmp / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
+
+    def no_paid_call(*a):
+        raise AssertionError("no paid AI call may run in this test")
+    try:
+        web.CASE_FILES = {"demo": tmp / "cases-demo.json", "live": tmp / "cases-live.json"}
+        web.OUTBOX_LOGS = {"demo": tmp / "actions-demo.jsonl", "live": tmp / "actions-live.jsonl"}
+        web.REVIEWS, web.SUGGESTED = tmp / "reviews", tmp / "suggested.json"
+        demo_mod.ACTION_LOG = tmp / "demo-paypal-actions.jsonl"
+        web.assignments_for = lambda did: store
+        web.has_ai_key = lambda: False
+        web.notify = lambda event, payload: None
+        sort_mod.read_with_ai = judge.INQUIRY_BACKENDS["claude"] = judge.BACKENDS["claude"] = no_paid_call
+        yield store
+    finally:
+        (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+         sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], judge.BACKENDS["claude"], demo_mod.ACTION_LOG) = kept
+
+
+def test_the_demo_morning_reads_every_channel_against_its_orders():
+    with morning():
+        v = web.today_view("demo")
+        s = v["see"]
+        assert s["since"] == "2026-10-19T00:00" and s["counts"] == {"call": 0, "email": 2, "form": 1, "paypal": 3}
+        assert s["orders"] == 141                                # 68 orders on 19 Oct, 73 on 20 Oct: made-up, ~2,000 a month
+        assert [r["link"] for r in s["rows"]] == ["/c/DEMO-C003", "/d/DEMO-039", "/d/DEMO-036", "/c/DEMO-C001", "/c/DEMO-C002"]
+        pablo = s["rows"][0]
+        assert pablo["channels"] == ["email", "paypal"] and pablo["decision_id"] == "DEMO-034" and pablo["days_left"] == 19
+        assert pablo["review"] == {"by": "ai", "text": "Your call (your limits held back: refund in full)"}
+        assert s["rows"][3]["review"] == {"by": None, "text": "Not reviewed yet"}
+        people = {p["name"]: (p["role"], len(p["items"])) for p in v["manage"]["people"]}
+        assert people == {"Giulia": ("Head of customer care", 0), "Marta": ("Customer care assistant", 3),
+                          "Luca": ("Customer care assistant", 2), "Sara": ("Customer care assistant", 0)}
+        assert len(v["manage"]["unassigned"]) == 9 and v["manage"]["handoffs"] == []
+        k = v["know"]
+        assert (k["from"], k["orders"], k["requests"], k["solved_before_dispute"]) == ("2026-10-01T00:00", 1329, 64, 31)
+        assert (k["answers"], k["staff_cost"], k["back_cases"], k["back_paypal"], k["fees"]) == (23, 57.5, 160.0, 154.7, 14.0)
+        assert k["could_still_cost"] == 1073.0
+
+
+def test_what_the_team_does_this_morning_shows_at_once():
+    with morning() as store:
+        web.run_review("DEMO-C001")                             # the rules baseline: no key here
+        row = next(r for r in web.today_view("demo")["see"]["rows"] if r["case_id"] == "DEMO-C001")
+        assert row["review"] == {"by": "rules", "text": "Reply only"}
+        assert web.approve("DEMO-C001", "MESSAGE", "It was left with your neighbour.", by="marta")[0] == 200
+        assert web.close_case("DEMO-C001", "solved", "marta")[0] == 200
+        assert web.case_store("demo").get("DEMO-C001")["closed_at"]          # when it closed, for "this month"
+        v = web.today_view("demo")
+        row = next(r for r in v["see"]["rows"] if r["case_id"] == "DEMO-C001")
+        assert row["review"]["text"] == "Answered: Reply sent by email" and row["status"] == "closed"
+        assert (v["know"]["answers"], v["know"]["solved_before_dispute"]) == (24, 32)
+        code, _ = web.approve("DEMO-034", "REFUND", "You're right: here is your refund.", by="marta")
+        assert code == 202                                       # over Marta's 30 EUR: passed to Giulia, nothing sent
+        hand = web.today_view("demo")["manage"]["handoffs"]
+        assert [(h["id"], h["from_name"], h["from_role"], h["to_name"], h["to_role"]) for h in hand] == [
+            ("DEMO-034", "Marta", "Customer care assistant", "Giulia", "Head of customer care")]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

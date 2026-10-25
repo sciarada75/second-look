@@ -28,7 +28,7 @@ from pathlib import Path
 from datetime import timedelta
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
-from . import cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod
+from . import cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
 from .guard import apply_policy, may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
@@ -772,7 +772,7 @@ def _close(store, cid: str, outcome: str, who: dict) -> tuple:
         return 409, "This case is closed already."
 
     def close(x):
-        x["status"], x["outcome"] = "closed", outcome
+        x["status"], x["outcome"], x["closed_at"] = "closed", outcome, cases_mod.minute(None)
         x["timeline"].append(cases_mod.entry(None, reply_channel(x), "note",
                                              f"Closed by {who['name']}: {CLOSE_OUTCOMES[outcome].lower()}.", who["name"]))
     store.update(cid, close)
@@ -1644,6 +1644,59 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
 def customer_json(key: str, src: str) -> dict | None:
     _, disputes, orders, today = _shop(src)
     return ledger.customer(key, disputes, orders, today)
+
+
+# ---------- the morning screen: "I see, I manage, I know" (secondlook/today.py does the counting) ----------
+
+def shop_cases(src: str) -> list:
+    """Every case of a shop the morning screen counts: its case file (the demo's seeded on first read), and, for
+    the demo shop, the closed cases of the weeks before this morning, from demo/shop.json ("history", read only)."""
+    cases = case_store(src).all() if src in CASE_FILES else []
+    return cases + (DemoPayPal().history() if src == "demo" else [])
+
+
+def review_line(did: str) -> dict:
+    """What Second Look recommends on a case, in one line, and who said it: "ai" (Second Look's AI: Claude, here or
+    ahead of time), "rules" (the rules baseline, no AI key), or None (not reviewed yet, or already answered)."""
+    saved = _saved(did)
+    if not saved:
+        return {"by": None, "text": "Not reviewed yet"}
+    dec, sent = saved
+    w = _words(did)
+    if sent:
+        return {"by": None, "text": "Answered: " + sent.split(". ")[0].rstrip(".")}
+    text = w["action"].get(dec.action, dec.action)
+    j = dec.judgment
+    if dec.overridden and j.action != dec.action and j.action in w["action"]:
+        text += f' (your limits held back: {w["action"][j.action].lower()})'
+    return {"by": "rules" if judge_of(did) == "rules" else "ai", "text": text}
+
+
+def sent_answers(src: str) -> list:
+    """When each answer to one of this shop's PayPal disputes was sent from Second Look (its saved review's `at`).
+    An inquiry's answers are on its case's timeline already, so they are not counted here twice."""
+    out = []
+    for f in sorted(REVIEWS.glob("*.json")) if REVIEWS.exists() else []:
+        did = f.stem
+        if cases_mod.is_case_id(did) or is_demo(did) != (src == "demo") or did.startswith("PP-D-"):
+            continue
+        raw = _raw(did) or {}
+        if raw.get("sent") and raw.get("at"):
+            out.append(cases_mod.minute(raw["at"]))
+    return out
+
+
+def today_view(src: str) -> dict:
+    """The three blocks of the morning screen, as data (the page and GET /api/today show the same)."""
+    demo = src == "demo"
+    today = DemoPayPal().today if demo else datetime.utcnow().date()
+    cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
+    t = team_for_src(src)
+    assigned = {} if t.get("solo") else assignments_for("DEMO-" if demo else None).all()
+    return {"today": today, "team": t,
+            "see": today_mod.came_in(cases, disputes, orders, today, review_of=review_line),
+            "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
+            "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src))}
 
 
 # ---------- the case page: one customer, one order, one problem, every channel ----------

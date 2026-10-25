@@ -182,6 +182,7 @@ def test_a_case_closes_with_paypal_s_outcome_when_paypal_resolves_its_dispute():
         assert t.link_disputes([done], orders) == 1
         y = t.get(x["id"])
         assert (y["status"], y["outcome"], y["closed_by"]) == ("closed", key, "PayPal"), code
+        assert y["closed_at"] == "2026-10-19T10:30"          # PayPal's time (no update_time here: its opening)
         note = y["timeline"][-1]
         assert (note["direction"], note["by"], note["channel"]) == ("note", "PayPal", "paypal")
         assert note["text"] == f"Closed: PayPal resolved DEMO-034: {cases.OUTCOME_SAYS[key]}."
