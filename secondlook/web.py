@@ -796,7 +796,8 @@ def review_inquiry(cid: str, judge: str) -> Decision:
 class Outbox:
     """The approved answer to an inquiry, recorded: a signed "out" entry on the case's timeline, on the channel
     the customer used, any money as a logged entry on the case, and one line in the action log. The same
-    interface as the PayPal clients, so execute() runs it unchanged. Nothing is sent from here in this step."""
+    interface as the PayPal clients, so execute() runs it unchanged. A refund on an order paid through PayPal goes to
+    PayPal's refund API; nothing else is sent from here."""
 
     def __init__(self, cid: str, by: str, ai: bool, amount: float):
         self.cid, self.by, self.ai, self.amount = cid, by, ai, amount
@@ -804,12 +805,26 @@ class Outbox:
 
     def _out(self, action: str, text: str, money: dict | None = None) -> dict:
         store = case_store(self.src)
-        ch = reply_channel(store.get(self.cid))
+        c0 = store.get(self.cid)
+        ch = reply_channel(c0)
+        sent = {}
+        if money and money["kind"] in ("refund", "partial_refund"):
+            # Paid through PayPal (the order is a captured PayPal payment): PayPal refunds it, before anything is
+            # recorded, so a refused refund is never logged as done. Paid by card or bank: logged for the shop's
+            # payment provider, which Second Look doesn't reach (the person marks it paid when it is).
+            o = _raw_order(self.src, c0.get("order_no"))
+            capture = (o or {}).get("transaction_id")
+            if capture:
+                cur = (o or {}).get("currency") or "EUR"
+                r = paypal_for(self.src).refund_capture(capture, f'{float(money["amount"]):.2f}', cur, text)
+                sent = {"via": "PayPal refund API", "status": "sent to PayPal", "refund_id": r.get("id")}
+            else:
+                sent = {"via": "for your payment provider (not connected)"}
 
         def change(c):
             c["timeline"].append(cases_mod.entry(None, ch, "out", text, self.by, ai=self.ai, action=action))
             if money:
-                c["money"].append({**money, "at": cases_mod.minute(None), "by": self.by})
+                c["money"].append({**money, **sent, "at": cases_mod.minute(None), "by": self.by})
         store.update(self.cid, change)
         log = OUTBOX_LOGS[self.src]
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -817,7 +832,7 @@ class Outbox:
             f.write(json.dumps({"ts": cases_mod.minute(None), "case_id": self.cid, "action": action, "channel": ch,
                                 "by": self.by, "text": text, **({"money": money} if money else {})},
                                ensure_ascii=False) + "\n")
-        return {"status": "LOGGED", "channel": ch}
+        return {"status": "LOGGED", "channel": ch, **({"via": "paypal"} if sent.get("refund_id") else {})}
 
     def message(self, did, text):
         return self._out("reply", text)
@@ -834,6 +849,11 @@ class Outbox:
 
     def defend(self, did, note, tracking=None):
         raise RuntimeError("An inquiry has no PayPal evidence to submit: nothing was sent.")
+
+
+def paypal_for(src: str):
+    """The PayPal client a shop's refunds go through: the demo's (logged, never sent) or the live shop's."""
+    return DemoPayPal() if src == "demo" else client_from_env(ROOT)
 
 
 def review_with_case_refund(did: str, judge: str) -> Decision:
@@ -2841,9 +2861,10 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
               if inquiry else _client(did))
     result = execute(client, dec, case["dispute"], case["seller_records"])
     how = OUT_WORDS.get(result.get("channel"), "by email") if inquiry else ""
+    via = "sent through PayPal" if inquiry and result.get("via") == "paypal" else "logged"
     sent = {"MESSAGE": ("Question" if recommended == "ASK_SELLER" else "Reply") + f" sent {how}.",
-            "REFUND": f"Refund of {amount:.2f} {cur} logged and reply sent {how}.",
-            "PARTIAL_REFUND": f"Partial refund of {amount:.2f} {cur} logged and reply sent {how}.",
+            "REFUND": f"Refund of {amount:.2f} {cur} {via} and reply sent {how}.",
+            "PARTIAL_REFUND": f"Partial refund of {amount:.2f} {cur} {via} and reply sent {how}.",
             "REPLACE": f"Exchange or replacement logged and reply sent {how}."}.get(dec.action, "Done.") if inquiry else {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
             else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
             "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
@@ -2853,7 +2874,9 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         sent += f" Sent by {who['name']}, {now:%H:%M}."
     if inquiry:
         sent += (" (Demo shop: logged; no email or money sent.)" if is_demo(did) else
-                 " (Logged in Second Look: your helpdesk sends the email; money is not moved from here yet.)")
+                 " (Logged in Second Look: your helpdesk sends the email; the refund went to PayPal.)"
+                 if result.get("via") == "paypal" else
+                 " (Logged in Second Look: your helpdesk sends the email; money is not moved from here.)")
     elif is_demo(did):
         sent += " (Demo shop: logged, not sent to PayPal.)"
     elif isinstance(_client(did), MockPayPal):

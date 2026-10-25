@@ -66,6 +66,58 @@ def test_the_live_client_asks_paypal_to_refund_the_capture_and_can_read_it():
     assert seen[1] == ("GET", "/v2/payments/captures/2BU27307GH548541C", None)
 
 
+@contextmanager
+def morning():
+    """The demo shop's real data; its case file, assignments, reviews and logs in a temporary folder; no AI key;
+    notifications dropped. The real Claude judge and the real AI sort fail the test if they are called."""
+    tmp = Path(tempfile.mkdtemp())
+    kept = (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+            sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], judge.BACKENDS["claude"], demo_mod.ACTION_LOG)
+    store = team_mod.Assignments(tmp / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
+
+    def no_paid_call(*a):
+        raise AssertionError("no paid AI call may run in this test")
+    try:
+        web.CASE_FILES = {"demo": tmp / "cases-demo.json", "live": tmp / "cases-live.json"}
+        web.OUTBOX_LOGS = {"demo": tmp / "actions-demo.jsonl", "live": tmp / "actions-live.jsonl"}
+        web.REVIEWS, web.SUGGESTED = tmp / "reviews", tmp / "suggested.json"
+        demo_mod.ACTION_LOG = tmp / "demo-paypal-actions.jsonl"
+        web.assignments_for = lambda did: store
+        web.has_ai_key = lambda: False
+        web.notify = lambda event, payload: None
+        sort_mod.read_with_ai = judge.INQUIRY_BACKENDS["claude"] = judge.BACKENDS["claude"] = no_paid_call
+        yield tmp
+    finally:
+        (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
+         sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], judge.BACKENDS["claude"], demo_mod.ACTION_LOG) = kept
+
+
+def _ask(email, text, sid):
+    return web.receive("demo", {"channel": "email", "from": {"name": "", "email": email}, "text": text, "source_id": sid})
+
+
+def _refunded_paypal_order(sid="b1:1"):
+    """Sami returned an Art print bought through PayPal (DEMOTX00001, 20 EUR): the rules refund it, Giulia approves."""
+    _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", sid)
+    web.run_review(o["case_id"])
+    code, text = web.approve(o["case_id"], "REFUND", "Your refund is on its way.", by="giulia")
+    assert code == 200, text
+    return o["case_id"]
+
+
+def test_a_paypal_paid_order_is_refunded_through_paypal_s_refund_api_and_a_card_order_is_only_logged():
+    with morning() as tmp:
+        cid = _refunded_paypal_order()
+        [m] = web.case_store("demo").get(cid)["money"]
+        assert (m["via"], m["status"], m["refund_id"]) == ("PayPal refund API", "sent to PayPal", "MOCK-REFUND-DEMOTX00001")
+        log = [json.loads(x) for x in (tmp / "demo-paypal-actions.jsonl").read_text().splitlines()]
+        assert [(x["action"], x["payload"]["capture_id"], x["payload"]["amount"], x["payload"]["currency"]) for x in log] == [
+            ("capture-refund", "DEMOTX00001", "20.00", "EUR")]               # the demo's PayPal logs it, never sends it
+        web.run_review("DEMO-C001")
+        web.approve("DEMO-C001", "MESSAGE", "Left with your neighbour.", by="marta")
+        assert len((tmp / "demo-paypal-actions.jsonl").read_text().splitlines()) == 1   # a reply moves no money
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
