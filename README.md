@@ -106,7 +106,7 @@ reply (editable), and one Approve button that sends exactly what is on screen. P
 one click away and never reach PayPal.
 
 - **Today** (`/today`), the shop's first page, in three blocks. *I see*: everything that came in since
-  yesterday, every channel in one list (email, web form, PayPal disputes; calls arrive in a later step),
+  yesterday, every channel in one list (phone calls, email, web form, PayPal disputes),
   each matched to its order with Second Look's recommendation in one line, nearest PayPal deadline first,
   and the new orders beside it. *I manage*: who has which open case, with their role, what nobody has
   yet, and what waits after a handoff. *I know*: this month, every channel: requests, solved before any
@@ -120,7 +120,8 @@ one click away and never reach PayPal.
 - **Customer card** (`/customer/<payer id>`): one customer's orders, disputes, claims and refunds
   against the shop's usual rate.
 - **For your CRM or helpdesk:** `GET /api/customers/<email or PayPal payer id>` returns the same
-  card as JSON, so the record can appear when the customer orders or calls. Local only (127.0.0.1).
+  card as JSON, so the record can appear when the customer orders or calls. A customer who paid by card
+  or bank has a record too, from the shop's own orders. Local only (127.0.0.1).
 - **Demo shop** (`/?shop=demo`): a made-up mid-size shop, "Linen & Paper": about 2,000 orders a
   month (~6,000 in 90 days), a dispute rate near 2%, claims near 0.6% of last quarter's sales, and a
   customer care team of four (Giulia, head of customer care; Marta, Luca and Sara, customer care assistants, who send refunds up to
@@ -145,6 +146,8 @@ as the screen.
 | `POST /api/disputes/<id>/review` | ask for a review (Claude runs; a few cents). Without `ANTHROPIC_API_KEY` the rules baseline runs instead, and the review says `"judge": "rules"` |
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
+| `GET /api/orders/<order no>` | one order as the shop's order system holds it: customer, items, amount, how it was paid (`paid_with`: `paypal`, `card` or `bank`), delivery address. In the demo shop, a made-up stand-in for the shop's own order system, labelled so (`source`) |
+| `GET /api/tracking/<order no>` | the courier's record of that order: the parcel (`tracking`: status, where it was left) and any return (`return`). In the demo shop, a made-up stand-in for the courier, labelled so; on the live shop, PayPal's tracking of a PayPal order |
 | `GET /api/today` | the morning screen as data: `see` (what came in since yesterday, one row per problem, with `counts` by channel and the new `orders`), `manage` (who has which open case, with roles; unassigned; handoffs) and `know` (this month: requests, solved before any dispute, staff time and its estimate's inputs, money given back, fees, what open cases could still cost, PayPal's claim line) |
 | `POST /api/requests` | `{"channel": "email" or "form", "from": {"name", "email"}, "text", "subject", "time", "order", "source_id"}`: one request from your helpdesk or web form. Second Look sorts it (rules first, its AI only for what they can't settle) and files it on its case: `201` with `case_id`, `filed` (`opened` or `joined`), `stage`, `sorted` and `dispute_id`; `200` with `"filed": "already_received"` when that `source_id` came before. JSON only (`415` otherwise), at most 1 MB (`413`) |
 | `GET /api/cases/<case id>?as=<person id>` | one case as its page shows it: the customer (with their role), the order, the stage, the channels (`channels`, and `channel_labels` as people say them: "web form", "PayPal"), who has it, every contact on every channel (each with its `role`), `costs_so_far` (estimated), and its `decision_id` (its PayPal dispute, or the case itself for a shop inquiry) with that decision's `review` and, with `?as=`, `for_person` |
@@ -171,6 +174,15 @@ anyone goes to PayPal. So Second Look keeps one **case** per customer, order and
 contact about it joins that case, whatever the channel: an email, the web form, and the PayPal
 dispute if one is opened later.
 
+- **Phone calls** (`secondlook/calls.py`): the shop's phone system leaves each recorded call in a
+  folder, the *call box* (`demo/calls/` in the demo; `SECONDLOOK_CALL_BOX` for a shop's own): the
+  recording (`.wav`) and what the phone system knows (`.json`: the caller's number, when, how long).
+  Second Look transcribes each new call on this computer with local whisper (an open-weight
+  speech-to-text model; nothing leaves the machine) when it is installed, else uses the transcript
+  shipped beside the recording, and the case says which. The caller's number finds the customer, the
+  same way an address does; a number on no order, or on two customers' orders, goes to a person. A
+  call's length is its staff time. Without a call box, the morning screen says the phone is not
+  connected.
 - **Sorting** (`secondlook/sort.py`): the sender's address finds the customer; an order number in the
   message, their one open case, the item they name or their only order finds the order. Only what that
   can't settle goes to Second Look's AI (about a cent), and code checks its answer against the sender's
@@ -207,8 +219,9 @@ dispute if one is opened later.
   what is left. When the customer then opens a PayPal dispute on the same order, the dispute's page says
   what was already refunded, and nothing more goes out on it (no refund, and no defence of a refund you
   promised) until a person has checked. No money or goods go out on a case with no order.
-- **Not built yet:** phone calls, paying a refund back by card, bank or PayPal's refund API, and the
-  bookkeeping export. Orders paid by card or bank are the demo shop's own made-up records.
+- **Not built yet:** paying a refund back by card, bank or PayPal's refund API, and the bookkeeping
+  export. Orders paid by card or bank, and their courier records, are the demo shop's own made-up
+  stand-ins (`GET /api/orders/…`, `GET /api/tracking/…`).
 
 ## See it inside a helpdesk: Ticketbook (made up)
 
@@ -324,10 +337,13 @@ the moment its case changes.
   with Marta's note. Switch to Giulia (`&as=giulia`) and she sends it.
 - **The overview** (http://127.0.0.1:8765/overview?shop=demo): the last 90 days, money kept and given
   back, dispute fees, and every open case with the days left and what PayPal does if nobody answers.
-- **Requests by email and web form**, under the disputes. Sophie, a customer who paid by card, writes
-  that her tablecloth never arrived (http://127.0.0.1:8765/c/DEMO-C001?shop=demo): her email is sorted
-  to her order by rules, and the case shows every contact, who has it and what it has cost so far
-  (estimated). *Take a second look* checks it against the shop's own terms (no PayPal rules apply
+- **Requests by phone, email and web form**, under the disputes. Sophie, a customer who paid by card,
+  phones that her tablecloth never arrived, then writes (http://127.0.0.1:8765/c/DEMO-C001?shop=demo):
+  her call (a 34-second recording in `demo/calls/`, voiced by Kokoro, an open-weight text-to-speech
+  model; both voices are synthetic) is sorted to her order by her number, her email joins the same
+  case, and the case shows every contact, who has it and what it has cost so far (estimated). With
+  local whisper installed the call is transcribed on your computer; without it, the case uses the
+  transcript shipped with the demo, and says so. *Take a second look* checks it against the shop's own terms (no PayPal rules apply
   yet): the courier left it with a neighbour, so the answer is a reply, and Marta may send it. It is
   recorded on the case, by email, signed; nothing leaves the demo. Lena's web form asks to exchange a
   shirt one size too small (http://127.0.0.1:8765/c/DEMO-C002?shop=demo&as=marta): within the 14 days,
