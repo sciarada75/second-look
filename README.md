@@ -187,7 +187,13 @@ dispute if one is opened later.
   signed by the person who approved it, with `answer.sent` to your helpdesk. In this version nothing is
   sent from Second Look itself: your helpdesk sends the email. A refund on an inquiry is recorded on the
   case and logged, never moved. A person closes a settled case with its outcome (solved before any
-  dispute, refunded, replaced or exchanged, withdrawn).
+  dispute, refunded, replaced or exchanged, withdrawn). A new request about that order opens a new case
+  that names the earlier one.
+- **An order is refunded once.** Every refund logged on an order counts, from every case on it: a
+  customer who writes again gets a fresh look, not a second refund, and a partial refund is capped at
+  what is left. When the customer then opens a PayPal dispute on the same order, the dispute's page says
+  what was already refunded, and nothing more goes out on it (no refund, and no defence of a refund you
+  promised) until a person has checked. No money or goods go out on a case with no order.
 - **Not built yet:** phone calls, paying a refund back by card, bank or PayPal's refund API, and the
   bookkeeping export. Orders paid by card or bank are the demo shop's own made-up records.
 
