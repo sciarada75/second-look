@@ -2281,7 +2281,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
     by_name = None if t.get("solo") else who["name"]
-    if inquiry and seen and dec.action in ("REFUND", "PARTIAL_REFUND"):
+    if inquiry and seen and chosen in ("REFUND", "PARTIAL_REFUND"):   # what was sent (dec.action is the recommendation again)
         # What this approval itself logged (a refund lowers what is left) is part of what the review saw; only
         # something new (the customer writing again) makes it out of date. Only this send's own change is added:
         # a message that lands while it is sent was never seen (re-reading the case here would count it).

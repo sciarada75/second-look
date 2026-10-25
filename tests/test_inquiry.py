@@ -469,6 +469,29 @@ def test_a_customer_message_that_lands_while_the_refund_is_sent_still_makes_the_
         assert web._changes(cid, web._case(cid)) == ["the customer wrote again"]       # her message is not "seen"
 
 
+def test_a_refund_held_for_its_size_and_taken_by_a_person_reads_as_done():
+    claude = lambda c: Judgment("REFUND", 0.95, "Faked.", draft_message="Full refund.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        dec = web.run_review("DEMO-C001")                                   # 64 EUR: over the 50 EUR cap
+        assert dec.action == "ASK_SELLER" and dec.stops == ["cap"]
+        assert web.approve("DEMO-C001", "REFUND", "Full refund.", by="giulia")[0] == 200   # Giulia takes it
+        assert web._changes("DEMO-C001", web._case("DEMO-C001")) == []
+        assert web.page_offer("DEMO-C001", "giulia")["outcome"] != "out_of_date"
+    with morning(ai_key=True, claude=claude):                                  # the same, with the race
+        web.run_review("DEMO-C001")
+        kept = web.Outbox.refund
+
+        def refund_while_she_writes(self, did, note):
+            _ask("sophie.durand@example.com", "Hello? Any news?", "race:3")
+            return kept(self, did, note)
+        web.Outbox.refund = refund_while_she_writes
+        try:
+            assert web.approve("DEMO-C001", "REFUND", "Full refund.", by="giulia")[0] == 200
+        finally:
+            web.Outbox.refund = kept
+        assert web._changes("DEMO-C001", web._case("DEMO-C001")) == ["the customer wrote again"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
