@@ -415,6 +415,7 @@ def api_case_of(cid: str) -> dict | None:
             "status": c["status"], "outcome": c["outcome"], "problem": c["problem"],
             "customer": {**c["customer"], "role": "customer"}, "order": v["order"], "sorted": c["sorted"],
             "at_stake": {"value": v["at_stake"], "currency_code": v["currency"]}, "channels": v["channels"],
+            "channel_labels": [cases_mod.CHANNEL_LABEL.get(ch, ch) for ch in v["channels"]],
             "dispute_id": c.get("dispute_id"), "assigned_to": v["assigned_to"],
             "timeline": [{**x, "by": _who(v["team"], x)[0], "role": _who(v["team"], x)[1]} for x in v["timeline"]],
             "costs_so_far": v["costs"], "page": f"/c/{c['id']}"}
@@ -875,6 +876,7 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 table.waiting{{width:100%;border-collapse:collapse;margin-top:8px}}
 .waiting th,.waiting td{{text-align:left;padding:10px 14px 10px 0;border-top:1px solid var(--rule);font-size:16px;vertical-align:top}}
 .waiting th{{font-size:14px;color:var(--soft);font-weight:500}}
+.check-sender{{border-left:4px solid var(--incon);background:#fff;padding:8px 12px;margin:12px 0}}
 .pill.shop{{background:var(--kraft-bg);color:#6E4F27}} .chan{{display:inline-block;min-width:24px}}
 .ai-tag{{display:inline-block;margin-left:8px;padding:0 6px;font-size:12px;font-weight:500;border:1px solid var(--kraft);color:#6E4F27;background:#fff}}
 .talk .t-sub{{display:block}} .pick input{{width:100%;font:400 16px "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff}}
@@ -1373,13 +1375,21 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
                   "No order: a general question." if c["sorted"]["by"] else "Order not known yet.")
     came = " · ".join(_channel(ch) for ch in v["channels"])
     holder = v["assigned_to"]
+    senders = []
+    for x in c["timeline"]:
+        sender = (x.get("from") or {}).get("email")
+        if (x["direction"] == "in" and sender and c.get("order_no") and sender not in senders
+                and sender.strip().lower() != (cust.get("email") or "").strip().lower()):
+            senders.append(sender)
+    check = "".join(f'<p class="check-sender">This order belongs to {e(cust.get("name") or cust.get("email") or "")}, '
+                    f'not to the sender {e(s)}: check before answering.</p>' for s in senders)
     owner = ("" if v["team"].get("solo") else
              f'<p class="owner-line">{e(holder["name"])}, <i>{e(holder["role"] or "")}</i>, has this case.</p>' if holder
              else '<p class="owner-line">Nobody has this case yet.</p>')
     left = (f'<a class="back" href="/{"?shop=demo" if demo else ""}">All disputes and requests</a>{stage}'
             f'<p class="claim{"" if c["sorted"].get("by") == "ai" else " quote"}">{e(case_summary(c))}</p>'
             f'<p class="who">{e(cust.get("name") or cust.get("email") or "")}, <i>customer</i> · {e(cust.get("email") or "")}<br>'
-            f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{owner}'
+            f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{check}{owner}'
             f'{timeline_block(v)}')
     if d:
         saved = _saved(d["dispute_id"])
@@ -1397,7 +1407,8 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     body = (f'<div class="case"><section>{flash}{left}</section><section class="look">{right}{case_costs_block(v)}'
             f'<p class="cardlink"><a href="/api/cases/{e(cid)}">This case as data (API)</a></p></section></div>')
     # the tab's name: the customer's own words, or the case id when the line is Second Look's AI's reading
-    title = f"Case {c['id']}" if c["sorted"].get("by") == "ai" else c["problem"]["summary"][:40]
+    title = (f"Case {c['id']}" if c["sorted"].get("by") == "ai" else c["problem"]["summary"][:40]
+             or cases_mod.KIND_LABEL.get(c["problem"]["kind"]) or f"Case {c['id']}")
     return page(f"{e(title)} | Second Look", "PayPal sandbox", body, demo, me=me)
 
 
@@ -2013,7 +2024,12 @@ def api_open(src: str) -> list:
 
 # ---------- server ----------
 
+# The most a POST may carry: a form, or one request of at most 10,000 characters, is a few kilobytes.
+MAX_BODY = 1_000_000
+
+
 class Handler(BaseHTTPRequestHandler):
+    timeout = 30            # a client that stops sending in the middle of a request frees its thread
     _cookie = None
     _person = None
     _film = False
@@ -2158,11 +2174,17 @@ class Handler(BaseHTTPRequestHandler):
         if not length.isdigit():                 # "abc", "-5", "": no way to know where the body ends
             self.close_connection = True
             return self._send("Content-Length must be a number of bytes.", 400)
+        # Every post changes something: from a browser, only from Second Look's own pages (see _same_site).
+        # Checked before the body is read, so a page elsewhere can't make the server read anything.
+        if not self._same_site():
+            self.close_connection = True
+            return self._request() if parts == ["api", "requests"] else self._send(
+                "This can only be sent from Second Look's own pages.", 403)
+        if int(length) > MAX_BODY:
+            self.close_connection = True
+            return self._send(f"At most {MAX_BODY // 1_000_000} MB in one request.", 413)
         raw = self.rfile.read(int(length))
         self._raw = raw
-        # Every post changes something: from a browser, only from Second Look's own pages (see _same_site)
-        if parts != ["api", "requests"] and not self._same_site():
-            return self._send("This can only be sent from Second Look's own pages.", 403)
         # keep_blank_values: an emptied reply box arrives empty, never as "use the AI's draft"
         form = parse_qs(raw.decode(), keep_blank_values=True) if not self.path.startswith("/api/") else {}
         try:

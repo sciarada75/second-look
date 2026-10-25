@@ -278,12 +278,17 @@ class CaseStore(JsonFile):
                 c["problem"]["kind"], c["order_no"] = "question", None
                 return cid
             customer = {"name": order.get("name"), "email": order.get("email")}
+            # a person may tie a message to someone else's order (a gift, a second account): it is recorded
+            senders = {(x.get("from") or {}).get("email") for x in c["timeline"] if x["direction"] == "in"} - {None}
+            elsewhere = any(not _same(s, customer["email"]) for s in senders)
             target = _of_dispute(data["cases"], dispute["dispute_id"]) if dispute else None
             if target is None:
                 target = next((x for x in data["cases"].values() if x["id"] != cid and x["status"] == "open"
                                and x["sorted"]["by"] and _same(x["customer"].get("email"), customer["email"])
                                and x.get("order_no") == order["order_no"]), None)
-            how = f"Order {order['order_no']} picked by {by}."
+            how = f"Order {order['order_no']} picked by {by}" + (
+                f": it's {customer['name'] or customer['email'] or 'another customer'}'s order, not the sender's."
+                if elsewhere else ".")
             if target is not None and target["id"] != cid:
                 target["timeline"] = sorted(target["timeline"] + c["timeline"], key=lambda x: x["at"])
                 target["timeline"].append(entry(None, c["timeline"][0]["channel"], "note",

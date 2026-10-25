@@ -455,6 +455,79 @@ def test_a_body_length_that_is_not_a_number_is_a_400():
             srv.server_close()
 
 
+# ---------- quality review 3 (25/10) ----------
+
+def test_the_api_names_each_channel_as_people_say_it():
+    with morning():
+        assert web.api_case_of("DEMO-C003")["channel_labels"] == ["email", "PayPal"]
+        assert web.api_case_of("DEMO-C002")["channel_labels"] == ["web form"]
+
+
+def test_a_post_is_checked_before_its_body_is_read_and_a_huge_body_is_refused():
+    import socket
+    assert web.Handler.timeout == 30                       # a client that stops sending frees its thread
+    with morning():
+        srv = _server()
+        try:
+            for headers, want in ((f"Content-Length: {50_000_000}\r\n", b" 413 "),
+                                  (f"Content-Length: {500_000}\r\nOrigin: http://evil.example\r\n", b" 403 "),
+                                  (f"Content-Length: {500_000}\r\nReferer: http://evil.example/x\r\n", b" 403 ")):
+                for path in ("/api/requests", "/rules/add"):
+                    sock = socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=5)
+                    sock.sendall(f"POST {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n{headers}\r\n".encode())
+                    first = sock.recv(200).split(b"\r\n")[0]       # answered without waiting for a body never sent
+                    sock.close()
+                    assert want in first + b" ", (path, headers, first)
+            con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+            con.request("POST", "/api/requests", body=json.dumps(email("x" * 2000, "a@b.c")),
+                        headers={"Content-Type": "application/json"})
+            assert con.getresponse().status == 201                 # an ordinary body still goes in
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
+def test_an_order_picked_for_another_customer_is_flagged_never_blocked():
+    with morning():
+        _, out = web.receive("demo", {**email("The tablecloth: still nothing.", "s.durand@work.example"),
+                                      "from": {"name": "S. Durand", "email": "s.durand@work.example"}})
+        assert web.pick_order(out["case_id"], "LP-90001", "marta") == (200, "DEMO-C001")
+        page = web.case_file_page("DEMO-C001", me="marta")
+        note = web.case_store("demo").get("DEMO-C001")["timeline"][-1]["text"]
+        lena = web.case_file_page("DEMO-C002", me="marta")
+    assert "Sophie Durand, <i>customer</i> · sophie.durand@example.com" in page
+    assert ("This order belongs to Sophie Durand, not to the sender s.durand@work.example: check before answering."
+            in page)
+    assert note.startswith("Order LP-90001 picked by Marta: it's Sophie Durand's order, not the sender's.")
+    assert "check before answering" not in lena
+
+
+def test_an_order_picked_for_the_sender_is_not_flagged():
+    two = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada", "time": "2026-09-01T10:00:00Z",
+            "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
+           {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada", "time": "2026-10-01T10:00:00Z",
+            "amount": 36.0, "items": [{"item_name": "Linen shirt", "item_quantity": "1"}]}]
+    with morning():
+        web.case_store("demo")
+        kept = web.shop_orders
+        web.shop_orders = lambda src: two
+        try:
+            _, out = web.receive("demo", email("Can I exchange it for a bigger size?", "ada@example.com"))
+            web.pick_order(out["case_id"], "T2", "marta")
+            c = web.case_store("demo").get(out["case_id"])
+            page = web.case_file_page(out["case_id"], me="marta")
+        finally:
+            web.shop_orders = kept
+    assert c["sorted"]["how"] == "Order T2 picked by Marta." and "check before answering" not in page
+
+
+def test_a_case_with_no_summary_still_has_a_title():
+    with morning():
+        web.case_store("demo").update("DEMO-C001", lambda c: c["problem"].update(summary=""))
+        page = web.case_file_page("DEMO-C001", me="marta")
+    assert "<title>Says it never arrived | Second Look</title>" in page
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
