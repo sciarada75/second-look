@@ -58,7 +58,7 @@ def test_a_resolved_paypal_dispute_books_its_refund_and_its_fee():
 def test_the_live_client_asks_paypal_to_refund_the_capture_and_can_read_it():
     seen = []
     pp = PayPalDisputes("id", "secret")
-    pp._call = lambda method, path, payload=None: seen.append((method, path, payload)) or {"id": "R1", "status": "COMPLETED"}
+    pp._call = lambda method, path, payload=None, headers=None: seen.append((method, path, payload)) or {"id": "R1", "status": "COMPLETED"}
     assert pp.refund_capture("2BU27307GH548541C", "20.00", "EUR", "Sorry: your refund.")["id"] == "R1"
     assert seen[0] == ("POST", "/v2/payments/captures/2BU27307GH548541C/refund",
                        {"amount": {"value": "20.00", "currency_code": "EUR"}, "note_to_payer": "Sorry: your refund."})
@@ -118,21 +118,21 @@ def test_a_paypal_paid_order_is_refunded_through_paypal_s_refund_api_and_a_card_
         assert len((tmp / "demo-paypal-actions.jsonl").read_text().splitlines()) == 1   # a reply moves no money
 
 
-def test_a_refund_marked_cancelled_lifts_the_hold_and_one_marked_paid_keeps_it():
+def test_a_refund_through_paypal_is_never_cancelled_and_one_marked_paid_keeps_the_hold():
     with morning():
         cid = _refunded_paypal_order("b2:1")
         assert web.reconcile(cid, 0, "paid", None, "marta")[0] == 400           # paid how?
         assert web.reconcile(cid, 5, "paid", "card", "marta")[0] == 400         # no such refund
         assert web.reconcile(cid, 0, "lost", "card", "marta")[0] == 400
         assert web.reconcile(cid, 0, "cancelled", None, None)[0] == 400         # nobody named
-        assert web.reconcile(cid, 0, "cancelled", None, "marta") == (
-            200, "Marked cancelled: it no longer counts as money that went back.")
+        code, text = web.reconcile(cid, 0, "cancelled", None, "giulia")
+        assert code == 409 and "went through PayPal" in text                      # PayPal made it: never "cancelled"
+        assert web.reconcile(cid, 0, "paid", "paypal", "marta")[0] == 200
         assert web.reconcile(cid, 0, "paid", "paypal", "marta")[0] == 409       # once: the books were told
         c = web.case_store("demo").get(cid)
-        assert c["money"][0]["status"] == "cancelled" and c["timeline"][-1]["text"].startswith("Refund of 20.00 marked cancelled")
+        assert c["money"][0]["status"] == "paid" and c["timeline"][-1]["text"].startswith("Refund of 20.00 marked paid")
         _ask("sami.l918@example.com", "Still no refund?", "b2:2")
-        assert "already_refunded" not in web.run_review(cid).stops                # the cancelled refund counts nowhere
-        assert web.case_view(cid)["costs"]["money_moved"] == 0
+        assert "already_refunded" in web.run_review(cid).stops                    # it went back: never a second one
     with morning():
         cid = _refunded_paypal_order("b3:1")
         assert web.reconcile(cid, 0, "paid", "paypal", "giulia")[0] == 200
@@ -167,6 +167,138 @@ def test_a_paid_refund_lets_a_later_paypal_dispute_be_defended_with_it_as_proof(
     cli.execute(pp, Decision("DEFEND", [], Judgment("DEFEND", 0.9, "We refunded you on 19 Oct."), False, []),
                 {**d, "status": "WAITING_FOR_SELLER_RESPONSE"}, paid)
     assert json.loads(log.read_text().splitlines()[0])["payload"]["evidence_type"] == "PROOF_OF_REFUND"
+
+
+# ---------- quality review 9 (26/10): the money path ----------
+
+def _card_refund(amount="40.00 EUR"):
+    """Sophie paid by card (LP-90001, 64 EUR): a partial refund, approved by Giulia, logged for the payment provider."""
+    web.has_ai_key = lambda: True
+    judge.INQUIRY_BACKENDS["claude"] = lambda case: Judgment("PARTIAL_REFUND", 0.9, "Faked.", draft_message="Part back.",
+                                                            partial_amount=amount)
+    web.run_review("DEMO-C001")
+    code, text = web.approve("DEMO-C001", "PARTIAL_REFUND", "Part back.", by="giulia")
+    assert code == 200, text
+    return "DEMO-C001"
+
+
+def test_a_card_refund_is_cancelled_only_by_someone_whose_limit_covers_it():
+    with morning():
+        cid = _card_refund("40.00 EUR")
+        assert web.case_store("demo").get(cid)["money"][0]["via"] == "for your payment provider (not connected)"
+        code, text = web.reconcile(cid, 0, "cancelled", None, "marta")       # 40 EUR, over Marta's 30
+        assert code == 403 and "limit" in text
+        assert web.reconcile(cid, 0, "cancelled", None, "giulia") == (
+            200, "Marked cancelled: it no longer counts as money that went back.")
+        assert web.case_view(cid)["costs"]["money_moved"] == 0                 # it counts nowhere: the hold lifts
+
+
+def test_a_refund_through_paypal_carries_one_request_id_and_a_failure_records_nothing():
+    calls_ = []
+
+    class Flaky:
+        def __init__(self, fail):
+            self.fail = fail
+
+        def get_capture(self, capture_id):
+            return {"id": capture_id, "status": "COMPLETED", "amount": {"value": "20.00", "currency_code": "EUR"}}
+
+        def refund_capture(self, capture_id, amount, currency, note, request_id=None):
+            calls_.append((capture_id, amount, currency, request_id))
+            if self.fail:
+                raise RuntimeError("PayPal 500 on POST /v2/payments/captures/X/refund: timeout")
+            return {"id": "R-OK", "status": "COMPLETED"}
+    with morning():
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", "b9:1")
+        cid = o["case_id"]
+        web.run_review(cid)
+        real = web.paypal_for
+        try:
+            web.paypal_for = lambda src: Flaky(True)
+            code, text = web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
+            assert code == 502 and text.startswith("PayPal didn't confirm the refund")
+            c = web.case_store("demo").get(cid)
+            assert c["money"] == [] and not any(x["direction"] == "out" for x in c["timeline"])
+            assert web._saved(cid)[1] is None                                     # not marked sent
+            web.paypal_for = lambda src: Flaky(False)
+            assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        finally:
+            web.paypal_for = real
+    assert len(calls_) == 2 and calls_[0][3] and calls_[0][3] == calls_[1][3]       # the retry: the same request id
+    seen = []
+    pp = PayPalDisputes("id", "secret")
+    pp._call = lambda method, path, payload=None, headers=None: seen.append(headers) or {"id": "R1"}
+    pp.refund_capture("CAP1", "1.00", "EUR", "x", request_id="sl-abc")
+    assert seen == [{"PayPal-Request-Id": "sl-abc"}]
+
+
+def test_a_live_capture_is_read_first_its_currency_used_and_its_refund_capped():
+    sent = []
+
+    class Live:
+        def __init__(self, status, value="15.00", cur="USD"):
+            self.capture = {"id": "DEMOTX00001", "status": status, "amount": {"value": value, "currency_code": cur}}
+
+        def get_capture(self, capture_id):
+            return self.capture
+
+        def refund_capture(self, capture_id, amount, currency, note, request_id=None):
+            sent.append((amount, currency))
+            return {"id": "R-LIVE"}
+    for status, want in (("COMPLETED", 200), ("PENDING", 409)):
+        with morning():
+            _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", f"b9:{status}")
+            web.run_review(o["case_id"])
+            real = web.paypal_for
+            web.paypal_for = lambda src, s=status: Live(s)
+            try:
+                code, text = web.approve(o["case_id"], "REFUND", "Your refund is on its way.", by="giulia")
+            finally:
+                web.paypal_for = real
+            assert code == want, (status, text)
+            if want == 409:
+                assert "PayPal shows this payment as PENDING" in text and web.case_store("demo").get(o["case_id"])["money"] == []
+    assert sent == [("15.00", "USD")]                    # PayPal's own currency, and no more than the capture left
+
+
+def test_a_paid_refund_is_proof_only_when_it_covers_the_dispute_and_marking_it_puts_the_review_out_of_date():
+    with morning():
+        cid = _card_refund("5.00 EUR")
+        web.case_store("demo").update(cid, lambda c: c.update(order_no="DEMOTX00001"))   # as if Sophie had paid by PayPal
+        big = {"dispute": {"dispute_id": "DEMO-990", "dispute_amount": {"value": "89.00", "currency_code": "EUR"},
+                           "disputed_transactions": [{"seller_transaction_id": "DEMOTX00001"}]},
+               "seller_records": {"sources": {}}}
+        web.reconcile(cid, 0, "paid", "card", "giulia")
+        assert not web._with_case_refund("DEMO-990", big)["seller_records"].get("refund_paid")   # 5 of 89: no proof
+        small = {**big, "dispute": {**big["dispute"], "dispute_amount": {"value": "5.00", "currency_code": "EUR"}}}
+        assert web._with_case_refund("DEMO-990", small)["seller_records"]["refund_paid"]
+    with morning():
+        cid = _card_refund("20.00 EUR")
+        r = {"refund_logged_on_case": cid, "refunded_so_far": 20.0}
+        before = web._seen({"dispute": {"messages": [], "dispute_amount": {"value": "20.00"}}, "seller_records": r})
+        after = web._seen({"dispute": {"messages": [], "dispute_amount": {"value": "20.00"}},
+                           "seller_records": {**r, "refund_paid": True}})
+        assert before != after and before["case_refund_paid"] is False and after["case_refund_paid"] is True
+        assert "case_refund_paid" not in web._seen({"dispute": {"messages": [], "dispute_amount": {"value": "1"}},
+                                                    "seller_records": {}})     # no case money: what it saw, unchanged
+
+
+def test_a_card_order_s_refund_is_logged_for_the_payment_provider_and_never_sent_to_paypal():
+    with morning() as tmp:
+        web.has_ai_key = lambda: True
+        judge.INQUIRY_BACKENDS["claude"] = lambda case: Judgment("REFUND", 0.95, "Faked.", draft_message="A full refund.")
+        dec = web.run_review("DEMO-C001")                                     # 64 EUR: held for the cap only
+        assert dec.stops == ["cap"]
+        code, text = web.approve("DEMO-C001", "REFUND", "A full refund.", by="giulia")   # the head of customer care
+        assert code == 200 and text.startswith("Refund of 64.00 EUR logged and reply sent by email.")
+        [m] = web.case_store("demo").get("DEMO-C001")["money"]
+        assert (m["kind"], m["amount"], m["via"]) == ("refund", 64.0, "for your payment provider (not connected)")
+        assert "refund_id" not in m and "status" not in m
+        log = tmp / "demo-paypal-actions.jsonl"
+        assert not log.exists() or "capture-refund" not in log.read_text()   # nothing went to PayPal
+        assert web.reconcile("DEMO-C001", 0, "cancelled", None, "marta")[0] == 403      # over Marta's 30 EUR
+        assert web.reconcile("DEMO-C001", 0, "cancelled", None, "giulia")[0] == 200
+        assert web.case_view("DEMO-C001")["costs"]["money_moved"] == 0      # cancelled: the hold lifts
 
 
 if __name__ == "__main__":

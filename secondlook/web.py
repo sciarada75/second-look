@@ -539,7 +539,9 @@ def _with_case_refund(did: str, case: dict) -> dict:
         # every logged refund marked paid: proof the shop answered (guard rule 10 then lets a defence through)
         paid = all(m.get("status") == "paid" for c in found for m in c.get("money", [])
                    if m.get("kind") in ("refund", "partial_refund") and m.get("status") != "cancelled")
-        if paid:
+        # and only when what was paid covers what the dispute is about: 5 EUR paid is no proof against 89
+        covers = total >= (_num(case["dispute"]["dispute_amount"].get("value")) or 0.0) - 0.005
+        if paid and covers:
             records["refund_paid"] = True
             records["sources"]["refund_paid"] = "Your case record"
         records.update(refund_logged_on_case=", ".join(r["case_id"] for r in rs), refunded_so_far=total,
@@ -800,14 +802,23 @@ def review_inquiry(cid: str, judge: str) -> Decision:
     return apply_policy(j, policy, case["dispute"], case["seller_records"])
 
 
+class RefundNotConfirmed(Exception):
+    """PayPal didn't confirm a refund (an error, a timeout): nothing is recorded and the review is not sent."""
+
+
+class RefundRefused(Exception):
+    """PayPal's record of the payment says it can't be refunded from here (not completed, nothing left)."""
+
+
 class Outbox:
     """The approved answer to an inquiry, recorded: a signed "out" entry on the case's timeline, on the channel
     the customer used, any money as a logged entry on the case, and one line in the action log. The same
     interface as the PayPal clients, so execute() runs it unchanged. A refund on an order paid through PayPal goes to
     PayPal's refund API; nothing else is sent from here."""
 
-    def __init__(self, cid: str, by: str, ai: bool, amount: float):
+    def __init__(self, cid: str, by: str, ai: bool, amount: float, request_id: str | None = None):
         self.cid, self.by, self.ai, self.amount = cid, by, ai, amount
+        self.request_id = request_id      # PayPal-Request-Id: the same for a retry of the same approval
         self.src = shop_of_case(cid)
 
     def _out(self, action: str, text: str, money: dict | None = None) -> dict:
@@ -822,9 +833,31 @@ class Outbox:
             o = _raw_order(self.src, c0.get("order_no"))
             capture = (o or {}).get("transaction_id")
             if capture:
-                cur = (o or {}).get("currency") or "EUR"
-                r = paypal_for(self.src).refund_capture(capture, f'{float(money["amount"]):.2f}', cur, text)
-                sent = {"via": "PayPal refund API", "status": "sent to PayPal", "refund_id": r.get("id")}
+                pp = paypal_for(self.src)
+                cur, amount = (o or {}).get("currency") or "EUR", float(money["amount"])
+                if not isinstance(pp, MockPayPal):
+                    # a live payment: PayPal's own record first (its status, its currency, what is left to refund)
+                    try:
+                        cap = pp.get_capture(capture) or {}
+                    except Exception as err:  # noqa: BLE001 - nothing recorded, nothing sent
+                        raise RefundNotConfirmed(str(err)) from err
+                    if cap.get("status") not in ("COMPLETED", "PARTIALLY_REFUNDED"):
+                        raise RefundRefused(f"PayPal shows this payment as {cap.get('status') or 'unknown'}: it can't be "
+                                            "refunded from here. Check it in PayPal.")
+                    total = _num((cap.get("amount") or {}).get("value")) or 0.0
+                    done = _num(((cap.get("seller_receivable_breakdown") or {}).get("total_refunded_amount") or {})
+                                .get("value")) or 0.0
+                    cur = (cap.get("amount") or {}).get("currency_code") or cur
+                    amount = min(amount, round(total - done, 2))
+                    if amount <= 0:
+                        raise RefundRefused("PayPal shows nothing left to refund on this payment.")
+                try:
+                    r = pp.refund_capture(capture, f"{amount:.2f}", cur, text, request_id=self.request_id)
+                except Exception as err:  # noqa: BLE001 - not confirmed: nothing recorded, the review not sent
+                    raise RefundNotConfirmed(str(err)) from err
+                money = {**money, "amount": amount}
+                sent = {"via": "PayPal refund API", "status": "sent to PayPal", "refund_id": r.get("id"),
+                        "currency": cur}
             else:
                 sent = {"via": "for your payment provider (not connected)"}
 
@@ -839,7 +872,8 @@ class Outbox:
             f.write(json.dumps({"ts": cases_mod.minute(None), "case_id": self.cid, "action": action, "channel": ch,
                                 "by": self.by, "text": text, **({"money": money} if money else {})},
                                ensure_ascii=False) + "\n")
-        return {"status": "LOGGED", "channel": ch, **({"via": "paypal"} if sent.get("refund_id") else {})}
+        return {"status": "LOGGED", "channel": ch,
+                **({"via": "paypal", "amount": money["amount"], "currency": sent.get("currency")} if sent.get("refund_id") else {})}
 
     def message(self, did, text):
         return self._out("reply", text)
@@ -1047,6 +1081,7 @@ CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the
            "amount": "the amount in dispute changed", "tracking": "tracking was added or changed",
            "ship_to": "PayPal now shows the buyer's address",
            "case_refund": "a refund was logged on this order's case",
+           "case_refund_paid": "a refund on this order's case was marked paid",
            "case_goods": "a replacement was logged on this order's case"}
 
 
@@ -1072,6 +1107,7 @@ def _seen(case: dict) -> dict:
         seen["return"] = d.get("exchange_cost")             # the returned item reached the shop since
     if r.get("refund_logged_on_case"):   # only then: a dispute whose case logged no money sees exactly what it saw
         seen["case_refund"] = r.get("refunded_so_far")
+        seen["case_refund_paid"] = bool(r.get("refund_paid"))
     if r.get("replacement_logged_on_case"):
         seen["case_goods"] = r.get("replaced_so_far")
     return seen
@@ -1894,9 +1930,18 @@ def reconcile(cid: str, index, outcome: str, paid_with: str | None, by: str | No
         return 400, "Mark it paid or cancelled."
     if outcome == "paid" and paid_with not in PAID_WITH:
         return 400, f"Paid how: {', '.join(PAID_WITH)}."
-    who = team_mod.person(team_for(cid), by)
+    t = team_for(cid)
+    who = team_mod.person(t, by)
     if not who:
         return 400, "Say who you are: a person in this shop's team."
+    if outcome == "cancelled":
+        if money[i].get("refund_id") or money[i].get("via") == "PayPal refund API":
+            return 409, ("This refund went through PayPal: it can only be marked paid. If PayPal didn't pay it, "
+                         "check the payment in PayPal.")
+        amount = float(money[i].get("amount") or 0)
+        if not t.get("solo") and not team_mod.covers(t, who["id"], amount):
+            return 403, (f"Cancelling a refund of {amount:.2f} is for someone whose limit covers it "
+                         "(the head of customer care): cancelled, it no longer holds anything back.")
     with _case_lock(cid):
         def mark(x):
             m = x["money"][i]
@@ -2912,11 +2957,24 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
     raw = _raw(did) or {}  # the case's own review, or the shipped demo one it starts from
     seen, judged = raw.get("seen"), raw.get("judge")
     inquiry = cases_mod.is_case_id(did)
-    client = (Outbox(did, by=who["name"], ai=judged == "claude", amount=float(case["dispute"]["dispute_amount"]["value"]))
+    rid = None
+    if inquiry:
+        n_money = len((case_store(shop_of_case(did)).get(did) or {}).get("money", []))
+        rid = "sl-" + hashlib.sha256(f"{did}|{review_mark(did)}|{n_money}".encode()).hexdigest()[:32]
+    client = (Outbox(did, by=who["name"], ai=judged == "claude", amount=float(case["dispute"]["dispute_amount"]["value"]),
+                     request_id=rid)
               if inquiry else _client(did))
-    result = execute(client, dec, case["dispute"], case["seller_records"])
+    try:
+        result = execute(client, dec, case["dispute"], case["seller_records"])
+    except RefundRefused as err:
+        return 409, str(err)
+    except RefundNotConfirmed:
+        return 502, "PayPal didn't confirm the refund: check the payment in PayPal before trying again."
+    if result.get("amount") is not None:
+        amount, cur = float(result["amount"]), result.get("currency") or cur     # what PayPal was asked to refund
     how = OUT_WORDS.get(result.get("channel"), "by email") if inquiry else ""
-    via = "sent through PayPal" if inquiry and result.get("via") == "paypal" else "logged"
+    via = ("logged for PayPal's refund API (demo: nothing sent)" if is_demo(did) else "sent through PayPal") \
+        if inquiry and result.get("via") == "paypal" else "logged"
     sent = {"MESSAGE": ("Question" if recommended == "ASK_SELLER" else "Reply") + f" sent {how}.",
             "REFUND": f"Refund of {amount:.2f} {cur} {via} and reply sent {how}.",
             "PARTIAL_REFUND": f"Partial refund of {amount:.2f} {cur} {via} and reply sent {how}.",

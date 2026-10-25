@@ -32,6 +32,12 @@ def test_bookbox_hears_only_second_look_s_json_and_with_a_key_only_its_key():
             return con.getresponse().status
         assert post('{"event": "money", "kind": "refund"}') == 204 and post("x", "text/plain") == 415
         assert post("{nope") == 400
+        con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=5)
+        con.putrequest("POST", "/hooks/secondlook")
+        con.putheader("Content-Type", "application/json")
+        con.putheader("Content-Length", "abc")
+        con.endheaders()
+        assert con.getresponse().status == 400                             # a length that isn't a number
         os.environ["BOOKBOX_HOOK_KEY"] = "k1"
         try:
             assert post('{"event": "money", "kind": "refund"}') == 403

@@ -49,11 +49,11 @@ class PayPalDisputes:
         self._token_exp = time.time() + int(body.get("expires_in", 3600))
         return self._token
 
-    def _call(self, method: str, path: str, payload: Optional[dict] = None) -> dict:
+    def _call(self, method: str, path: str, payload: Optional[dict] = None, headers: Optional[dict] = None) -> dict:
         data = json.dumps(payload).encode() if payload is not None else None
         req = request.Request(f"{self.base}{path}", data=data, method=method,
                               headers={"Authorization": f"Bearer {self._auth()}",
-                                       "Content-Type": "application/json"})
+                                       "Content-Type": "application/json", **(headers or {})})
         try:
             with request.urlopen(req, timeout=30) as r:
                 raw = r.read()
@@ -114,12 +114,15 @@ class PayPalDisputes:
         return self._call("POST", f"/v1/customer/disputes/{dispute_id}/send-message",
                           {"message": text})
 
-    def refund_capture(self, capture_id: str, amount: str, currency: str, note: str) -> dict:
+    def refund_capture(self, capture_id: str, amount: str, currency: str, note: str,
+                       request_id: Optional[str] = None) -> dict:
         """Refund a captured PayPal payment (an order paid by PayPal, with no dispute: a shop inquiry). Payments v2.
         The capture id of an order paid through PayPal Checkout is the transaction id PayPal shows for it
-        (Transaction Search, a dispute's seller_transaction_id). Money moves: only ever after a person approves."""
+        (Transaction Search, a dispute's seller_transaction_id). Money moves: only ever after a person approves.
+        `request_id` (PayPal-Request-Id): the same for a retry of the same approval, so PayPal refunds it once."""
         return self._call("POST", f"/v2/payments/captures/{parse.quote(capture_id, safe='')}/refund",
-                          {"amount": {"value": amount, "currency_code": currency}, "note_to_payer": (note or "")[:255]})
+                          {"amount": {"value": amount, "currency_code": currency}, "note_to_payer": (note or "")[:255]},
+                          headers={"PayPal-Request-Id": request_id} if request_id else None)
 
     def get_capture(self, capture_id: str) -> dict:
         """Read one captured payment (read only): how to check that a transaction id is a capture id."""
@@ -185,10 +188,14 @@ class MockPayPal:
     def message(self, dispute_id, text):
         return self._record(dispute_id, "send-message", {"message": text})
 
-    def refund_capture(self, capture_id, amount, currency, note):
-        return {**self._record(capture_id, "capture-refund", {"capture_id": capture_id, "amount": amount,
-                                                               "currency": currency, "note": note}),
-                "id": f"MOCK-REFUND-{capture_id}"}
+    def refund_capture(self, capture_id, amount, currency, note, request_id=None):
+        # a capture's line says what it is: a capture id, not a dispute's
+        entry = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "capture_id": capture_id, "action": "capture-refund",
+                 "payload": {"capture_id": capture_id, "amount": amount, "currency": currency, "note": note,
+                             "request_id": request_id}}
+        with self.log.open("a") as fh:
+            fh.write(json.dumps(entry) + "\n")
+        return {"status": "MOCK_OK", **entry, "id": f"MOCK-REFUND-{capture_id}"}
 
 
 def client_from_env(root: Path):

@@ -97,7 +97,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urlparse(self.path)
-        raw = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 100_000))
+        length = (self.headers.get("Content-Length") or "0").strip()
+        if not length.isdigit():               # a length that isn't a number: no way to read the body
+            self.close_connection = True
+            return self._send("Content-Length must be a number of bytes.", 400, "text/plain; charset=utf-8")
+        raw = self.rfile.read(min(int(length), 100_000))
         if u.path != "/hooks/secondlook":
             return self._send("Not found", 404, "text/plain; charset=utf-8")
         key = os.environ.get("BOOKBOX_HOOK_KEY")   # with a key set, Second Look's address must carry ?key=<it>

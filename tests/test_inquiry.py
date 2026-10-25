@@ -220,7 +220,7 @@ def test_an_order_refunded_once_is_never_refunded_again():
         cid = o["case_id"]
         assert web.run_review(cid).action == "REFUND"
         code, text = web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
-        assert code == 200 and text.startswith("Refund of 20.00 EUR sent through PayPal")
+        assert code == 200 and text.startswith("Refund of 20.00 EUR logged for PayPal's refund API (demo: nothing sent)")
         _ask("sami.l918@example.com", "Thanks, but I still have no refund.", "q4:2")
         again = web.run_review(cid)                                   # the customer wrote again: a fresh look
         assert again.judgment.action == "REFUND" and again.action == "ASK_SELLER" and "already_refunded" in again.stops
@@ -239,11 +239,11 @@ def test_a_partial_refund_is_capped_at_what_is_left_of_the_order():
         cid = o["case_id"]
         web.run_review(cid)
         assert web.approve(cid, "PARTIAL_REFUND", "Here is part of it back.", by="giulia")[1].startswith(
-            "Partial refund of 15.00 EUR sent through PayPal")
+            "Partial refund of 15.00 EUR logged for PayPal's refund API (demo: nothing sent)")
         _ask("sami.l918@example.com", "The other one is damaged too.", "q4:4")
         web.run_review(cid)
         code, text = web.approve(cid, "PARTIAL_REFUND", "Here is the rest.", by="giulia")
-        assert code == 200 and text.startswith("Partial refund of 5.00 EUR sent through PayPal")    # 20 - 15: what is left
+        assert code == 200 and text.startswith("Partial refund of 5.00 EUR logged for PayPal's refund API (demo: nothing sent)")    # 20 - 15: what is left
         _ask("sami.l918@example.com", "And now?", "q4:5")
         assert "already_refunded" in web.run_review(cid).stops
         assert sum(m["amount"] for m in web.case_store("demo").get(cid)["money"]) == 20.0
@@ -379,7 +379,7 @@ def test_a_refund_logged_on_the_case_is_held_against_the_paypal_dispute_that_ope
             _, o = _ask(clara["email"], "My order DEMOTX01969 never arrived.", "n1:1")
             cid = o["case_id"]
             web.run_review(cid)
-            assert web.approve(cid, "REFUND", "We refund you 29 EUR.", by="giulia")[1].startswith("Refund of 29.00 EUR sent through PayPal")
+            assert web.approve(cid, "REFUND", "We refund you 29 EUR.", by="giulia")[1].startswith("Refund of 29.00 EUR logged for PayPal's refund API (demo: nothing sent)")
         finally:
             web.shop_disputes = real
         assert web.case_view(cid)["case"]["dispute_id"] == "DEMO-039"            # PayPal has the case now
@@ -436,7 +436,7 @@ def test_your_own_refund_shows_as_done_and_only_a_new_message_makes_the_review_s
         assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
         assert web._changes(cid, web._case(cid)) == []
         page = web.case_file_page(cid, me="giulia")
-        assert "Refund of 20.00 EUR sent through PayPal" in page and "out of date" not in page
+        assert "Refund of 20.00 EUR logged for PayPal&#x27;s refund API (demo: nothing sent)" in page and "out of date" not in page
         _ask("sami.l918@example.com", "Thanks, but I still have no refund.", "m3:2")
         assert web._changes(cid, web._case(cid)) == ["the customer wrote again"]
 
