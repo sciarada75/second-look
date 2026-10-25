@@ -496,6 +496,72 @@ def replacements_on_order(src: str, order_no: str | None, c: dict | None = None)
             for x in cases for m in x.get("money", []) if m.get("kind") == "replace"]
 
 
+def paypal_refunded(pp, cap: dict) -> float | None:
+    """What PayPal already refunded on a capture, or None when it can't be told (never taken as nothing).
+    A capture carries no refunded total of its own (Payments v2: that is on a refund, seller_payable_breakdown), so:
+    a total the capture does carry, if ever; else nothing when it is COMPLETED (any refund makes it
+    PARTIALLY_REFUNDED or REFUNDED); else the refunds its links lead to (its order's payments.refunds, each naming
+    its capture, or a refund itself), read one by one."""
+    given = ((cap.get("seller_receivable_breakdown") or {}).get("total_refunded_amount") or {}).get("value")
+    if given is not None:
+        return _num(given)
+    if cap.get("status") == "COMPLETED":
+        return 0.0
+    total, found = 0.0, False
+    for link in cap.get("links") or []:
+        if (link.get("method") or "GET").upper() != "GET" or not link.get("href") or link.get("rel") not in (
+                "up", "refund", "refunds"):
+            continue
+        try:
+            doc = pp.get_link(link["href"]) or {}
+        except Exception:  # noqa: BLE001 - unreadable: not known
+            return None
+        refunds = ([doc] if link.get("rel") != "up" and doc.get("amount") else
+                   [r for pu in doc.get("purchase_units") or [] for r in ((pu.get("payments") or {}).get("refunds") or [])])
+        for r in refunds:
+            ups = [x.get("href") or "" for x in r.get("links") or [] if x.get("rel") == "up"]
+            if ups and not any(h.rstrip("/").endswith(f"/captures/{cap.get('id')}") for h in ups):
+                continue                                    # another capture's refund
+            if r.get("status") not in (None, "COMPLETED", "PENDING"):
+                continue
+            v = _num((r.get("amount") or {}).get("value"))
+            if v is None:
+                return None
+            total, found = total + v, True
+    return round(total, 2) if found else None
+
+
+def _cases_on_order(src: str, order_no: str | None) -> list:
+    path = CASE_FILES[src]
+    return [c for c in cases_mod.CaseStore(path).all() if c.get("order_no") == order_no] if order_no and path.exists() else []
+
+
+def paypal_refunds_recorded(src: str, order_no: str | None) -> float:
+    """What Second Look itself sent to PayPal's refund API on this order (any case), with the refunds PayPal didn't
+    confirm: what PayPal may rightly show as refunded."""
+    cases = _cases_on_order(src, order_no)
+    sent = sum(_num(m.get("amount")) or 0 for c in cases for m in c.get("money", [])
+               if m.get("via") == "PayPal refund API" and m.get("status") != "cancelled")
+    return round(sent + sum(_num(x.get("amount")) or 0 for c in cases for x in c.get("unconfirmed", [])), 2)
+
+
+def _marks(cases: list, cur: str = "EUR") -> list:
+    """The refunds PayPal didn't confirm, on these cases: {case_id, request_id, amount, currency, on, by}."""
+    out = []
+    for c in cases:
+        for x in c.get("unconfirmed", []):
+            when = _t(x.get("at"))
+            out.append({"case_id": c["id"], "request_id": x.get("request_id"), "amount": _num(x.get("amount")) or 0.0,
+                        "currency": x.get("currency") or cur, "on": f"{when:%d %b %Y}" if when else "", "by": x.get("by") or ""})
+    return out
+
+
+def _marks_said(marks: list, here: str | None = None) -> str:
+    return "; ".join(f'{m["amount"]:.2f} {m["currency"]}' + (f' on {m["on"]}' if m["on"] else "")
+                     + (f' by {m["by"]}' if m["by"] else "") + ("" if m["case_id"] == here else f', on case {m["case_id"]}')
+                     for m in marks)
+
+
 def _money_cases_for(did: str, dispute_of) -> list:
     """The cases that logged a refund on a PayPal dispute's order: the case it joined, and every case on its order
     (the dispute's transaction is the order's transaction id), whether or not anything has linked them yet: the
@@ -506,7 +572,7 @@ def _money_cases_for(did: str, dispute_of) -> list:
     path = CASE_FILES[src]
     if not path.exists():
         return []
-    paid = [c for c in cases_mod.CaseStore(path).all() if _logged_refund(c) or _logged_goods(c)]
+    paid = [c for c in cases_mod.CaseStore(path).all() if _logged_refund(c) or _logged_goods(c) or c.get("unconfirmed")]
     if not paid:
         return []
     joined = [c for c in paid if c.get("dispute_id") == did]
@@ -529,10 +595,14 @@ def _with_case_refund(did: str, case: dict) -> dict:
     found = _money_cases_for(did, lambda: case["dispute"])
     rs = [r for r in (_logged_refund(c) for c in found) if r]
     gs = [g for g in (_logged_goods(c) for c in found) if g]       # replacements, listed apart from refunds
-    if not rs and not gs:
-        return case
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
+    ms = _marks(found, cur)                                         # refunds PayPal didn't confirm
+    if not rs and not gs and not ms:
+        return case
     records = {**case["seller_records"], "sources": dict(case["seller_records"].get("sources", {}))}
+    if ms:
+        records.update(refund_unconfirmed=_marks_said(ms), unconfirmed_logged=ms)
+        records["sources"]["refund_unconfirmed"] = "Your case record"
     if rs:
         total = round(sum(r["amount"] for r in rs), 2)
         each = "; ".join(f'{_said(r, cur)}, on case {r["case_id"]}' for r in rs)
@@ -746,6 +816,10 @@ def inquiry_case(cid: str) -> dict:
     # the shop's own order amount: only inquiries carry it, so the guard's rule 9 never touches a PayPal dispute
     records["order_amount"] = _num(o.get("amount")) if o else None     # unreadable: no order with an amount
     records["refunded_so_far"] = refunded
+    ms = _marks(_cases_on_order(v["src"], c.get("order_no")) if c.get("order_no") else [c], v["currency"])
+    if ms:
+        records["refund_unconfirmed"] = _marks_said(ms, cid)
+        sources["refund_unconfirmed"] = "Your case record"
     records["replaced_so_far"] = replaced
     if goods:
         records["already_replaced"] = "; ".join(
@@ -803,7 +877,11 @@ def review_inquiry(cid: str, judge: str) -> Decision:
 
 
 class RefundNotConfirmed(Exception):
-    """PayPal didn't confirm a refund (an error, a timeout): nothing is recorded and the review is not sent."""
+    """PayPal didn't confirm a refund (an error, a timeout): no money is recorded and the review is not sent. When the
+    refund itself was asked for (`attempted`), PayPal may still have made it: the case keeps a "not confirmed" mark."""
+    def __init__(self, msg: str, attempted: bool = False, amount: float = 0.0, currency: str = "EUR"):
+        super().__init__(msg)
+        self.attempted, self.amount, self.currency = attempted, amount, currency
 
 
 class RefundRefused(Exception):
@@ -845,16 +923,22 @@ class Outbox:
                         raise RefundRefused(f"PayPal shows this payment as {cap.get('status') or 'unknown'}: it can't be "
                                             "refunded from here. Check it in PayPal.")
                     total = _num((cap.get("amount") or {}).get("value")) or 0.0
-                    done = _num(((cap.get("seller_receivable_breakdown") or {}).get("total_refunded_amount") or {})
-                                .get("value")) or 0.0
                     cur = (cap.get("amount") or {}).get("currency_code") or cur
+                    done = paypal_refunded(pp, cap)
+                    if done is None:          # never guessed as nothing: a refund on top of an unknown one
+                        raise RefundRefused("Second Look couldn't read what PayPal already refunded on this payment: "
+                                            "check it in PayPal.")
+                    ours = paypal_refunds_recorded(self.src, c0.get("order_no"))
+                    if done > ours + 0.005:
+                        raise RefundRefused(f"PayPal shows {done - ours:.2f} {cur} refunded that Second Look didn't record: "
+                                            "check in PayPal.")
                     amount = min(amount, round(total - done, 2))
                     if amount <= 0:
                         raise RefundRefused("PayPal shows nothing left to refund on this payment.")
                 try:
                     r = pp.refund_capture(capture, f"{amount:.2f}", cur, text, request_id=self.request_id)
-                except Exception as err:  # noqa: BLE001 - not confirmed: nothing recorded, the review not sent
-                    raise RefundNotConfirmed(str(err)) from err
+                except Exception as err:  # noqa: BLE001 - not confirmed: no money recorded, the review not sent
+                    raise RefundNotConfirmed(str(err), attempted=True, amount=amount, currency=cur) from err
                 money = {**money, "amount": amount}
                 sent = {"via": "PayPal refund API", "status": "sent to PayPal", "refund_id": r.get("id"),
                         "currency": cur}
@@ -865,6 +949,8 @@ class Outbox:
             c["timeline"].append(cases_mod.entry(None, ch, "out", text, self.by, ai=self.ai, action=action))
             if money:
                 c["money"].append({**money, **sent, "at": cases_mod.minute(None), "by": self.by})
+            if self.request_id:       # a retry PayPal confirmed: its "not confirmed" mark is answered
+                c["unconfirmed"] = [x for x in c.get("unconfirmed", []) if x.get("request_id") != self.request_id]
         store.update(self.cid, change)
         log = OUTBOX_LOGS[self.src]
         log.parent.mkdir(parents=True, exist_ok=True)
@@ -1082,6 +1168,7 @@ CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the
            "ship_to": "PayPal now shows the buyer's address",
            "case_refund": "a refund was logged on this order's case",
            "case_refund_paid": "a refund on this order's case was marked paid",
+           "case_unconfirmed": "a refund on this order's case wasn't confirmed by PayPal",
            "case_goods": "a replacement was logged on this order's case"}
 
 
@@ -1108,6 +1195,8 @@ def _seen(case: dict) -> dict:
     if r.get("refund_logged_on_case"):   # only then: a dispute whose case logged no money sees exactly what it saw
         seen["case_refund"] = r.get("refunded_so_far")
         seen["case_refund_paid"] = bool(r.get("refund_paid"))
+    if r.get("refund_unconfirmed") and not case.get("inquiry"):
+        seen["case_unconfirmed"] = r.get("refund_unconfirmed")
     if r.get("replacement_logged_on_case"):
         seen["case_goods"] = r.get("replaced_so_far")
     return seen
@@ -1904,6 +1993,45 @@ def own_customer(key: str, src: str) -> dict | None:
 
 # ---------- the books: every money event, live to the shop's bookkeeping and as a monthly CSV (secondlook/books.py) ----------
 
+def resolve_unconfirmed(cid: str, request_id: str, refunded: bool, by: str | None) -> tuple:
+    """A person checked PayPal about a refund it didn't confirm: it refunded it (a paid PayPal refund is recorded,
+    as PayPal shows it) or it didn't (the mark goes). Only someone whose limit covers the amount says so."""
+    if not cases_mod.is_case_id(cid):
+        return 404, "No such case."
+    store = case_store(shop_of_case(cid))
+    c = store.get(cid)
+    mark = next((x for x in (c or {}).get("unconfirmed", []) if x.get("request_id") == request_id), None)
+    if mark is None:
+        return 404, "No such refund waiting for PayPal's answer on this case."
+    t = team_for(cid)
+    who = team_mod.person(t, by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+    amount, cur = float(mark.get("amount") or 0), mark.get("currency") or "EUR"
+    if not t.get("solo") and not team_mod.covers(t, who["id"], amount):
+        return 403, (f"Saying what became of a refund of {amount:.2f} {cur} is for someone whose limit covers it "
+                     "(the head of customer care).")
+    with _case_lock(cid):
+        def do(x):
+            if not any(m.get("request_id") == request_id for m in x.get("unconfirmed", [])):
+                raise ValueError("answered")
+            x["unconfirmed"] = [m for m in x["unconfirmed"] if m.get("request_id") != request_id]
+            now = cases_mod.minute(None)
+            if refunded:
+                x["money"].append({"kind": mark.get("kind") if mark.get("kind") in ("refund", "partial_refund") else "refund",
+                                   "amount": amount, "currency": cur, "via": "PayPal refund API", "status": "paid",
+                                   "paid_with": "paypal", "request_id": request_id, "at": mark.get("at") or now,
+                                   "by": mark.get("by"), "reconciled_by": who["name"], "reconciled_at": now})
+            x["timeline"].append(cases_mod.entry(None, reply_channel(x), "note",
+                                                 f"PayPal {'refunded' if refunded else 'did not refund'} {amount:.2f} {cur} "
+                                                 f"(checked by {who['name']}).", who["name"]))
+        try:
+            store.update(cid, do)
+        except ValueError:
+            return 409, "Someone has answered this already."
+    return 200, (f"Recorded: PayPal refunded {amount:.2f} {cur}." if refunded else "Recorded: PayPal did not refund it.")
+
+
 RECONCILE = {"paid": "paid", "cancelled": "cancelled"}
 PAID_WITH = {"card": "by card", "bank": "by bank transfer", "paypal": "through PayPal"}
 
@@ -2324,6 +2452,7 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
             f'<p class="claim{"" if c["sorted"].get("by") == "ai" else " quote"}">{e(case_summary(c))}</p>'
             f'<p class="who">{e(cust.get("name") or cust.get("email") or "")}, <i>customer</i> · {e(cust.get("email") or "")}<br>'
             f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{check}{owner}{_related(c)}'
+            f'{unconfirmed_note(_marks([c], cur), cid, me)}'
             f'{timeline_block(v)}')
     if d:
         # A PayPal dispute now: PayPal's rules, and the dispute's own review and buttons, right here.
@@ -2614,11 +2743,27 @@ def judged_note(did: str, judged: str | None, sent: bool) -> str:
     return ""
 
 
+def unconfirmed_note(marks: list, cid: str | None = None, me: str | None = None) -> str:
+    """A refund PayPal didn't confirm, said plainly; on its own case, the two answers a person can give."""
+    out = []
+    for m in marks:
+        out.append(f'<p class="check-sender">A refund of {m["amount"]:.2f} {e(m["currency"])} wasn\'t confirmed by PayPal'
+                   f'{" on " + e(m["on"]) if m["on"] else ""}: check the payment in PayPal, then say what happened.</p>')
+        if cid and m["case_id"] == cid:
+            by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+            out.append(f'<form class="pick" method="post" action="/c/{e(cid)}/unconfirmed">{by}'
+                       f'<input type="hidden" name="request_id" value="{e(m["request_id"] or "")}">'
+                       '<div class="approve"><button name="refunded" value="yes">PayPal refunded it</button>'
+                       '<button class="quiet" name="refunded" value="no">PayPal did not refund it</button></div></form>')
+    return "".join(out)
+
+
 def case_refund_note(r: dict) -> str:
     """On a PayPal dispute's page: each refund and each replacement the shop already logged on this order's cases,
-    before PayPal had it."""
+    before PayPal had it, and any refund PayPal didn't confirm."""
+    marks = unconfirmed_note(r.get("unconfirmed_logged") or [])
     if not r.get("refund_logged_on_case") and not r.get("replacement_logged_on_case"):
-        return ""
+        return marks
 
     def when(x):
         return f'{" on " + e(x["on"]) if x.get("on") else ""}{" by " + e(x["by"]) if x.get("by") else ""}'
@@ -2629,7 +2774,7 @@ def case_refund_note(r: dict) -> str:
             for x in r.get("refunds_logged", [])]
     each += [f'A replacement ({x["amount"]:.2f} {e(x.get("currency", ""))} of goods) was already logged on case '
              f'{case_link(x)}{when(x)}.' for x in r.get("replacements_logged", [])]
-    return (f'<p class="check-sender">{" ".join(each)} Check it before you answer PayPal: paying or sending twice, or '
+    return marks + (f'<p class="check-sender">{" ".join(each)} Check it before you answer PayPal: paying or sending twice, or '
             'defending what you already gave, is never right.</p>')
 
 
@@ -2838,6 +2983,7 @@ STOP_SAYS = {
     "already_replaced": "the order's value already went out as a replacement",
     "refund_logged_on_case": "a refund already logged on this order's case",
     "replacement_logged_on_case": "a replacement already logged on this order's case",
+    "refund_unconfirmed": "a refund PayPal hasn't confirmed yet",
 }
 
 
@@ -2847,7 +2993,7 @@ def _refused(dec: Decision | None, chosen: str, w: dict | None = None) -> str:
     w = w or _words(None)
     if dec and dec.action == "ASK_SELLER" and chosen == "MESSAGE":
         why = [STOP_SAYS[s] for s in ("message_not_allowed", "unknown_action", "refund_logged_on_case",
-                                      "replacement_logged_on_case") if s in dec.stops]
+                                      "replacement_logged_on_case", "refund_unconfirmed") if s in dec.stops]
         if why:
             return (f"This message was held back: {', '.join(why)}. "
                     f"It can't be sent from here, by anyone. {w['decide']}")
@@ -2968,7 +3114,14 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         result = execute(client, dec, case["dispute"], case["seller_records"])
     except RefundRefused as err:
         return 409, str(err)
-    except RefundNotConfirmed:
+    except RefundNotConfirmed as err:
+        if err.attempted:
+            # PayPal may have made it: no money recorded, but a mark that holds every money action on the order
+            # until a person checks PayPal and says what happened (or this same approval is retried and confirmed)
+            mark = {"request_id": rid, "kind": chosen.lower(), "amount": round(err.amount, 2), "currency": err.currency,
+                    "at": cases_mod.minute(None), "by": who["name"]}
+            case_store(shop_of_case(did)).update(did, lambda c: c.update(
+                unconfirmed=[x for x in c.get("unconfirmed", []) if x.get("request_id") != rid] + [mark]))
         return 502, "PayPal didn't confirm the refund: check the payment in PayPal before trying again."
     if result.get("amount") is not None:
         amount, cur = float(result["amount"]), result.get("currency") or cur     # what PayPal was asked to refund
@@ -3340,6 +3493,13 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
                 code, text = take(parts[1], me)
                 return self._redirect(page_of(parts[1])) if code == 200 else self._send(text, code)
+            if len(parts) == 3 and parts[0] == "c" and parts[2] == "unconfirmed":
+                ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
+                if not ok:
+                    return self._send("Choose who you are at the top of the page.", 400)
+                code, text = resolve_unconfirmed(parts[1], form.get("request_id", [""])[0],
+                                                 form.get("refunded", [""])[0] == "yes", me)
+                return self._redirect(f"/c/{parts[1]}") if code == 200 else self._send(e(text), code)
             if len(parts) == 3 and parts[0] == "c" and parts[2] == "close":
                 ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
                 if not ok:

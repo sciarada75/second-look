@@ -301,6 +301,181 @@ def test_a_card_order_s_refund_is_logged_for_the_payment_provider_and_never_sent
         assert web.case_view("DEMO-C001")["costs"]["money_moved"] == 0      # cancelled: the hold lifts
 
 
+# ---------- re-review (26/10): a refund PayPal didn't confirm is held until a person says what happened ----------
+
+class _PayPal:
+    """A fake live PayPal: one capture of 20 EUR, refunds that fail or go through, and what it says it refunded."""
+    def __init__(self, fail=False, status="COMPLETED", total="20.00", refunded=None, order_refunds=None, cur="EUR"):
+        self.fail, self.sent = fail, []
+        self.capture = {"id": "DEMOTX00001", "status": status, "amount": {"value": total, "currency_code": cur},
+                        "links": [{"rel": "up", "method": "GET", "href": "https://api.example/v2/checkout/orders/O1"}]}
+        if refunded is not None:
+            self.capture["seller_receivable_breakdown"] = {"total_refunded_amount": {"value": refunded, "currency_code": cur}}
+        self.order = {"purchase_units": [{"payments": {"refunds": order_refunds or []}}]}
+
+    def get_capture(self, capture_id):
+        return self.capture
+
+    def get_link(self, href):
+        return self.order if href.endswith("/orders/O1") else {}
+
+    def refund_capture(self, capture_id, amount, currency, note, request_id=None):
+        self.sent.append((amount, currency, request_id))
+        if self.fail:
+            raise RuntimeError("PayPal 500: timeout")
+        return {"id": f"R{len(self.sent)}", "status": "COMPLETED"}
+
+
+def _sami_refund(sid):
+    _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", sid)
+    web.run_review(o["case_id"])
+    return o["case_id"]
+
+
+def test_a_refund_paypal_didn_t_confirm_is_held_until_a_person_says_what_happened():
+    with morning():
+        cid = _sami_refund("u1:1")
+        real = web.paypal_for
+        pp = _PayPal(fail=True)
+        web.paypal_for = lambda src: pp
+        try:
+            assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 502
+            [mark] = web.case_store("demo").get(cid)["unconfirmed"]
+            assert (mark["amount"], mark["currency"], mark["by"], mark["request_id"]) == (20.0, "EUR", "Giulia", pp.sent[0][2])
+            assert web.case_store("demo").get(cid)["money"] == []                       # not money moved
+            page = web.case_file_page(cid, me="giulia")
+            assert "A refund of 20.00 EUR wasn't confirmed by PayPal on " in page and "check the payment in PayPal" in page
+            _ask("sami.l918@example.com", "Hello?", "u1:2")
+            dec = web.run_review(cid)                                                    # a fresh look: held
+            assert dec.action == "ASK_SELLER" and "refund_unconfirmed" in dec.stops
+            assert web.approve(cid, "REFUND", "Refund.", by="giulia")[0] == 409
+            web.case_store("demo").update(cid, lambda c: c["unconfirmed"][0].update(amount=40.0))
+            assert web.resolve_unconfirmed(cid, mark["request_id"], True, "marta")[0] == 403   # 40 EUR: over Marta's limit
+            web.case_store("demo").update(cid, lambda c: c["unconfirmed"][0].update(amount=20.0))
+            assert web.resolve_unconfirmed(cid, mark["request_id"], True, "giulia") == (
+                200, "Recorded: PayPal refunded 20.00 EUR.")
+            c = web.case_store("demo").get(cid)
+            assert c["unconfirmed"] == [] and [(m["status"], m["paid_with"], m["amount"]) for m in c["money"]] == [
+                ("paid", "paypal", 20.0)]
+            assert "already_refunded" in web.run_review(cid).stops                          # it went back, once
+        finally:
+            web.paypal_for = real
+    with morning():
+        cid = _sami_refund("u1:3")
+        real = web.paypal_for
+        web.paypal_for = lambda src: _PayPal(fail=True)
+        try:
+            web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
+            req = web.case_store("demo").get(cid)["unconfirmed"][0]["request_id"]
+            assert web.resolve_unconfirmed(cid, req, False, "giulia") == (200, "Recorded: PayPal did not refund it.")
+            assert web.case_store("demo").get(cid)["unconfirmed"] == []
+        finally:
+            web.paypal_for = real
+
+
+def test_a_retry_of_the_same_review_keeps_its_request_id_and_clears_the_mark():
+    with morning():
+        cid = _sami_refund("u1:4")
+        real = web.paypal_for
+        pp = _PayPal(fail=True)
+        web.paypal_for = lambda src: pp
+        try:
+            assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 502
+            pp.fail = False
+            assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        finally:
+            web.paypal_for = real
+        c = web.case_store("demo").get(cid)
+        assert pp.sent[0][2] == pp.sent[1][2] and c["unconfirmed"] == [] and len(c["money"]) == 1
+
+
+def test_a_paypal_dispute_on_the_order_is_held_while_a_refund_is_unconfirmed():
+    clara = next(o for o in DemoPayPal().orders() if o["transaction_id"] == "DEMOTX01969")
+    with morning():
+        real_d, real_p = web.shop_disputes, web.paypal_for
+        web.shop_disputes = lambda src: [d for d in real_d(src) if d["dispute_id"] != "DEMO-039"]
+        web.has_ai_key = lambda: True
+        judge.INQUIRY_BACKENDS["claude"] = lambda case: Judgment("REFUND", 0.95, "Faked.", draft_message="We refund you.")
+        web.paypal_for = lambda src: _PayPal(fail=True, total="29.00")
+        try:
+            _, o = _ask(clara["email"], "My order DEMOTX01969 never arrived.", "u1:5")
+            web.run_review(o["case_id"])
+            assert web.approve(o["case_id"], "REFUND", "We refund you.", by="giulia")[0] == 502
+        finally:
+            web.shop_disputes, web.paypal_for = real_d, real_p
+        rec = web._case("DEMO-039")["seller_records"]
+        assert rec["refund_unconfirmed"].startswith("29.00 EUR")
+        d = {"dispute_id": "DEMO-039", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED", "dispute_life_cycle_stage": "INQUIRY",
+             "dispute_amount": {"value": "29.00", "currency_code": "EUR"}, "messages": []}
+        for action in ("DEFEND", "REFUND", "PARTIAL_REFUND", "REPLACE"):
+            held = apply_policy(Judgment(action, 0.95, "x", partial_amount="5 EUR"), POLICY, d, rec)
+            assert "refund_unconfirmed" in held.stops, action
+        assert "wasn't confirmed by PayPal" in web.case_page("DEMO-039", me="giulia")
+
+
+def test_paypal_s_refunded_total_is_read_or_the_refund_is_refused():
+    def approve_with(pp, sid, money=None):
+        with morning():
+            _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", sid)
+            cid = o["case_id"]
+            if money:                                   # an earlier PayPal refund Second Look recorded on the order
+                web.case_store("demo").update(cid, lambda c: c["money"].append(money))
+            web.run_review(cid)
+            real = web.paypal_for
+            web.paypal_for = lambda src: pp
+            try:
+                return web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
+            finally:
+                web.paypal_for = real
+    # PayPal refunded 5 that Second Look never recorded: nothing is sent
+    pp = _PayPal(status="PARTIALLY_REFUNDED", refunded="5.00")
+    code, text = approve_with(pp, "u2:1")
+    assert code == 409 and "PayPal shows 5.00 EUR refunded that Second Look didn't record" in text and pp.sent == []
+    # read through the capture's order (no total on the capture): 5 refunded, 5 recorded, 15 left
+    ours = {"kind": "partial_refund", "amount": 5.0, "via": "PayPal refund API", "status": "sent to PayPal",
+            "refund_id": "R0", "at": "2026-10-19T10:00", "by": "Giulia"}
+    pp = _PayPal(status="PARTIALLY_REFUNDED", order_refunds=[
+        {"id": "R0", "status": "COMPLETED", "amount": {"value": "5.00", "currency_code": "EUR"},
+         "links": [{"rel": "up", "href": "https://api.example/v2/payments/captures/DEMOTX00001"}]},
+        {"id": "RX", "status": "COMPLETED", "amount": {"value": "9.00", "currency_code": "EUR"},
+         "links": [{"rel": "up", "href": "https://api.example/v2/payments/captures/ANOTHER"}]}])
+    code, text = approve_with(pp, "u3:1", ours)
+    assert code == 200 and [a for a, _, _ in pp.sent] == ["15.00"], text   # the other capture's refund isn't this one's
+    # partly refunded, and nothing readable says how much: refused, never treated as 0
+    pp = _PayPal(status="PARTIALLY_REFUNDED")
+    code, text = approve_with(pp, "u3:2")
+    assert code == 409 and "couldn't read what PayPal already refunded" in text and pp.sent == []
+
+
+def test_the_answer_about_an_unconfirmed_refund_comes_only_from_the_shop_s_own_page():
+    from urllib.parse import urlencode
+    with morning():
+        cid = _sami_refund("u1:9")
+        real = web.paypal_for
+        web.paypal_for = lambda src: _PayPal(fail=True)
+        try:
+            web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
+        finally:
+            web.paypal_for = real
+        req = web.case_store("demo").get(cid)["unconfirmed"][0]["request_id"]
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            def post(**headers):
+                con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+                con.request("POST", f"/c/{cid}/unconfirmed", body=urlencode({"by": "giulia", "request_id": req, "refunded": "no"}),
+                            headers={"Content-Type": "application/x-www-form-urlencoded", **headers})
+                r = con.getresponse()
+                r.read()
+                return r.status
+            assert post(Origin="http://evil.example") == 403 and web.case_store("demo").get(cid)["unconfirmed"]
+            assert post(Origin=f"http://127.0.0.1:{srv.server_address[1]}") == 303
+            assert web.case_store("demo").get(cid)["unconfirmed"] == []
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

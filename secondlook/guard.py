@@ -276,6 +276,16 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         action = "ASK_SELLER"
         stops.append("replacement_logged_on_case")
 
+    # A refund PayPal didn't confirm (an error or a timeout after it was asked): it may have been made. On the
+    # inquiry (rule 9's records) nothing more goes out on the order; on a dispute (rule 10's) nor a defence, until
+    # a person has checked PayPal and said what happened. Only when the records say so.
+    if records.get("refund_unconfirmed") and (_subject() in MONEY
+                                              or (_subject() == "DEFEND" and "order_amount" not in records)):
+        notes.append(f"A refund PayPal hasn't confirmed: {records['refund_unconfirmed']}. Check the payment in PayPal "
+                     "and say what happened before anything more is sent.")
+        action = "ASK_SELLER"
+        stops.append("refund_unconfirmed")
+
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 
@@ -294,7 +304,8 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
         # (`refund_logged_on_case`: the draft was a defence against a refund the shop already promised.)
         return (drafted_for not in MONEY and "message_not_allowed" not in stops and "unknown_action" not in stops
-                and "refund_logged_on_case" not in stops and "replacement_logged_on_case" not in stops)
+                and "refund_logged_on_case" not in stops and "replacement_logged_on_case" not in stops
+                and "refund_unconfirmed" not in stops)
     if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" and held_for_size_only(stops):
         return True
     return chosen == recommended

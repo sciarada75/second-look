@@ -124,6 +124,11 @@ class PayPalDisputes:
                           {"amount": {"value": amount, "currency_code": currency}, "note_to_payer": (note or "")[:255]},
                           headers={"PayPal-Request-Id": request_id} if request_id else None)
 
+    def get_link(self, href: str) -> dict:
+        """Read one of PayPal's own links (a capture's order or refund, read only): its path on this API."""
+        path = href[len(self.base):] if href.startswith(self.base) else "/" + href.split("://", 1)[-1].split("/", 1)[-1]
+        return self._call("GET", path)
+
     def get_capture(self, capture_id: str) -> dict:
         """Read one captured payment (read only): how to check that a transaction id is a capture id."""
         return self._call("GET", f"/v2/payments/captures/{parse.quote(capture_id, safe='')}")
