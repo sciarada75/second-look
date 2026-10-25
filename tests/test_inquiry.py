@@ -101,6 +101,24 @@ def test_an_inquiry_is_reviewed_by_the_rules_without_a_key_and_the_guard_holds_l
             assert "Pick the order first" in str(err)
 
 
+def test_the_case_page_reviews_an_inquiry_in_its_own_words_and_disputes_read_as_before():
+    with morning():
+        web.run_review("DEMO-C001")
+        o = web.page_offer("DEMO-C001", "marta")
+        assert o["outcome"] == "send" and o["action"] == "MESSAGE" and o["says"] == "Sends exactly this to the customer."
+        page = web.case_file_page("DEMO-C001", me="marta")
+        assert "Rules baseline, not the AI." in page and "Approve: reply only" in page and "Sending…" in page
+        assert "What the evidence says" in page and "Local courier LC90001IT, delivered, left with a neighbour" in page
+        assert '<span class="src shop">Courier tracking</span>' in page and "Paid with" in page
+        assert "Your reply to the customer" in page
+        assert web._words("DEMO-034")["to"] == "to PayPal" and web._words("DEMO-C001")["to"] == "to the customer"
+        assert "Approve: defend with evidence" in web.case_page("DEMO-031", me="marta")
+        assert "Sending to PayPal…" in web.case_page("DEMO-031", me="marta")
+        assert "Pass to Giulia" in web.case_page("DEMO-034", me="marta")
+        assert "Ten checks before you answer" not in web.case_file_page(
+            web.receive("demo", {"channel": "email", "from": {"email": "y@nowhere.example"}, "text": "Hi?"})[1]["case_id"])
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

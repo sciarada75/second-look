@@ -60,7 +60,7 @@ ACTION_SAYS = {
     "ASK_SELLER": "Nothing is sent until you choose. Start with what doesn't add up.",
 }
 EVIDENCE_LABEL = {
-    "order_date": "Ordered", "items": "Items", "ship_to": "Ships to", "tracking": "Tracking",
+    "order_no": "Order", "paid_with": "Paid with", "order_date": "Ordered", "items": "Items", "ship_to": "Ships to", "tracking": "Tracking",
     "handling_time_promised": "Your promise", "return_policy": "Your returns policy",
     "listing_text": "Your listing", "fulfilment_status": "Status", "planned_ship_date": "Planned shipping",
     "packing_slip_qty": "Packing slip says", "shipment_weight_g": "Parcel weighed (g)",
@@ -732,7 +732,7 @@ def evidence(r: dict) -> str:
         elif k == "tracking":
             courier = v and (v.get("carrier_name_other") if v.get("carrier") == "OTHER" else v.get("carrier"))
             v = (f'{courier or "Courier"} {v.get("tracking_number")}, {v.get("status", "").lower()}'
-                 if v else "none registered yet")
+                 + (f', {v["delivered_to"]}' if v.get("delivered_to") else "") if v else "none registered yet")
         elif k == "order_date":
             t = _t(v)
             v = f"{t:%d %b %Y, %H:%M}" if t else v
@@ -742,7 +742,8 @@ def evidence(r: dict) -> str:
         tag = "Your shop terms" if tag.startswith("shop.json") else tag
         tag = "PayPal tracking" if tag.startswith("PayPal tracking") else tag
         # the tag's look says how much the fact can be relied on: PayPal's records, your published terms, your word
-        kind = "paypal" if tag.startswith("PayPal") else "shop" if tag == "Your shop terms" else \
+        kind = "paypal" if tag.startswith("PayPal") else "shop" if tag in ("Your shop terms", "Your orders") or \
+            tag.startswith("Courier tracking") else \
                "notes" if tag == "Your notes" else "practice"
         rows.append(f'<div class="ev"><dt>{e(label)}</dt><dd>{e(str(v))}</dd>'
                     f'<dd class="tag"><span class="src {kind}">{e(tag)}</span></dd></div>')
@@ -784,15 +785,15 @@ def _bucket(c: dict) -> str:
     return c["result"]
 
 
-def checks(j: Judgment) -> str:
+def checks(j: Judgment, labels: dict = CHECKS) -> str:
     out = []
     for result, title, cls in GROUPS:
-        rows = [f'<li class="check {cls}"><b>{e(CHECKS.get(c["id"], c["id"]))}</b><q>{e(c["finding"])}</q></li>'
+        rows = [f'<li class="check {cls}"><b>{e(labels.get(c["id"], c["id"]))}</b><q>{e(c["finding"])}</q></li>'
                 for c in j.checks if _bucket(c) == result]
         if rows:
             out.append(f'<section class="group {cls}"><h4>{e(title)} <span>{len(rows)}</span></h4>'
                        f'<ul class="checks">{"".join(rows)}</ul></section>')
-    na = [CHECKS.get(c["id"], c["id"]).lower() for c in j.checks if _bucket(c) == "NOT_APPLICABLE"]
+    na = [labels.get(c["id"], c["id"]).lower() for c in j.checks if _bucket(c) == "NOT_APPLICABLE"]
     if any(_bucket(c) == "CLEAN" for c in j.checks):
         out.append('<p class="na-line">Nothing to flag: the buyer\'s text gives no orders to the assistant.</p>')
     if na:
@@ -1475,16 +1476,16 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
             f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{check}{owner}'
             f'{timeline_block(v)}')
     if d:
-        saved = _saved(d["dispute_id"])
-        said = (f'Second Look recommends: <b>{e(ACTION.get(saved[0].action, saved[0].action))}</b>.' if saved
-                else "Not reviewed yet.")
-        right = (f'<div class="judged"><b>This case is a PayPal dispute now: {e(d["dispute_id"])}.</b>{said} PayPal\'s rules '
-                 f'apply, and the answer goes to PayPal. <a href="/d/{e(d["dispute_id"])}">Open the dispute to answer it</a>.</div>')
+        # A PayPal dispute now: PayPal's rules, and the dispute's own review and buttons, right here.
+        right = (f'<div class="judged"><b>This case is a PayPal dispute now: {e(d["dispute_id"])}.</b> PayPal\'s rules '
+                 f'apply, and the answer goes to PayPal. <a href="/d/{e(d["dispute_id"])}">The dispute\'s own page</a>.</div>'
+                 + review_column(d["dispute_id"], _case(d["dispute_id"]), me, plain_owner=False))
     elif not c["sorted"]["by"]:
         right = _pick_form(cid, me, c["sorted"]["how"] or "")
     else:
-        right = ('<div class="judged"><b>Second Look doesn\'t review shop inquiries yet.</b> Answer from your helpdesk; '
-                 'everything said on every channel is here.</div>')
+        case = _case(cid)
+        left += f'<h2>What the evidence says</h2>{evidence(case["seller_records"])}' if o else ""
+        right = review_column(cid, case, me, plain_owner=False)
         if not c.get("order_no"):
             right += _pick_form(cid, me, "Sorted as a question with no order. If it is about one, say which.", question=True)
     body = (f'<div class="case"><section>{flash}{left}</section><section class="look">{right}{case_costs_block(v)}'
@@ -1562,7 +1563,7 @@ def _send_form(did: str, label: str, draft: str, action: str, button: str, says:
             f'<textarea id="reply" name="message">{e(draft)}</textarea>'
             f'<input type="hidden" name="action" value="{e(action)}">{by}'
             f'<div class="approve"><button>{e(button)}</button><span>{e(says)}</span></div>' + teach + '</form>'
-            + (PASS_LOCK if passing else LOCK))
+            + (PASS_LOCK if passing else LOCK.replace("Sending to PayPal…", _words(did)["sending"])))
 
 
 def _size_only(dec: Decision) -> bool:
@@ -1602,7 +1603,7 @@ def _held_offer(dec: Decision, d: dict, t: dict, me: str | None) -> dict | None:
         button = f"Approve: {ACTION.get(j.action, j.action).lower()}" + (f" ({amount:.2f} {cur})" if amount else "")
         says = "Your limits held this back for its size only. You decide: this sends it."
     return {"outcome": kind, "action": j.action, "amount": amount, "to": to["name"] if kind == "pass" else None,
-            "says": says, "button": button, "label": "Your reply to the buyer", "draft": j.draft_message,
+            "says": says, "button": button, "label": _words(d.get("dispute_id"))["reply"], "draft": j.draft_message,
             "_via": "form", "_teach": False}
 
 
@@ -1621,6 +1622,7 @@ def page_offer(did: str, me: str | None, case: dict | None = None) -> dict:
     money it moves, `says` the page's own sentence, `draft` the reply the page puts in the box."""
     case = case if case is not None else _case(did)
     d = case["dispute"]
+    w = _words(did)
     saved = _saved(did)
     t = team_for(did)
     a = None if t.get("solo") else assignments_for(did).get(did)
@@ -1669,9 +1671,9 @@ def page_offer(did: str, me: str | None, case: dict | None = None) -> dict:
     if dec.action == "ASK_SELLER" and dec.overridden and j.action in MONEY:
         # The reply was written for the money action your limits stopped: it promises that money.
         # Sending it as "a question" would make the promise without your approval.
-        what = ACTION.get(j.action, j.action).lower()
+        what = w["action"].get(j.action, j.action).lower()
         return offer("refused", f"The drafted reply promises a {what}, which your limits stopped. Decide first. If you "
-                     "refund, do it in PayPal, then come back: Second Look will see the change and draft a reply "
+                     f"refund, do it {w['refund_where']}, then come back: Second Look will see the change and draft a reply "
                      "that matches.", "promise", draft=draft)
     if dec.action == "ASK_SELLER" and draft:
         # The drafted question, by the same decision approve() takes: never a button it would refuse.
@@ -1680,9 +1682,9 @@ def page_offer(did: str, me: str | None, case: dict | None = None) -> dict:
             return offer("refused", to, "draft_refused", draft=draft)
         if kind == "pass":
             return form("pass", to, "MESSAGE", _pass_says("MESSAGE", dec, d, to["name"], t, me),
-                        f"Pass to {to['name']}", "Before you decide, ask the buyer", False)
+                        f"Pass to {to['name']}", w["ask"], False)
         return form("send", None, "MESSAGE", "Sends only this message. No money moves.", "Send this question",
-                    "Before you decide, ask the buyer", True)
+                    w["ask"], True)
     if dec.action == "ASK_SELLER":
         return offer("nothing_to_send", "Nothing to send: read the checks and decide.", "no_draft")
     kind, to = outcome(dec, dec.action, d, t, who)
@@ -1690,9 +1692,9 @@ def page_offer(did: str, me: str | None, case: dict | None = None) -> dict:
         return offer("refused", to, "refused")
     if kind == "pass":
         return form("pass", to, dec.action, _pass_says(dec.action, dec, d, to["name"], t, me),
-                    f"Pass to {to['name']}", "Your reply to the buyer", False)
-    return form("send", None, dec.action, "Sends exactly this to PayPal.",
-                f"Approve: {ACTION.get(dec.action, dec.action).lower()}", "Your reply to the buyer", True)
+                    f"Pass to {to['name']}", w["reply"], False)
+    return form("send", None, dec.action, f"Sends exactly this {w['to']}.",
+                f"Approve: {w['action'].get(dec.action, dec.action).lower()}", w["reply"], True)
 
 
 # No ANTHROPIC_API_KEY: the page says so before the review and on it, and never passes the rules off as the AI.
@@ -1706,6 +1708,41 @@ NO_KEY_RUN = ('<p><b>No AI key is set,</b> so this runs the rules baseline, not 
               + HOW_TO_KEY + '</p><button>Take a second look (rules baseline)</button>')
 
 
+# The few words that differ between a PayPal dispute and a shop inquiry, on the same page and the same buttons.
+INQUIRY_ACTION = {**ACTION, "REPLACE": "Exchange or replace"}
+INQUIRY_SAYS = {
+    "REFUND": "The refund is logged for your payment provider and the reply goes to the customer.",
+    "PARTIAL_REFUND": "The amount below is logged as a refund and the reply goes to the customer.",
+    "REPLACE": "The exchange or replacement is logged for your orders and the reply goes to the customer.",
+    "MESSAGE": "Only the reply is sent. No money moves.",
+    "ASK_SELLER": "Nothing is sent until you choose. Start with what doesn't add up.",
+}
+RULES_LOOK_INQUIRY = "the problem the request describes, the courier's status and your shop's return window"
+
+
+def _words(did: str | None) -> dict:
+    if cases_mod.is_case_id(did):
+        return {"to": "to the customer", "decide": "Decide yourself, outside Second Look.", "first": "",
+                "refund_where": "in your payment provider", "reply": "Your reply to the customer",
+                "ask": "Before you decide, ask the customer", "sending": "Sending…", "sent": "Sent.",
+                "reading": "Reading the request… about 30 seconds", "action": INQUIRY_ACTION, "says": INQUIRY_SAYS,
+                "checks": judge_mod.INQUIRY_CHECKS, "rules_look": RULES_LOOK_INQUIRY,
+                "intro": "Second Look's AI reads the request and the evidence, runs the ten checks against your shop's "
+                         "own terms (no PayPal rules apply yet), and recommends one answer. Nothing is sent until you approve."}
+    return {"to": "to PayPal", "decide": "Decide in PayPal.", "first": ", in PayPal", "refund_where": "in PayPal",
+            "reply": "Your reply to the buyer", "ask": "Before you decide, ask the buyer",
+            "sending": "Sending to PayPal…", "sent": "Sent to PayPal.", "reading": "Reading the dispute… about 30 seconds",
+            "action": ACTION, "says": ACTION_SAYS, "checks": CHECKS, "rules_look": RULES_LOOK,
+            "intro": "Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist would run, "
+                     "and recommends one answer. Nothing is sent until you approve."}
+
+
+def _no_key_run(w: dict) -> str:
+    if w["rules_look"] == RULES_LOOK:
+        return NO_KEY_RUN
+    return NO_KEY_RUN.replace(RULES_LOOK, w["rules_look"])
+
+
 def judged_note(did: str, judged: str | None, sent: bool) -> str:
     """Who wrote the review on screen, when it isn't a review Claude made on this machine."""
     if judged == "rules":
@@ -1713,7 +1750,7 @@ def judged_note(did: str, judged: str | None, sent: bool) -> str:
                else "No AI key is set, so Second Look ran its rules baseline instead of Claude.")
         again = (f'<form method="post" action="/d/{e(did)}/review"><button>Take a second look with Claude</button></form>'
                  if has_ai_key() and not sent else "" if has_ai_key() else f"<span>{HOW_TO_KEY}</span>")
-        return (f'<div class="judged"><b>Rules baseline, not the AI.</b>{e(why)} It looks only at {RULES_LOOK}, '
+        return (f'<div class="judged"><b>Rules baseline, not the AI.</b>{e(why)} It looks only at {_words(did)["rules_look"]}, '
                 f'the way a simple automation would. Your limits were applied after it, as '
                 f'they are for Claude. {again}</div>')
     if judged and is_shipped(did):
@@ -1742,30 +1779,8 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     q = "?shop=demo" if demo else ""
     buyer = ledger.buyer_of(d)
     saved = _saved(dispute_id)
-    # In a team: whose case it is, and a colleague's handoff waiting on it (until the answer is sent).
     t = team_for(dispute_id)
     a = None if t.get("solo") else assignments_for(dispute_id).get(dispute_id)
-    hand = a.get("handoff") if a else None
-    hand = hand if isinstance(hand, dict) and not (saved and saved[1]) else None
-    owner = ""
-    if a is not None:
-        holder = team_mod.person(t, a["to"])
-        holder_name = holder["name"] if holder else a["to"]
-        if hand:
-            what = ACTION.get(hand.get("action"), str(hand.get("action"))).lower()
-            try:
-                much = f' ({float(hand.get("amount")):.2f} {amt.get("currency_code", "EUR")})'
-            except (TypeError, ValueError):
-                much = ""
-            frm = hand.get("from_name") or "A colleague"
-            owner = (f'<div class="guard"><b>{e(frm)} suggests: {e(what)}{e(much)}.</b> Over {e(frm)}\'s limit, '
-                     f'so it waits for {e(holder_name)}. Nothing has been sent.</div>')
-        elif a["to"]:
-            owner = f'<p class="owner-line">{e(holder_name)}\'s case.</p>'
-        else:
-            by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
-            owner = (f'<form class="owner-line" method="post" action="/d/{e(dispute_id)}/take">Nobody has this case yet. '
-                     f'{by}<button class="link">Take it</button></form>')
     signed = None
     if a is not None and saved and saved[1]:
         sb = _saved_by(dispute_id)
@@ -1778,6 +1793,43 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
             f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
             f'{conversation(d, signed)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
+    body = (f'<div class="case"><section>{left}</section>'
+            f'<section class="look">{review_column(dispute_id, case, me, flash)}</section></div>')
+    return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
+
+
+def review_column(did: str, case: dict, me: str | None, flash: str = "", plain_owner: bool = True) -> str:
+    """The right-hand side of a case: whose it is, the review, the one button the limits allow, the costs and
+    the ten checks. The same for a PayPal dispute (/d/) and a shop inquiry (/c/): only a few words differ.
+    plain_owner=False: the page already says whose case it is (the case page's header, with the role)."""
+    w = _words(did)
+    d, r = case["dispute"], case["seller_records"]
+    amt = d["dispute_amount"]
+    saved = _saved(did)
+    # In a team: whose case it is, and a colleague's handoff waiting on it (until the answer is sent).
+    t = team_for(did)
+    a = None if t.get("solo") else assignments_for(did).get(did)
+    hand = a.get("handoff") if a else None
+    hand = hand if isinstance(hand, dict) and not (saved and saved[1]) else None
+    owner = ""
+    if a is not None:
+        holder = team_mod.person(t, a["to"])
+        holder_name = holder["name"] if holder else a["to"]
+        if hand:
+            what = w["action"].get(hand.get("action"), str(hand.get("action"))).lower()
+            try:
+                much = f' ({float(hand.get("amount")):.2f} {amt.get("currency_code", "EUR")})'
+            except (TypeError, ValueError):
+                much = ""
+            frm = hand.get("from_name") or "A colleague"
+            owner = (f'<div class="guard"><b>{e(frm)} suggests: {e(what)}{e(much)}.</b> Over {e(frm)}\'s limit, '
+                     f'so it waits for {e(holder_name)}. Nothing has been sent.</div>')
+        elif a["to"]:
+            owner = f'<p class="owner-line">{e(holder_name)}\'s case.</p>' if plain_owner else ""
+        else:
+            by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+            owner = (f'<form class="owner-line" method="post" action="/d/{e(did)}/take">'
+                     f'{"Nobody has this case yet. " if plain_owner else ""}{by}<button class="link">Take it</button></form>')
     costs = costs_block(r.get("costs"), r.get("buyer_history_counts"))
     banner = ""
     given = [ev for ev in d.get("evidences", []) if ev.get("source") == "SUBMITTED_BY_SELLER"]
@@ -1792,67 +1844,60 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
         banner = ('<div class="sent"><b>Waiting for the buyer.</b><br>PayPal will tell you if they reply or escalate.</div>')
     elif d.get("status") == "UNDER_REVIEW":
         banner = '<div class="sent"><b>PayPal is reviewing this case.</b></div>'
+    busy = ('<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.'
+            'querySelector("button");b.disabled=true;b.textContent="' + w["reading"] + '";}));</script>')
     if nothing_to_do and not saved:
-        right = owner + banner + costs
-    elif not saved:
-        # the dispute id goes in by replace(), not format(): the script below has braces of its own
-        intro = ('<p>Second Look reads the dispute and the evidence, runs the ten checks a dispute specialist '
-                 'would run, and recommends one answer. Nothing is sent until you approve.</p>'
-                 '<button>Take a second look</button>') if has_ai_key() else NO_KEY_RUN
-        right = owner + banner + costs + ('<form class="run" method="post" action="/d/DISPUTE_ID/review"><h2>Ten checks before you answer</h2>'
-                 + intro + '</form>'
-                 '<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.querySelector("button");'
-                 'b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>').replace("DISPUTE_ID", e(dispute_id))
+        return owner + banner + costs
+    if not saved:
+        intro = (f'<p>{w["intro"]}</p><button>Take a second look</button>') if has_ai_key() else _no_key_run(w)
+        return (owner + banner + costs + f'<form class="run" method="post" action="/d/{e(did)}/review">'
+                f'<h2>Ten checks before you answer</h2>{intro}</form>{busy}')
+    dec, sent = saved
+    j = dec.judgment
+    o = page_offer(did, me, case)  # the same decision the API gives other systems
+    via = o["_via"]
+    guard = ""
+    if dec.reasons:
+        guard = (f'<div class="guard"><b>Your limits changed the answer'
+                 f'{" from " + e(w["action"].get(j.action, j.action)) if dec.overridden else ""}:</b>'
+                 f'<ul>{"".join(f"<li>{e(plain(n))}</li>" for n in dec.reasons)}</ul></div>')
+    amount = f' ({e(j.partial_amount)})' if dec.action == "PARTIAL_REFUND" and j.partial_amount else ""
+    lead, rest = first_sentences(j.reasoning)
+    judged = judge_of(did)
+    conf = (f"Confidence {j.confidence:.0%}." if judged != "rules"
+            else f"A fixed rule, not a measured confidence ({j.confidence:.0%}).")
+    verdict = (judged_note(did, judged, bool(sent))
+               + f'<section class="verdict"><h3>{e(w["action"].get(dec.action, dec.action))}{amount}</h3>'
+               f'<p class="conf">{e(conf)} {e(w["says"].get(dec.action, ""))}</p>'
+               f'<p>{e(lead)}</p>'
+               + (f'<details><summary>Full reasoning</summary><p>{e(rest)}</p></details>' if rest else "")
+               + f'{guard}</section>')
+    done = f'<div class="sent"><b>{e(w["sent"])}</b><br>{e(sent)}</div>' if sent else ""
+    if via == "stale":
+        action_part = done + (f'<form class="run" method="post" action="/d/{e(did)}/review"><div class="stale">'
+                              f'<b>This answer is out of date:</b> {e("; ".join(o["reasons"]))}.</div>'
+                              f'<button>Take a fresh look{"" if has_ai_key() else " (rules baseline: no AI key is set)"}</button></form>'
+                              + busy)
+    elif via == "sent":
+        action_part = done
+    elif via in ("kept", "waiting", "no_draft", "refused"):
+        action_part = f'<p class="conf">{e(o["says"])}</p>'
+    elif via == "form":
+        action_part = _send_form(did, o["label"], o["draft"], o["action"], o["button"], o["says"], me,
+                                 o["outcome"] == "pass", TEACH if o["_teach"] and o["outcome"] != "pass" else "")
+    elif via == "promise":
+        action_part = (f'<div class="stale"><b>The drafted reply promises a {e(w["action"].get(j.action, j.action).lower())}, '
+                       f'which your limits stopped.</b> Decide first. If you refund, do it {w["refund_where"]}, then come back: '
+                       'Second Look will see the change and draft a reply that matches.</div>'
+                       f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(o["draft"])}</p></details>')
+    elif via == "draft_refused":
+        action_part = (f'<div class="stale"><b>{e(o["says"])}</b></div>'
+                       f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(o["draft"])}</p></details>')
     else:
-        dec, sent = saved
-        j = dec.judgment
-        o = page_offer(dispute_id, me, case)  # the same decision the API gives other systems
-        via = o["_via"]
-        guard = ""
-        if dec.reasons:
-            guard = (f'<div class="guard"><b>Your limits changed the answer'
-                     f'{" from " + e(ACTION.get(j.action, j.action)) if dec.overridden else ""}:</b>'
-                     f'<ul>{"".join(f"<li>{e(plain(n))}</li>" for n in dec.reasons)}</ul></div>')
-        amount = f' ({e(j.partial_amount)})' if dec.action == "PARTIAL_REFUND" and j.partial_amount else ""
-        lead, rest = first_sentences(j.reasoning)
-        judged = judge_of(dispute_id)
-        conf = (f"Confidence {j.confidence:.0%}." if judged != "rules"
-                else f"A fixed rule, not a measured confidence ({j.confidence:.0%}).")
-        verdict = (judged_note(dispute_id, judged, bool(sent))
-                   + f'<section class="verdict"><h3>{e(ACTION.get(dec.action, dec.action))}{amount}</h3>'
-                   f'<p class="conf">{e(conf)} {e(ACTION_SAYS.get(dec.action, ""))}</p>'
-                   f'<p>{e(lead)}</p>'
-                   + (f'<details><summary>Full reasoning</summary><p>{e(rest)}</p></details>' if rest else "")
-                   + f'{guard}</section>')
-        done = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>' if sent else ""
-        if via == "stale":
-            action_part = done + (f'<form class="run" method="post" action="/d/{e(dispute_id)}/review"><div class="stale">'
-                           f'<b>This answer is out of date:</b> {e("; ".join(o["reasons"]))}.</div>'
-                           f'<button>Take a fresh look{"" if has_ai_key() else " (rules baseline: no AI key is set)"}</button></form>'
-                           '<script>document.querySelectorAll(".run").forEach(f=>f.addEventListener("submit",e=>{const b=e.target.'
-                           'querySelector("button");b.disabled=true;b.textContent="Reading the dispute… about 30 seconds";}));</script>')
-        elif via == "sent":
-            action_part = f'<div class="sent"><b>Sent to PayPal.</b><br>{e(sent)}</div>'
-        elif via in ("kept", "waiting", "no_draft", "refused"):
-            action_part = f'<p class="conf">{e(o["says"])}</p>'
-        elif via == "form":
-            action_part = _send_form(dispute_id, o["label"], o["draft"], o["action"], o["button"], o["says"], me,
-                                     o["outcome"] == "pass", TEACH if o["_teach"] and o["outcome"] != "pass" else "")
-        elif via == "promise":
-            action_part = (f'<div class="stale"><b>The drafted reply promises a {e(ACTION.get(j.action, j.action).lower())}, '
-                           'which your limits stopped.</b> Decide first. If you refund, do it in PayPal, then come back: '
-                           'Second Look will see the change and draft a reply that matches.</div>'
-                           f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(o["draft"])}</p></details>')
-        elif via == "draft_refused":
-            action_part = (f'<div class="stale"><b>{e(o["says"])}</b></div>'
-                           f'<details class="draft"><summary>Read the draft anyway</summary><p>{e(o["draft"])}</p></details>')
-        else:
-            action_part = ""
-        ten = checks(j) or (f'<p class="na-line">The rules baseline runs none of the ten checks: it looks only at {RULES_LOOK}. '
-                            'Claude runs them.</p>' if judged == "rules" else "")
-        right = f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{ten}'
-    body = f'<div class="case"><section>{left}</section><section class="look">{right}</section></div>'
-    return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
+        action_part = ""
+    ten = checks(j, w["checks"]) or (f'<p class="na-line">The rules baseline runs none of the ten checks: it looks only at '
+                                     f'{w["rules_look"]}. Claude runs them.</p>' if judged == "rules" else "")
+    return f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{ten}'
 
 
 # ---------- one path for the page and for other systems ----------
@@ -1911,21 +1956,22 @@ STOP_SAYS = {
 }
 
 
-def _refused(dec: Decision | None, chosen: str) -> str:
+def _refused(dec: Decision | None, chosen: str, w: dict | None = None) -> str:
     """Why may_approve refused. The guard's reasons only where they are the reason: for the AI's own answer,
     or for the drafted question on "your call" (PayPal's rules, an unrecognised answer, a promised refund)."""
+    w = w or _words(None)
     if dec and dec.action == "ASK_SELLER" and chosen == "MESSAGE":
         why = [STOP_SAYS[s] for s in ("message_not_allowed", "unknown_action") if s in dec.stops]
         if why:
             return (f"This message was held back: {', '.join(why)}. "
-                    "It can't be sent from here, by anyone. Decide in PayPal.")
+                    f"It can't be sent from here, by anyone. {w['decide']}")
         if dec.judgment.action in MONEY:
             return (f"The drafted reply promises a {ACTION.get(dec.judgment.action, dec.judgment.action).lower()}, "
-                    "which your limits stopped. Decide first, in PayPal.")
+                    f"which your limits stopped. Decide first{w['first']}.")
     held = [STOP_SAYS.get(s, s) for s in (dec.stops if dec else []) if s not in SIZE_STOPS | QUESTION_STOPS]
     if dec and chosen == dec.judgment.action and held:
         return (f"This answer was held back: {', '.join(held)}. "
-                "It can't be sent from here, by anyone. Decide in PayPal.")
+                f"It can't be sent from here, by anyone. {w['decide']}")
     return "This answer changed since you saw it, or it can't be sent as it is. Look again."
 
 
@@ -1933,15 +1979,16 @@ def outcome(dec: Decision, chosen: str, dispute: dict, t: dict, who: dict | None
     """What approving `chosen` does for this person. The one decision behind approve() AND every button on the
     case page, so a button never promises what approve won't do.
     ("refused", why) · ("pass", colleague) over their limit · ("send", None)."""
+    w = _words(dispute.get("dispute_id"))
     if not may_approve(dec.action, chosen, dec.judgment.action, dec.stops):
-        return "refused", _refused(dec, chosen)
+        return "refused", _refused(dec, chosen, w)
     need = required(chosen, dec, dispute)
     me = who["id"] if who else None
     if need and not team_mod.covers(t, me, need):
         to = team_mod.handoff_to(t, need, exclude=me)
         if not to:
             cur = dispute["dispute_amount"].get("currency_code", "EUR")
-            return "refused", f"Nobody in the team may approve {need:.2f} {cur} from here. Decide in PayPal."
+            return "refused", f"Nobody in the team may approve {need:.2f} {cur} from here. {w['decide']}"
         return "pass", to
     return "send", None
 
@@ -2055,7 +2102,7 @@ def api_case(did: str, as_person: str | None = None) -> dict:
                          "limits_notes": dec.reasons, "held_back_for": dec.stops, "reasoning": dec.judgment.reasoning,
                          "draft_reply": dec.judgment.draft_message,
                          # each check with the page's group (what it means for the answer) and its plain label
-                         "checks": [{**c, "group": _bucket(c), "label": CHECKS.get(c.get("id"), c.get("id"))}
+                         "checks": [{**c, "group": _bucket(c), "label": _words(did)["checks"].get(c.get("id"), c.get("id"))}
                                     for c in dec.judgment.checks if isinstance(c, dict) and "id" in c and "result" in c],
                          "sent": sent, "by": _saved_by(did).get("by"), "out_of_date": _changes(did, case),
                          "mark": review_mark(did),

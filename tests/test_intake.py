@@ -141,11 +141,11 @@ def test_the_case_page_shows_every_channel_every_role_and_the_cost_so_far():
         assert "Marta, <i>Customer care agent</i>, has this case." in pablo        # DEMO-034 is Marta's
         assert "Everything said, every channel" in pablo and "✉️" in pablo and "PayPal dispute opened" in pablo
         assert "Cost so far" in pablo and "estimated" in pablo and "2 (1 by email, 1 by PayPal)" in pablo
-        assert 'href="/d/DEMO-034"' in pablo and "Second Look recommends" in pablo
+        assert 'href="/d/DEMO-034"' in pablo and "Pass to Giulia" in pablo          # the dispute's own buttons, here
         sophie = web.case_file_page("DEMO-C001", me="marta")
         assert "Shop inquiry" in sophie and "Order LP-90001: Linen tablecloth × 1, 64.00 EUR, paid by card." in sophie
         assert "Nobody has this case yet." in sophie and "Sorted by Second Look&#x27;s rules" in sophie
-        assert "doesn't review shop inquiries yet" in sophie
+        assert "Take a second look (rules baseline)" in sophie and "the courier's status" in sophie   # no AI key here
         assert "No case with that id" in web.case_file_page("DEMO-C999")
         assert "/c/DEMO-C003" in web.case_page("DEMO-034", me="marta")             # the dispute names its case
 
