@@ -229,6 +229,23 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             action = "ASK_SELLER"
             stops.append("repeat_buyer")
 
+    # Rule 9: a shop inquiry (its records carry the shop's own order amount; a PayPal dispute's never do, so
+    # this never applies to one). Money or goods go out only against an order with an amount, and never
+    # once the order is refunded in full: a customer who writes again gets a fresh look, not a second refund
+    # (found in review, 25/10). A partial refund is capped at what is left (the amount at stake is what is left).
+    if "order_amount" in records and _subject() in MONEY:
+        total, back = records.get("order_amount") or 0, records.get("refunded_so_far") or 0
+        cur = dispute["dispute_amount"].get("currency_code", "")
+        if not total or total <= 0:
+            notes.append("There is no order with an amount on this case: no money or goods go out from here.")
+            action = "ASK_SELLER"
+            stops.append("no_order")
+        elif back >= total - 0.005:
+            notes.append(f"This order is already refunded in full: {records.get('already_refunded') or f'{back:.2f} {cur}'}. "
+                         "Nothing more goes out from here.")
+            action = "ASK_SELLER"
+            stops.append("already_refunded")
+
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 

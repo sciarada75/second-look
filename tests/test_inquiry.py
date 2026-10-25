@@ -184,6 +184,165 @@ def test_the_api_gives_the_case_s_review_and_what_approving_would_do():
         assert "for_person" not in web.api_case_of("DEMO-C003")
 
 
+# ---------- quality review 4 (25/10): the money path ----------
+
+def _ask(email, text, sid):
+    return web.receive("demo", {"channel": "email", "from": {"name": "", "email": email}, "text": text, "source_id": sid})
+
+
+def test_an_order_refunded_once_is_never_refunded_again():
+    with morning():
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", "q4:1")
+        cid = o["case_id"]
+        assert web.run_review(cid).action == "REFUND"
+        code, text = web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
+        assert code == 200 and text.startswith("Refund of 20.00 EUR logged")
+        _ask("sami.l918@example.com", "Thanks, but I still have no refund.", "q4:2")
+        again = web.run_review(cid)                                   # the customer wrote again: a fresh look
+        assert again.judgment.action == "REFUND" and again.action == "ASK_SELLER" and "already_refunded" in again.stops
+        code, text = web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")
+        assert code == 409 and "already refunded in full" in text
+        assert [m["amount"] for m in web.case_store("demo").get(cid)["money"]] == [20.0]
+        page = web.case_file_page(cid, me="giulia")
+        assert "Already refunded" in page and "20.00 EUR on " in page
+
+
+def test_a_partial_refund_is_capped_at_what_is_left_of_the_order():
+    def claude(case):
+        return Judgment("PARTIAL_REFUND", 0.9, "Faked.", draft_message="Here is part of it back.", partial_amount="15.00 EUR")
+    with morning(ai_key=True, claude=claude):
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: one of the two was damaged.", "q4:3")
+        cid = o["case_id"]
+        web.run_review(cid)
+        assert web.approve(cid, "PARTIAL_REFUND", "Here is part of it back.", by="giulia")[1].startswith(
+            "Partial refund of 15.00 EUR logged")
+        _ask("sami.l918@example.com", "The other one is damaged too.", "q4:4")
+        web.run_review(cid)
+        code, text = web.approve(cid, "PARTIAL_REFUND", "Here is the rest.", by="giulia")
+        assert code == 200 and text.startswith("Partial refund of 5.00 EUR logged")    # 20 - 15: what is left
+        _ask("sami.l918@example.com", "And now?", "q4:5")
+        assert "already_refunded" in web.run_review(cid).stops
+        assert sum(m["amount"] for m in web.case_store("demo").get(cid)["money"]) == 20.0
+
+
+def test_an_inquiry_that_became_a_paypal_dispute_is_answered_on_the_dispute_only():
+    import copy
+    claude = lambda c: Judgment("REFUND", 0.95, "Faked.", draft_message="We refund you.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        _, o = _ask("anna.r985@example.com", "Order DEMOTX00016 never arrived.", "q4:6")
+        cid = o["case_id"]
+        web.run_review(cid)
+        real = web.shop_disputes
+        fake = {**copy.deepcopy(DemoPayPal().disputes()[0]), "dispute_id": "DEMO-999", "status": "WAITING_FOR_SELLER_RESPONSE",
+                "dispute_amount": {"value": "29.00", "currency_code": "EUR"},
+                "disputed_transactions": [{"seller_transaction_id": "DEMOTX00016"}]}
+        web.shop_disputes = lambda src: real(src) + [fake]
+        try:
+            assert "the case became a PayPal dispute" in web._changes(cid, web._case(cid))
+            code, text = web.approve(cid, "REFUND", "We refund you.", by="giulia")
+            assert code == 409 and text == "This case is a PayPal dispute now: answer it on DEMO-999."
+            try:
+                web.run_review(cid)
+                assert False, "an inquiry's review never runs once PayPal has the case"
+            except ValueError as err:
+                assert str(err) == "This case is a PayPal dispute now: answer it on DEMO-999."
+            assert web.case_store("demo").get(cid)["money"] == []
+        finally:
+            web.shop_disputes = real
+
+
+def test_no_money_and_no_goods_go_out_on_a_case_with_no_order():
+    claude = lambda c: Judgment("REFUND", 0.95, "Faked.", draft_message="We refund you.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        _, o = _ask("anna.r985@example.com", "Do you gift wrap?", "q4:7")
+        cid = o["case_id"]
+        dec = web.run_review(cid)
+        assert dec.action == "ASK_SELLER" and "no_order" in dec.stops
+        code, text = web.approve(cid, "REFUND", "We refund you.", by="giulia")
+        assert code == 409 and "no order with an amount" in text
+        assert web.case_store("demo").get(cid)["money"] == []
+    shaped = {"dispute_id": "DEMO-C009", "reason": "SHOP_INQUIRY", "dispute_life_cycle_stage": "SHOP_INQUIRY",
+              "dispute_amount": {"value": "0.00", "currency_code": "EUR"}, "messages": []}
+    for action in ("REFUND", "PARTIAL_REFUND", "REPLACE"):
+        held = apply_policy(Judgment(action, 0.95, "x", partial_amount="5 EUR"), POLICY, shaped, {"order_amount": None})
+        assert held.action == "ASK_SELLER" and "no_order" in held.stops, action
+    assert apply_policy(Judgment("MESSAGE", 0.9, "x"), POLICY, shaped, {"order_amount": None}).action == "MESSAGE"
+    # a PayPal dispute's records carry no order_amount: the rule never applies there
+    dispute = {**shaped, "dispute_id": "DEMO-031", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+               "dispute_amount": {"value": "20.00", "currency_code": "EUR"}}
+    assert apply_policy(Judgment("REFUND", 0.95, "x"), POLICY, dispute, {}).stops == []
+
+
+def test_an_unsorted_case_says_pick_the_order_first_wherever_it_is_reviewed_or_approved():
+    with morning():
+        _, o = web.receive("demo", {"channel": "email", "from": {"email": "x@nowhere.example"}, "text": "Hi?"})
+        code, text = web.approve(o["case_id"], "MESSAGE", "Hello", by="giulia")
+        assert code == 409 and text.startswith("Pick the order first")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            for what, body in (("review", "{}"), ("approve", json.dumps({"action": "MESSAGE", "by": "giulia"}))):
+                code, out = _post(srv, f"/api/cases/{o['case_id']}/{what}", body)
+                assert code == 409 and "Pick the order first" in out, (what, out)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
+def _post(srv, path, body):
+    from http.client import HTTPConnection
+    con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+    con.request("POST", path, body=body, headers={"Content-Type": "application/json"})
+    r = con.getresponse()
+    return r.status, r.read().decode()
+
+
+def test_a_body_that_is_not_one_json_object_is_a_400_on_every_review_and_approve():
+    with morning():
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            for path in ("/api/cases/DEMO-C001/approve", "/api/disputes/DEMO-031/approve",
+                         "/api/cases/DEMO-C001/review", "/api/disputes/DEMO-031/review"):
+                for body in ("not json", "[1, 2]", "7", '"text"'):
+                    code, out = _post(srv, path, body)
+                    assert code == 400 and "one JSON object" in out, (path, body, code, out)
+            for path in ("/api/cases/DEMO-C001/approve", "/api/disputes/DEMO-031/approve"):
+                for body in ({"action": 5, "by": "giulia"}, {"action": "MESSAGE", "by": "giulia", "message": ["x"]},
+                             {"action": "MESSAGE", "by": 7}, {"action": "MESSAGE", "by": "giulia", "review": 1}):
+                    code, out = _post(srv, path, json.dumps(body))
+                    assert code == 400, (path, body, code, out)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
+def test_the_small_things_currency_wording_logs_and_whose_review_it_is():
+    assert web.OUTBOX_LOGS["live"] == web.ROOT / "records" / "actions-inquiries.jsonl"   # records/, not .tmp/
+    gbp = [{"transaction_id": "T9", "email": "pat@example.com", "name": "Pat", "time": "2026-10-01T10:00:00Z",
+            "amount": 30.0, "currency": "GBP", "items": [{"item_name": "Art print", "item_quantity": "1"}]}]
+    with morning():
+        web.case_store("demo")
+        kept = web.shop_orders
+        web.shop_orders = lambda src: gbp
+        try:
+            _, o = _ask("pat@example.com", "My art print is broken.", "q4:8")
+            assert web.case_view(o["case_id"])["currency"] == "GBP"
+        finally:
+            web.shop_orders = kept
+        web.run_review("DEMO-C001")
+        _ask("sophie.durand@example.com", "Any news on my tablecloth?", "q4:9")
+        assert web._changes("DEMO-C001", web._case("DEMO-C001")) == ["the customer wrote again"]
+        web.run_review("DEMO-C001")
+        web.case_store("demo").update("DEMO-C001", lambda c: c["customer"].update(email="someone.else@example.com"))
+        assert "the case is now about another customer or order" in web._changes("DEMO-C001", web._case("DEMO-C001"))
+        assert web.approve("DEMO-C001", "MESSAGE", "Hello", by="marta")[0] == 409
+        sophie = web.case_file_page("DEMO-C001", me="marta")
+    assert "PayPal's own records" not in sophie and "Your orders" in sophie           # no PayPal record on this case
+    with morning():
+        assert "PayPal's own records" in web.case_page("DEMO-031", me="marta")       # a dispute's legend as before
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

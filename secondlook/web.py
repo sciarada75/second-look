@@ -65,7 +65,7 @@ EVIDENCE_LABEL = {
     "listing_text": "Your listing", "fulfilment_status": "Status", "planned_ship_date": "Planned shipping",
     "packing_slip_qty": "Packing slip says", "shipment_weight_g": "Parcel weighed (g)",
     "unit_weight_g": "One item weighs (g)", "envelope_weight_g": "Empty envelope weighs (g)",
-    "buyer_history": "This buyer",
+    "buyer_history": "This buyer", "already_refunded": "Already refunded",
 }
 
 e = html.escape
@@ -379,7 +379,8 @@ def case_view(cid: str) -> dict | None:
     at_stake = float(d["dispute_amount"]["value"]) if d else float((order or {}).get("amount") or 0)
     return {"case": c, "dispute": d, "order": order, "src": src, "decision_id": decision, "team": t,
             "timeline": cases_mod.timeline(c, d), "channels": cases_mod.channels(c, d),
-            "costs": cases_mod.costs_so_far(c, d, _policy()), "at_stake": at_stake, "currency": "EUR",
+            "costs": cases_mod.costs_so_far(c, d, _policy()), "at_stake": at_stake,
+            "currency": d["dispute_amount"].get("currency_code", "EUR") if d else (order or {}).get("currency") or "EUR",
             "assigned_to": {"id": holder["id"], "name": holder.get("name"), "role": holder.get("role")} if holder else None}
 
 
@@ -437,7 +438,7 @@ def api_case_of(cid: str, as_person: str | None = None) -> dict | None:
 # goes. In this step nothing leaves Second Look: the reply is recorded on the case, signed, on the channel the
 # customer used, and the helpdesk hears answer.sent. Money is logged only (paying back by card, bank or
 # PayPal's refund API comes in a later step).
-OUTBOX_LOGS = {"demo": ROOT / ".tmp" / "actions-demo.jsonl", "live": ROOT / ".tmp" / "actions-inquiries.jsonl"}
+OUTBOX_LOGS = {"demo": ROOT / ".tmp" / "actions-demo.jsonl", "live": ROOT / "records" / "actions-inquiries.jsonl"}
 OUT_WORDS = {"email": "by email", "form": "by email, to the address on the web form", "call": "by email"}
 
 
@@ -461,9 +462,16 @@ def inquiry_case(cid: str) -> dict:
         raise KeyError(f"No case {cid} in this shop.")
     c, o = v["case"], v["order"] or {}
     talk = [x for x in c["timeline"] if x["direction"] in ("in", "out")]
+    # What has already gone back on this order: the amount at stake is what is left of it, so a second refund
+    # finds nothing (the guard's rule 9) and a partial refund is capped at the rest.
+    back = [m for m in c.get("money", []) if m.get("kind") in ("refund", "partial_refund")]
+    refunded = round(sum(float(m.get("amount") or 0) for m in back), 2)
+    left = max(0.0, round(v["at_stake"] - refunded, 2))
+    # The case's real stage: once PayPal has it, the inquiry's review is out of date (and refused: see _inquiry_refusal)
+    stage = "SHOP_INQUIRY" if c["stage"] == "inquiry" else c["stage"].upper()
     dispute = {"dispute_id": cid, "reason": "SHOP_INQUIRY", "status": "WAITING_FOR_SELLER_RESPONSE",
-               "dispute_life_cycle_stage": "SHOP_INQUIRY", "create_time": c["opened"],
-               "dispute_amount": {"value": f"{v['at_stake']:.2f}", "currency_code": v["currency"]},
+               "dispute_life_cycle_stage": stage, "create_time": c["opened"],
+               "dispute_amount": {"value": f"{left:.2f}", "currency_code": v["currency"]},
                "messages": [{"posted_by": "BUYER" if x["direction"] == "in" else "SELLER", "content": x["text"],
                              "time_posted": x["at"]} for x in talk]}
     records, sources = {}, {}
@@ -476,21 +484,47 @@ def inquiry_case(cid: str) -> dict:
             sources[k] = "Your orders"
         sources["tracking"] = "Courier tracking" if o.get("tracking") else "Courier tracking (none on record)"
     evidence_mod.add_shop_terms(records, sources, DemoPayPal().shop if v["src"] == "demo" else _live_shop())
+    # the shop's own order amount: only inquiries carry it, so the guard's rule 9 never touches a PayPal dispute
+    records["order_amount"] = float(o["amount"]) if o and o.get("amount") else None
+    records["refunded_so_far"] = refunded
+    if back:
+        when = _t(back[-1].get("at"))
+        records["already_refunded"] = (f"{refunded:.2f} {v['currency']}" + (f" on {when:%d %b %Y}" if when else "")
+                                       + (f" by {back[-1]['by']}" if back[-1].get("by") else ""))
+        sources["already_refunded"] = "Your case record"
     records["sources"] = sources
     ins = [x for x in talk if x["direction"] == "in"]
+    first = next((x.get("source_id") for x in c["timeline"] if x.get("source_id")), None)
     inquiry = {"case_id": cid, "channel": reply_channel(c), "customer": c["customer"].get("name"),
                "problem_kind": c["problem"]["kind"], "summary": c["problem"]["summary"],
                "messages": [{"at": x["at"], "channel": x["channel"], "from": x["by"], "direction": x["direction"],
                              "text": x["text"]} for x in talk],
-               "last_message_at": ins[-1]["at"] if ins else None, "amount": v["at_stake"], "currency": v["currency"]}
+               "last_message_at": ins[-1]["at"] if ins else None, "amount": v["at_stake"], "currency": v["currency"],
+               "dispute_id": c.get("dispute_id"),
+               # whose case this is: a review is never inherited by another customer, order or request
+               "identity": f'{(c["customer"].get("email") or "").strip().lower()}|{c.get("order_no") or ""}|{first or ""}'}
     return {"dispute": dispute, "seller_records": records, "inquiry": inquiry}
+
+
+def _inquiry_refusal(cid: str) -> str | None:
+    """Why an inquiry can't be reviewed or answered as an inquiry right now, or None. Read through case_view,
+    so a PayPal dispute opened since on its order is seen first."""
+    v = case_view(cid)
+    if v is None:
+        return "No such case."
+    c = v["case"]
+    if not c["sorted"]["by"]:
+        return "Pick the order first: an unsorted request has no evidence to check."
+    if c.get("dispute_id"):
+        return f"This case is a PayPal dispute now: answer it on {c['dispute_id']}."
+    return None
 
 
 def review_inquiry(cid: str, judge: str) -> Decision:
     """Second Look's AI (or, with no key, the rules baseline) on an inquiry, then the guard, unchanged."""
-    c = case_store(shop_of_case(cid)).get(cid)
-    if not c or not c["sorted"]["by"]:
-        raise ValueError("Pick the order first: an unsorted request has no evidence to check.")
+    no = _inquiry_refusal(cid)
+    if no:
+        raise ValueError(no)
     case = _case(cid)
     policy = _policy()
     case["seller_preferences"] = policy.get("seller_preferences", [])
@@ -681,11 +715,21 @@ CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the
            "ship_to": "PayPal now shows the buyer's address"}
 
 
+# The same, for a shop inquiry, in its own words; "who" is whose case it is (customer, order, first request).
+CHANGED_INQUIRY = {"buyer_messages": "the customer wrote again", "stage": "the case became a PayPal dispute",
+                   "amount": "the amount at stake changed (a refund was logged, or the order changed)",
+                   "tracking": "the courier's tracking changed", "ship_to": "the delivery address changed",
+                   "who": "the case is now about another customer or order"}
+
+
 def _seen(case: dict) -> dict:
     d, r = case["dispute"], case["seller_records"]
-    return {"buyer_messages": sum(1 for m in d.get("messages", []) if m.get("posted_by") == "BUYER"),
+    seen = {"buyer_messages": sum(1 for m in d.get("messages", []) if m.get("posted_by") == "BUYER"),
             "stage": d.get("dispute_life_cycle_stage"), "amount": d["dispute_amount"]["value"],
             "tracking": (r.get("tracking") or {}).get("tracking_number"), "ship_to": bool(r.get("ship_to"))}
+    if case.get("inquiry"):
+        seen["who"] = case["inquiry"].get("identity")
+    return seen
 
 
 def _changes(dispute_id: str, case: dict) -> list:
@@ -694,7 +738,8 @@ def _changes(dispute_id: str, case: dict) -> list:
     if seen is None:
         return ["this review was saved before Second Look tracked changes"]
     now = _seen(case)
-    return [CHANGED[k] for k in CHANGED if seen.get(k) != now.get(k)]
+    words = CHANGED_INQUIRY if cases_mod.is_case_id(dispute_id) else CHANGED
+    return [words[k] for k in words if seen.get(k) != now.get(k)]
 
 
 def _t(iso):
@@ -768,7 +813,7 @@ def label_row(x: float, rows: tuple) -> int:
     return max(range(len(rows)), key=lambda level: room(rows[level]))
 
 
-def evidence(r: dict) -> str:
+def evidence(r: dict, inquiry: bool = False) -> str:
     src = r.get("sources", {})
     rows = []
     for k, label in EVIDENCE_LABEL.items():
@@ -790,7 +835,7 @@ def evidence(r: dict) -> str:
         tag = "Your shop terms" if tag.startswith("shop.json") else tag
         tag = "PayPal tracking" if tag.startswith("PayPal tracking") else tag
         # the tag's look says how much the fact can be relied on: PayPal's records, your published terms, your word
-        kind = "paypal" if tag.startswith("PayPal") else "shop" if tag in ("Your shop terms", "Your orders") or \
+        kind = "paypal" if tag.startswith("PayPal") else "shop" if tag in ("Your shop terms", "Your orders", "Your case record") or \
             tag.startswith("Courier tracking") else \
                "notes" if tag == "Your notes" else "practice"
         rows.append(f'<div class="ev"><dt>{e(label)}</dt><dd>{e(str(v))}</dd>'
@@ -800,6 +845,13 @@ def evidence(r: dict) -> str:
     legend = ('<p class="legend"><span class="src paypal">PayPal</span> PayPal\'s own records '
               '<span class="src shop">Your shop terms</span> what you published '
               '<span class="src notes">Your notes</span> your word only</p>')
+    if inquiry:   # a shop inquiry: only the kinds of source it shows (often no PayPal record at all)
+        shown = set(re.findall(r'class="src (\w+)"', "".join(rows)))
+        parts = [("paypal", "PayPal", "PayPal's own records"),
+                 ("shop", "Your records", "your orders, the courier and what you published"),
+                 ("notes", "Your notes", "your word only")]
+        legend = ('<p class="legend">' + " ".join(f'<span class="src {k}">{t}</span> {e(says)}' for k, t, says in parts
+                                                  if k in shown) + '</p>') if shown else ""
     return f'{legend}<dl class="evidence">{"".join(rows)}</dl>'
 
 
@@ -1532,7 +1584,7 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
         right = _pick_form(cid, me, c["sorted"]["how"] or "")
     else:
         case = _case(cid)
-        left += f'<h2>What the evidence says</h2>{evidence(case["seller_records"])}' if o else ""
+        left += f'<h2>What the evidence says</h2>{evidence(case["seller_records"], inquiry=True)}' if o else ""
         right = review_column(cid, case, me, plain_owner=False)
         if not c.get("order_no"):
             right += _pick_form(cid, me, "Sorted as a question with no order. If it is about one, say which.", question=True)
@@ -2005,6 +2057,8 @@ STOP_SAYS = {
     "message_not_allowed": "PayPal doesn't take a message at this stage",
     "unknown_action": "an answer Second Look doesn't recognise",
     "partial_amount": "an amount it couldn't read",
+    "no_order": "there is no order with an amount on this case",
+    "already_refunded": "the order is already refunded in full",
 }
 
 
@@ -2073,6 +2127,10 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
 
 def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[int, str]:
     saved = _saved(did)
+    if cases_mod.is_case_id(did) and not (saved and saved[1]):
+        no = _inquiry_refusal(did)      # unsorted, or PayPal has it now: never answered as an inquiry
+        if no:
+            return 409, no
     if saved and saved[1]:
         return 200, saved[1]  # already sent: a second approval sends nothing
     if not saved:
@@ -2216,6 +2274,23 @@ def api_open(src: str) -> list:
 
 # ---------- server ----------
 
+def api_body(raw: bytes, approving: bool) -> tuple:
+    """A review or an approval through the API: (one JSON object, None), or (None, the 400's message).
+    An empty body is {}; anything else must be one object, its fields text (never a crash, never a 500)."""
+    try:
+        data = json.loads(raw or b"{}")
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        return None, ('Send one JSON object: {"action": ..., "by": "<person id>", "message": ..., "review": ...}.'
+                      if approving else "Send one JSON object, or nothing.")
+    if approving:
+        for k in ("action", "by", "message", "rule", "review"):
+            if data.get(k) is not None and not isinstance(data[k], str):
+                return None, f"{k} must be text, in one JSON object."
+    return data, None
+
+
 # The most a POST may carry: a form, or one request of at most 10,000 characters, is a few kilobytes.
 MAX_BODY = 1_000_000
 
@@ -2343,13 +2418,15 @@ class Handler(BaseHTTPRequestHandler):
         if c is None:
             return self._json({"error": "unknown case"}, 404)
         decision = c.get("dispute_id") or cid
+        data, bad = api_body(raw, approving=what == "approve")
+        if bad:
+            return self._json({"case_id": cid, "error": bad}, 400)
         if what == "review":
             try:
                 run_review(decision)
             except ValueError as err:
                 return self._json({"case_id": cid, "error": str(err)}, 409)
             return self._json(api_case_of(cid))
-        data = json.loads(raw or b"{}")
         code, text = approve(decision, data.get("action", ""), data.get("message"), data.get("rule", ""),
                              by=data.get("by"), review=data.get("review"))
         return self._json({"case_id": cid, "decision_id": decision, "result": text}, code)
@@ -2446,10 +2523,12 @@ class Handler(BaseHTTPRequestHandler):
             # the API: the same review and the same approval, as JSON
             if len(parts) == 4 and parts[:2] == ["api", "disputes"] and parts[3] in ("review", "approve"):
                 did = parts[2]
+                data, bad = api_body(raw, approving=parts[3] == "approve")
+                if bad:
+                    return self._json({"dispute_id": did, "error": bad}, 400)
                 if parts[3] == "review":
                     run_review(did)
                     return self._json(api_case(did))
-                data = json.loads(raw or b"{}")
                 # a connected system must say who approves ("by": a person id) in a team shop
                 code, text = approve(did, data.get("action", ""), data.get("message"), data.get("rule", ""),
                                      by=data.get("by"), review=data.get("review"))
