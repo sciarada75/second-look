@@ -2373,6 +2373,10 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
     200 sent · 202 passed to a colleague (nothing sent) · 400 nobody named or no words · 409 changed or not allowed.
     `review`: the review_mark of the review they were shown; when given, a different review is refused."""
     from .__main__ import execute
+    if chosen == "ASK_SELLER":
+        # "your call" is what the review says when a person must choose; approving it would mark the review sent
+        # with nothing done (found in review, 25/10)
+        return 400, "\"Your call\" is not an answer: choose what to send (a reply, a refund, your evidence)."
     t = team_for(did)
     who = team_mod.person(t, by)
     if not who:

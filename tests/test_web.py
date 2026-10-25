@@ -808,6 +808,12 @@ def test_with_an_ai_key_the_review_is_claude_s_and_a_rules_review_can_be_redone_
         assert web.judge_of("PP-D-004") == "claude" and "Rules baseline" not in web.case_page("PP-D-004")
 
 
+def test_your_call_itself_is_never_approved_so_a_review_is_never_marked_sent_with_nothing_done():
+    with approval_bench(action="ASK_SELLER", ai="REFUND", stops=["cap"]) as b:
+        code, text = web.approve("X", "ASK_SELLER", None, by="giulia")
+        assert code == 400 and "not an answer" in text and b.sent == [] and web._saved("X")[1] is None
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
