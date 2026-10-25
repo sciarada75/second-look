@@ -147,6 +147,7 @@ as the screen.
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
 | `GET /api/orders/<order no>` | one order as the shop's order system holds it: customer, items, amount, how it was paid (`paid_with`: `paypal`, `card` or `bank`), delivery address. In the demo shop, a made-up stand-in for the shop's own order system, labelled so (`source`) |
+| `GET /books.csv?month=YYYY-MM` | the month's money events for the shop's accounting, one row each: date, what (refund, partial refund, replacement, PayPal refund, PayPal fee), order and invoice number, amount, fees (a PayPal dispute's fee estimated from PayPal's fee table, as on the Overview), whether the item came back or was lost, who approved it, the channel, the case or PayPal dispute, and its status (logged, sent to PayPal, paid, cancelled, or PayPal's outcome). The facts only, never a credit note: that is the accountant's. The *I know* block links it as *Export for accounting* |
 | `GET /api/tracking/<order no>` | the courier's record of that order: the parcel (`tracking`: status, where it was left) and any return (`return`). In the demo shop, a made-up stand-in for the courier, labelled so; on the live shop, PayPal's tracking of a PayPal order |
 | `GET /api/today` | the morning screen as data: `see` (what came in since yesterday, one row per problem, with `counts` by channel and the new `orders`), `manage` (who has which open case, with roles; unassigned; handoffs) and `know` (this month: requests, solved before any dispute, staff time and its estimate's inputs, money given back, fees, what open cases could still cost, PayPal's claim line) |
 | `POST /api/requests` | `{"channel": "email" or "form", "from": {"name", "email"}, "text", "subject", "time", "order", "source_id"}`: one request from your helpdesk or web form. Second Look sorts it (rules first, its AI only for what they can't settle) and files it on its case: `201` with `case_id`, `filed` (`opened` or `joined`), `stage`, `sorted` and `dispute_id`; `200` with `"filed": "already_received"` when that `source_id` came before. JSON only (`415` otherwise), at most 1 MB (`413`) |
@@ -164,6 +165,11 @@ when an answer is sent (`answer.sent`, with who sent it), and in a team when a c
 (`case.handed_off`). Each one says which case it is about (`case_id`, and `dispute_id` for a PayPal
 dispute) and on which channel the answer goes (`email`, `form` or `paypal`). A failed notification is
 logged and never blocks the answer.
+
+**Second Look → your bookkeeping**: set `SECONDLOOK_BOOKS_URL` and every money event Second Look causes
+(a refund logged or sent through PayPal, a replacement, a refund later marked paid or cancelled) is POSTed
+there as it happens, as one JSON row of the books (`"event": "money"`, the same columns as `/books.csv`).
+A failed post is logged in `.tmp/books.log` and never blocks the answer; the monthly CSV has every row.
 
 Add `?shop=demo` or `?practice=1` to try any of it on the demo shop or the practice cases, without keys.
 
@@ -207,9 +213,11 @@ dispute if one is opened later.
   in full, refunds and replacements together never exceed the order's value, and no limit ever goes
   past a stop for trust.
 - **The answer goes back on the customer's channel**: by email, or to the address on the web form,
-  signed by the person who approved it, with `answer.sent` to your helpdesk. In this version nothing is
-  sent from Second Look itself: your helpdesk sends the email. A refund on an inquiry is recorded on the
-  case and logged, never moved. A person closes a settled case with its outcome (solved before any
+  signed by the person who approved it, with `answer.sent` to your helpdesk. Second Look sends no email
+  itself: your helpdesk does. A refund on an inquiry about an order paid
+  through PayPal goes back through PayPal's refund API (`POST /v2/payments/captures/{capture id}/refund`,
+  the capture being the order's PayPal transaction); the demo shop logs it, never sends it. A refund on an
+  order paid by card or bank is recorded on the case and logged for your payment provider, never moved. A person closes a settled case with its outcome (solved before any
   dispute, refunded, replaced or exchanged, withdrawn). A case with a PayPal dispute is closed by PayPal:
   when PayPal resolves the dispute, the case closes with PayPal's outcome (defended and won, refunded,
   the customer withdrew, …), recorded on its timeline. A new request about that order opens a new case
@@ -219,9 +227,24 @@ dispute if one is opened later.
   what is left. When the customer then opens a PayPal dispute on the same order, the dispute's page says
   what was already refunded, and nothing more goes out on it (no refund, and no defence of a refund you
   promised) until a person has checked. No money or goods go out on a case with no order.
-- **Not built yet:** paying a refund back by card, bank or PayPal's refund API, and the bookkeeping
-  export. Orders paid by card or bank, and their courier records, are the demo shop's own made-up
-  stand-ins (`GET /api/orders/…`, `GET /api/tracking/…`).
+- **What became of a refund** (the case page's *Money on this case*): a person marks a logged refund
+  *paid* (by card, bank or PayPal) or *cancelled* (it never went out), once. A refund made through
+  PayPal can only be marked paid, and cancelling a card or bank refund takes someone whose limit covers
+  it. Cancelled, it counts nowhere any more: the order's limits lift by that amount. Paid, it still
+  counts (it went back, once), and when it covers the whole of a later PayPal dispute on that order,
+  that dispute may be defended with the refund as proof (`PROOF_OF_REFUND`); a second refund still
+  waits for a person. Each mark goes to your bookkeeping.
+- **A refund PayPal didn't confirm** (an error or a timeout after it was asked) is never recorded as
+  done: the case says so plainly, nothing more goes out on that order, and no PayPal dispute on it is
+  defended, until someone whose limit covers it checks the payment in PayPal and says whether PayPal
+  refunded it. Retrying the same approval is safe: it carries the same `PayPal-Request-Id`. Before a
+  live refund, Second Look reads the payment from PayPal (its status, its currency, what it already
+  refunded) and sends nothing when PayPal shows a refund Second Look didn't record, or when it can't
+  tell what was refunded.
+- **Not built yet:** paying a refund back by card or bank (Second Look logs it for your payment
+  provider; a person marks it paid). Orders paid by card or bank, and their courier records, are the
+  demo shop's own made-up stand-ins (`GET /api/orders/…`, `GET /api/tracking/…`), and so are its
+  invoice numbers.
 
 ## See it inside a helpdesk: Ticketbook (made up)
 
@@ -248,6 +271,18 @@ To make the notification address take only Second Look's posts, set a shared key
 Honest limits: Ticketbook is a local prototype for a demo. It has no sign-in (the agent is chosen at the top
 of the page), it listens only on 127.0.0.1, and its forms refuse posts from other sites. It is not a helpdesk
 to run a team on.
+
+## See it in the books: Bookbox (made up)
+
+`bookbox/` is a made-up bookkeeping stand-in, not a real product: one page showing what a shop's
+accounting system would receive from Second Look, live, as each money event happens. It never makes a
+credit note.
+
+    python3 -m bookbox serve                                                  # http://127.0.0.1:8767
+    SECONDLOOK_BOOKS_URL=http://127.0.0.1:8767/hooks/secondlook python3 -m secondlook serve
+
+It takes JSON only, and with `BOOKBOX_HOOK_KEY` set on it (and `?key=` on the address) only Second
+Look's posts. Local only (127.0.0.1); what it received is in `.tmp/bookbox-received.jsonl`.
 
 ## Teams: who may send what
 
@@ -376,6 +411,11 @@ in the ticket's history. *Refund for my returned shirt?* (http://127.0.0.1:8766/
 *Pass to Giulia*, as on Second Look's own page. If you already sent these in step 1, the panel says so:
 delete `.tmp/` and start both again to see them new.
 
+The books: add `SECONDLOOK_BOOKS_URL=http://127.0.0.1:8767/hooks/secondlook` to terminal 1's command and
+start `python3 -m bookbox serve` in a third. Approve DEMO-034's refund as Giulia
+(http://127.0.0.1:8765/d/DEMO-034?shop=demo&as=giulia) and Bookbox (http://127.0.0.1:8767) shows the row.
+On the morning screen, *Export for accounting* downloads the month as CSV.
+
 **3. Practice cases and the eval.** `cases/` holds 16 test disputes with known answers. In the browser
 they are at http://127.0.0.1:8765/?practice=1 (no review yet: *Take a second look* runs the rules
 baseline). From the command line:
@@ -462,6 +502,8 @@ EUR 10 of a EUR 42 dispute.
 - The demo shop's orders, buyers and outcomes are made up (labelled on every page); the outcome
   codes and reasons are PayPal's own. Dispute fees on the overview are estimated from PayPal's fee
   table: the dispute object doesn't carry them.
+- PayPal's refund API (`POST /v2/payments/captures/{id}/refund`) is built and tested against a fake
+  PayPal; it has not yet refunded a live sandbox capture.
 - Not escrow, not arbitration, not legal advice. The assistant recommends; a human decides.
 
 ## Licence
