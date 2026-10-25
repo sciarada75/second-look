@@ -416,7 +416,11 @@ other_orders = [
      "amount": 89.0, "currency": "EUR", "items": [{"item_name": "Linen shirt", "item_quantity": "1", "size": "M"}],
      "tracking": {"carrier": "Local courier", "tracking_number": "LC90002IT", "status": "DELIVERED",
                   "shipped_date": "2026-10-14", "last_update": "2026-10-16T14:30:00Z",
-                  "delivered_to": "handed to the customer", "address_matches_order": True}},
+                  "delivered_to": "handed to the customer", "address_matches_order": True},
+     # She sent the shirt back the day she wrote; it reached the shop this morning (Decision 8: her exchange
+     # then costs the shop the new parcel's postage, so it is Marta's to approve).
+     "return": {"carrier": "Local courier", "tracking_number": "LC90002RT", "status": "DELIVERED",
+                "shipped_date": "2026-10-19", "last_update": "2026-10-20T08:40:00Z", "delivered_to": "the shop"}},
 ]
 pablo_case = next(x for x in disputes if x["dispute_id"] == "DEMO-034")
 pablo = next(o for o in orders if o["transaction_id"] == pablo_case["disputed_transactions"][0]["seller_transaction_id"])
@@ -427,7 +431,8 @@ requests = [
              "but I have nothing. Can you help? Sophie"},
     {"source_id": "ticketbook:2102", "channel": "form", "from": {"name": "Lena Vogel", "email": "lena.vogel@example.com"},
      "time": "2026-10-19T21:10:00Z", "subject": "Exchange: wrong size",
-     "text": "Order LP-90002: the linen shirt is too small. I ordered M but I need an L. Can I exchange it?"},
+     "text": "Order LP-90002: the linen shirt is too small. I ordered M but I need an L. Can I exchange it? "
+             "I've already sent it back."},
     # Pablo wrote before he opened his PayPal dispute: the same words as his ticket (helpdesk/make_tickets.py).
     {"source_id": "ticketbook:2004", "channel": "email", "from": {"name": pablo["name"], "email": pablo["email"]},
      "time": (datetime.strptime(pablo_case["create_time"], "%Y-%m-%dT%H:%M:%SZ") - timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%SZ"),

@@ -93,6 +93,11 @@ def _sends(action: str, j: Judgment, dispute: dict) -> float:
     amount = float(dispute["dispute_amount"]["value"])
     if action == "PARTIAL_REFUND" and j.partial_amount:
         return min(amount, _partial(j.partial_amount, dispute["dispute_amount"]["currency_code"]))
+    # Decision 8 (25/10): an exchange whose returned item is back at the shop costs the shop the new parcel's
+    # postage, and counts that toward the cap and a person's limit. Only a shop inquiry says so (its record
+    # carries "exchange_cost" when the return has arrived); a PayPal dispute never does. Never a refund.
+    if action == "REPLACE" and dispute.get("exchange_cost") is not None:
+        return min(amount, float(dispute["exchange_cost"]))
     return amount if action in MONEY else 0.0
 
 
@@ -131,6 +136,8 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     # (Bug found by the eval, 2026-10-16: the guard compared the whole order with the cap.)
     # The same function a person's limit uses, so the cap and the role can never see different amounts.
     out_amount = amount
+    if action == "REPLACE":
+        out_amount = _sends(action, j, dispute)     # the exchange's own cost, once the item is back (Decision 8)
     if action == "PARTIAL_REFUND" and j.partial_amount:
         try:
             out_amount = _sends(action, j, dispute)

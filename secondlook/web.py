@@ -65,7 +65,8 @@ EVIDENCE_LABEL = {
     "listing_text": "Your listing", "fulfilment_status": "Status", "planned_ship_date": "Planned shipping",
     "packing_slip_qty": "Packing slip says", "shipment_weight_g": "Parcel weighed (g)",
     "unit_weight_g": "One item weighs (g)", "envelope_weight_g": "Empty envelope weighs (g)",
-    "buyer_history": "This buyer", "already_refunded": "Already refunded",
+    "buyer_history": "This buyer", "already_refunded": "Already refunded", "return": "Return",
+    "exchange_counts": "Toward your limit",
 }
 
 e = html.escape
@@ -562,6 +563,21 @@ def inquiry_case(cid: str) -> dict:
             sources[k] = "Your orders"
         sources["tracking"] = "Courier tracking" if o.get("tracking") else "Courier tracking (none on record)"
     evidence_mod.add_shop_terms(records, sources, DemoPayPal().shop if v["src"] == "demo" else _live_shop())
+    # Decision 8: an exchange counts the new parcel's postage once the returned item is back at the shop (the
+    # courier's record of the return, or the shop's own); until then, and with no postage on record, full price.
+    ret = (o.get("return") or {}) if o else {}
+    returned = ret.get("status") == "DELIVERED" or bool(ret.get("received_at_shop"))
+    shop = DemoPayPal().shop if v["src"] == "demo" else _live_shop()
+    postage = _num((shop.get("costs") or {}).get("postage"))
+    if ret:
+        records["return"] = (f'{ret.get("carrier") or "Courier"} {ret.get("tracking_number") or ""}'.strip()
+                             + (", back at the shop" if returned else f', {str(ret.get("status") or "on its way").lower()}'))
+        sources["return"] = "Courier tracking"
+    if returned and postage is not None:
+        dispute["exchange_cost"] = min(postage, left)
+        records["exchange_counts"] = (f'An exchange counts {min(postage, left):.2f} {v["currency"]}, the postage of the '
+                                      "new parcel: the returned item is back at the shop. A refund counts in full.")
+        sources["exchange_counts"] = "Your shop terms"
     # the shop's own order amount: only inquiries carry it, so the guard's rule 9 never touches a PayPal dispute
     records["order_amount"] = _num(o.get("amount")) if o else None     # unreadable: no order with an amount
     records["refunded_so_far"] = refunded
@@ -837,7 +853,8 @@ CHANGED = {"buyer_messages": "the buyer wrote again", "stage": "PayPal moved the
 CHANGED_INQUIRY = {"buyer_messages": "the customer wrote again", "stage": "the case became a PayPal dispute",
                    "amount": "the amount at stake changed (a refund was logged, or the order changed)",
                    "tracking": "the courier's tracking changed", "ship_to": "the delivery address changed",
-                   "who": "the case is now about another customer or order"}
+                   "who": "the case is now about another customer or order",
+                   "return": "the returned item reached the shop"}
 
 
 def _seen(case: dict) -> dict:
@@ -847,6 +864,7 @@ def _seen(case: dict) -> dict:
             "tracking": (r.get("tracking") or {}).get("tracking_number"), "ship_to": bool(r.get("ship_to"))}
     if case.get("inquiry"):
         seen["who"] = case["inquiry"].get("identity")
+        seen["return"] = d.get("exchange_cost")             # the returned item reached the shop since
     if r.get("refund_logged_on_case"):   # only then: a dispute whose case logged no money sees exactly what it saw
         seen["case_refund"] = r.get("refunded_so_far")
     return seen

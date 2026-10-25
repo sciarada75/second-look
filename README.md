@@ -180,7 +180,9 @@ dispute if one is opened later.
   against your shop's own terms and the evidence (the address that counts is the order's delivery
   address; the courier says where the parcel was left). It claims no legal or card-network rule. With no
   AI key, the rules baseline runs, labelled. Your limits apply after it, as for a dispute, and the same
-  team limits decide who may send it.
+  team limits decide who may send it. The one place they relax: an exchange whose returned item is back
+  at the shop (the courier's record of the return) counts the new parcel's postage, from your costs; a
+  refund always counts in full, and no limit ever goes past a stop for trust.
 - **The answer goes back on the customer's channel**: by email, or to the address on the web form,
   signed by the person who approved it, with `answer.sent` to your helpdesk. In this version nothing is
   sent from Second Look itself: your helpdesk sends the email. A refund on an inquiry is recorded on the
@@ -308,7 +310,9 @@ the moment its case changes.
   yet): the courier left it with a neighbour, so the answer is a reply, and Marta may send it. It is
   recorded on the case, by email, signed; nothing leaves the demo. Lena's web form asks to exchange a
   shirt one size too small (http://127.0.0.1:8765/c/DEMO-C002?shop=demo&as=marta): within the 14 days,
-  but an 89 EUR exchange is over Marta's limit, so it passes to Giulia. Pablo emailed and then opened
+  and the shirt is already back at the shop, so the exchange counts only the new parcel's postage
+  (4.90 EUR) toward Marta's limit, and Marta may send it. Before the shirt is back it would count the
+  full 89 EUR and pass to Giulia. Pablo emailed and then opened
   PayPal dispute DEMO-034: one case, two channels (http://127.0.0.1:8765/c/DEMO-C003?shop=demo), answered
   on the dispute, under PayPal's rules.
 

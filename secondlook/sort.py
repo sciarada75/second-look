@@ -69,7 +69,8 @@ def order_view(o: dict) -> dict:
             "items": [{"name": i.get("item_name"), "qty": int(i.get("item_quantity", 1) or 1),
                        **({"size": i["size"]} if i.get("size") else {})} for i in o.get("items", [])],
             "paid_with": o.get("paid_with", "paypal"), "ship_to": o.get("address"),
-            "transaction_id": o.get("transaction_id"), "tracking": o.get("tracking")}
+            "transaction_id": o.get("transaction_id"), "tracking": o.get("tracking"),
+            "return": o.get("return")}      # the courier's record of a parcel coming back, when there is one
 
 
 def _email(x) -> str:
