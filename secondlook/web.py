@@ -344,11 +344,29 @@ def _logged_refund(c: dict | None) -> dict | None:
             "on": f"{when:%d %b %Y}" if when else "", "by": back[-1].get("by") or ""}
 
 
+def _money_case_for(did: str, dispute_of) -> dict | None:
+    """The case of a PayPal dispute that has logged a refund, or None. Found by the dispute itself (a case it
+    joined) or by its order (the dispute's transaction is the case's order number), whether or not anything
+    has linked them yet: the inbox -> dispute -> approve path never opens the case page, where the link is made.
+    Read only (a dispute page never writes the case file), and with no case that logged money, no further
+    reading at all: `dispute_of()` (which may call PayPal) is asked only then."""
+    path = CASE_FILES[shop_of_case(did)]
+    if not path.exists():
+        return None
+    paid = [c for c in cases_mod.CaseStore(path).all() if _logged_refund(c)]
+    if not paid:
+        return None
+    joined = [c for c in paid if c.get("dispute_id") == did]
+    tx = None if joined else _tx_of(dispute_of() or {})
+    on = joined or [c for c in paid if tx and c.get("order_no") == tx]
+    return next((c for c in on if c["status"] == "open"), on[0] if on else None)
+
+
 def _with_case_refund(did: str, case: dict) -> dict:
     """A PayPal dispute whose case already logged a refund (the shop answered the inquiry before PayPal had it):
     its records say so, for the judge, the page and the guard's rule 10. A dispute whose case logged no money
     is returned exactly as it was."""
-    r = _logged_refund(find_case_of_dispute(did))
+    r = _logged_refund(_money_case_for(did, lambda: case["dispute"]))
     if not r:
         return case
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
@@ -2093,7 +2111,7 @@ def run_review(did: str) -> Decision:
     judge = "claude" if has_ai_key() else "rules"
     if cases_mod.is_case_id(did):
         dec = review_inquiry(did, judge)
-    elif _logged_refund(find_case_of_dispute(did)):
+    elif _money_case_for(did, lambda: _client(did).get_dispute(did)):
         dec = review_with_case_refund(did, judge)
     else:
         dec = review(_client(did), did, judge)       # every other dispute: exactly as before
@@ -2132,7 +2150,7 @@ def _refused(dec: Decision | None, chosen: str, w: dict | None = None) -> str:
     or for the drafted question on "your call" (PayPal's rules, an unrecognised answer, a promised refund)."""
     w = w or _words(None)
     if dec and dec.action == "ASK_SELLER" and chosen == "MESSAGE":
-        why = [STOP_SAYS[s] for s in ("message_not_allowed", "unknown_action") if s in dec.stops]
+        why = [STOP_SAYS[s] for s in ("message_not_allowed", "unknown_action", "refund_logged_on_case") if s in dec.stops]
         if why:
             return (f"This message was held back: {', '.join(why)}. "
                     f"It can't be sent from here, by anyone. {w['decide']}")
@@ -2263,10 +2281,11 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
     by_name = None if t.get("solo") else who["name"]
-    if inquiry:
+    if inquiry and seen and dec.action in ("REFUND", "PARTIAL_REFUND"):
         # What this approval itself logged (a refund lowers what is left) is part of what the review saw; only
-        # something new (the customer writing again) makes it out of date.
-        seen = _seen(_case(did))
+        # something new (the customer writing again) makes it out of date. Only this send's own change is added:
+        # a message that lands while it is sent was never seen (re-reading the case here would count it).
+        seen = {**seen, "amount": f"{max(0.0, float(seen['amount']) - amount):.2f}"}
     _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged)
     if not t.get("solo"):
         # Sent by them: the case is theirs, and any handoff waiting on it is done.

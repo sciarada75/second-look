@@ -271,7 +271,9 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
       Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
     How much money this person may send is checked after this, against their role (team.covers)."""
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
-        return drafted_for not in MONEY and "message_not_allowed" not in stops and "unknown_action" not in stops
+        # (`refund_logged_on_case`: the draft was a defence against a refund the shop already promised.)
+        return (drafted_for not in MONEY and "message_not_allowed" not in stops and "unknown_action" not in stops
+                and "refund_logged_on_case" not in stops)
     if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" and held_for_size_only(stops):
         return True
     return chosen == recommended

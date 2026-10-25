@@ -416,6 +416,59 @@ def test_your_own_refund_shows_as_done_and_only_a_new_message_makes_the_review_s
         assert web._changes(cid, web._case(cid)) == ["the customer wrote again"]
 
 
+def test_the_dispute_finds_the_case_s_refund_by_its_order_even_when_nobody_opened_the_case():
+    clara = next(o for o in DemoPayPal().orders() if o["transaction_id"] == "DEMOTX01969")
+    claude = lambda c: Judgment("REFUND", 0.95, "Faked.", draft_message="We refund you 29 EUR.")  # noqa: E731
+    with morning(ai_key=True, claude=claude):
+        real = web.shop_disputes
+        web.shop_disputes = lambda src: [d for d in real(src) if d["dispute_id"] != "DEMO-039"]
+        try:
+            _, o = _ask(clara["email"], "My order DEMOTX01969 never arrived.", "n1b:1")
+            cid = o["case_id"]
+            web.run_review(cid)
+            assert web.approve(cid, "REFUND", "We refund you 29 EUR.", by="giulia")[0] == 200
+        finally:
+            web.shop_disputes = real
+        # the inbox -> /d/DEMO-039 -> approve: no case page in between, so nothing has linked the case
+        assert web.case_store("demo").get(cid)["dispute_id"] is None
+        assert f'already logged on case <a href="/c/{cid}">{cid}</a>' in web.case_page("DEMO-039", me="giulia")
+        assert web.page_offer("DEMO-039", "giulia")["outcome"] != "send"
+        assert web.approve("DEMO-039", "REFUND", "Refunded.", by="giulia")[0] == 409
+        web.has_ai_key = lambda: False
+        assert "refund_logged_on_case" in web.run_review("DEMO-039").stops
+        assert web.approve("DEMO-039", web._saved("DEMO-039")[0].judgment.action, "Refunded.", by="giulia")[0] == 409
+        assert web.case_store("demo").get(cid)["dispute_id"] is None                  # read only: nothing was written
+
+
+def test_a_defence_drafted_against_a_promised_refund_is_never_sent_as_a_message():
+    from secondlook.guard import may_approve
+    shaped = {"dispute_id": "DEMO-035", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED",
+              "dispute_life_cycle_stage": "INQUIRY", "dispute_amount": {"value": "20.00", "currency_code": "EUR"},
+              "messages": []}
+    logged = {"refund_logged_on_case": "DEMO-C004", "refunded_so_far": 20.0, "already_refunded": "20.00 EUR on 25 Oct 2026"}
+    held = apply_policy(Judgment("DEFEND", 0.95, "x", draft_message="The parcel was delivered."), POLICY, shaped, logged)
+    assert not may_approve(held.action, "MESSAGE", held.judgment.action, held.stops)
+    assert "a refund already logged on this order's case" in web._refused(held, "MESSAGE")
+
+
+def test_a_customer_message_that_lands_while_the_refund_is_sent_still_makes_the_review_stale():
+    with morning():
+        _, o = _ask("sami.l918@example.com", "Order DEMOTX00001: I returned it and still have no refund.", "race:1")
+        cid = o["case_id"]
+        web.run_review(cid)
+        kept = web.Outbox.refund
+
+        def refund_while_she_writes(self, did, note):
+            _ask("sami.l918@example.com", "Hello? Anyone there?", "race:2")      # arrives during the send
+            return kept(self, did, note)
+        web.Outbox.refund = refund_while_she_writes
+        try:
+            assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        finally:
+            web.Outbox.refund = kept
+        assert web._changes(cid, web._case(cid)) == ["the customer wrote again"]       # her message is not "seen"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
