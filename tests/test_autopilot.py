@@ -921,6 +921,79 @@ def test_a_new_rule_restarts_the_demo_s_record_and_the_live_shop_starts_with_not
         assert web.autopilot_store("live").view()["kinds"] == {}
 
 
+def test_an_old_demo_state_without_its_case_file_files_the_new_morning_clean():
+    """The owner's machine after an update: .tmp/ keeps an older morning's assignments, reviews and record, but not
+    its case file. The morning is filed again, and what those files said about its cases (DEMO-C…) meant the old
+    one's: Sophie's is Marta's again, Margot's is answered and on the record."""
+    with morning() as b:
+        seed = demo_mod.DemoPayPal().raw
+        old = {d: a for d, a in seed["assignments"].items() if not d.startswith("DEMO-C")}
+        old["DEMO-C009"] = {"to": "luca", "handoff": None}
+        b.store.path.write_text(json.dumps(old))
+        web.REVIEWS.mkdir(parents=True, exist_ok=True)
+        stale = json.loads((web.SHIPPED / "DEMO-C001.json").read_text())
+        (web.REVIEWS / "DEMO-C001.json").write_text(json.dumps({**stale, "sent": "Reply sent by email. Sent by Luca."}))
+        web.CASE_FILES["demo"].with_name("autopilot-demo.json").write_text(json.dumps({**seed["autopilot"], "cases": {
+            "DEMO-C004": {"kind": KIND, "at": "2026-10-19T09:00", "handled": True, "what": "old", "checked": None}}}))
+        sophie = web.case_store("demo").get("DEMO-C001")
+        assert sophie["timeline"][-1]["text"] == "Second Look's AI stepped back: Marta has this case. A person decides."
+        assert web._saved("DEMO-C001")[1] is None and web.assignments_for("DEMO-C001").get("DEMO-C001")["to"] == "marta"
+        assert web.case_store("demo").get("DEMO-C004")["timeline"][-1]["by"] == SIGNED
+        cases = web.autopilot_store("demo").view()["cases"]
+        assert sorted(cases) == ["DEMO-C001", "DEMO-C004"] and cases["DEMO-C004"]["what"].startswith("Reply sent by email")
+        assert web.assignments_for("DEMO-C009").get("DEMO-C009")["to"] is None          # the old morning's case
+        assert web.assignments_for("DEMO-031").get("DEMO-031") == seed["assignments"]["DEMO-031"]   # PayPal's: kept
+
+
+def test_a_seller_on_their_own_keeps_the_numbers_they_set_for_second_look_s_ai():
+    t = team_mod.of({"autopilot": {"refund_up_to": 30}})
+    assert t["solo"] and autopilot.settings(t)["refund_up_to"] == 30.0
+    assert not team_mod.of({"people": TEAM["people"], "roles": TEAM["roles"], "solo": True}).get("solo")
+    kept = web.team_for
+    with morning(ai_key=True, claude=refunds) as b:
+        no_record(on(REFUND_KIND))
+        web.team_for = lambda did: team_mod.of({"autopilot": {"refund_up_to": 30}})
+        try:
+            cid = karim(b)
+        finally:
+            web.team_for = kept
+        [m] = web.case_store("demo").get(cid)["money"]
+        assert (m["kind"], m["amount"], m["by"]) == ("refund", 20.0, "Second Look's AI, under your setting (since 17 Oct)")
+
+
+def test_a_page_asked_for_during_the_first_load_waits_for_its_looks():
+    import time
+    kept, slow = web._autopilot_case, []
+
+    def a_slow_look(src, did):
+        slow.append(did)
+        time.sleep(0.5)
+        return kept(src, did)
+    with morning():
+        web.AUTOPILOT_RUN, web._autopilot_case = web._in_a_thread, a_slow_look
+        try:
+            first = threading.Thread(target=lambda: web.case_store("demo"))
+            first.start()
+            while not web.CASE_FILES["demo"].exists() or not slow:
+                time.sleep(0.01)
+            seen = web.case_store("demo").get("DEMO-C004")["timeline"][-1]       # another request, meanwhile
+            first.join(10)
+        finally:
+            web.AUTOPILOT_RUN, web._autopilot_case = None, kept
+        assert (seen["direction"], seen["by"]) == ("out", SIGNED)
+
+
+def test_a_person_s_approval_as_the_very_first_call_never_waits_on_itself():
+    with morning():
+        out = {}
+        th = threading.Thread(target=lambda: out.update(r=web.approve("DEMO-C004", "MESSAGE", None, by="marta")),
+                              daemon=True)
+        th.start()
+        th.join(8)
+        assert not th.is_alive(), "approve waited on the first load's own approval"
+        assert out["r"][0] == 200 and out["r"][1].startswith(f"Reply sent by email. Sent by {SIGNED}")   # already sent
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

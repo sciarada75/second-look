@@ -23,7 +23,11 @@ SOLO = {"roles": {"Owner": {"refund_up_to": None}},
 def of(block: dict | None) -> dict:
     # A fresh copy: a caller that edits the team of one must not change it for everyone else.
     if not (isinstance(block, dict) and block.get("people")):
-        return copy.deepcopy(SOLO)
+        solo = copy.deepcopy(SOLO)
+        if isinstance(block, dict) and isinstance(block.get("autopilot"), dict):
+            # a seller on their own sets Second Look's AI's numbers too (secondlook/autopilot.py)
+            solo["autopilot"] = copy.deepcopy(block["autopilot"])
+        return solo
     # "solo" is ours to set, never the file's: a team block that says it would skip every team check.
     return {k: v for k, v in block.items() if k != "solo"}
 

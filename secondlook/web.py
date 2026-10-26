@@ -476,24 +476,66 @@ def calls_failed(store, src: str) -> list:
     return out
 
 
+# The demo's first load, per case file: set once Second Look's AI's looks at the morning are done. Every other caller
+# waits for it (at most 10 s), so no page shows the morning half looked at; a look itself never waits (_IN_A_LOOK).
+_FIRST_LOOKS: dict = {}
+_IN_A_LOOK = threading.local()
+
+
 def case_store(src: str) -> cases_mod.CaseStore:
     path = CASE_FILES[src]
     store = cases_mod.CaseStore(path, prefix="DEMO-" if src == "demo" else "")
     if src == "demo":
-        filed = []
+        filed, mine = [], None
         with _SEEDING:
             if not path.exists():
-                # the morning in the order it happened: Sophie's call (08:31) before her email (08:52) joins it
-                file_calls(store, "demo", later=filed)
-                for r in DemoPayPal().requests():   # they sort by rules alone (tests/test_demo_shop.py): no AI call
-                    _file_request(store, "demo", r, ai=None, later=filed)
+                mine = _FIRST_LOOKS[str(path)] = threading.Event()
+                try:
+                    _forget_old_morning()
+                    # the morning in the order it happened: Sophie's call (08:31) before her email (08:52) joins it
+                    file_calls(store, "demo", later=filed)
+                    for r in DemoPayPal().requests():   # they sort by rules alone (tests/test_demo_shop.py): no AI call
+                        _file_request(store, "demo", r, ai=None, later=filed)
+                except BaseException:
+                    mine.set()
+                    raise
+        if mine is None:
+            first = _FIRST_LOOKS.get(str(path))
+            if first is not None and not getattr(_IN_A_LOOK, "on", False):
+                first.wait(10)
+            return store
         # Second Look's AI looks at the morning once it is all filed (one look per case, after the lock: its approval
         # reads this store again). The first load waits for it, at most 10 s: the demo's review of the one request it
         # handles ships with the demo, so no model is called, and the first page already shows it handled.
-        for th in [autopilot_after("demo", store.get(cid)) for cid in dict.fromkeys(filed)]:
-            if th is not None:
-                th.join(10)
+        try:
+            for th in [autopilot_after("demo", store.get(cid)) for cid in dict.fromkeys(filed)]:
+                if th is not None:
+                    th.join(10)
+        finally:
+            mine.set()
     return store
+
+
+def _forget_old_morning() -> None:
+    """The demo's morning is about to be filed anew (no case file). What .tmp/ still says about its cases (DEMO-C…)
+    was about the old morning's, and would mislead the new one: their assignments go back to the shop's own, the
+    reviews made of them here go, and Second Look's AI's record forgets them. The PayPal disputes' state stays."""
+    seed = {d: a for d, a in (DemoPayPal().raw.get("assignments") or {}).items() if cases_mod.is_case_id(d)}
+    asg = assignments_for("DEMO-C001")
+    if {d: a for d, a in asg.all().items() if cases_mod.is_case_id(d)} != seed:
+        def reset(data):
+            for d in [d for d in data if cases_mod.is_case_id(d)]:
+                del data[d]
+            data.update(json.loads(json.dumps(seed)))
+        asg.transact(reset)
+    for f in REVIEWS.glob("DEMO-C*.json") if REVIEWS.exists() else []:
+        f.unlink()
+
+    def forget(data):
+        for d in [d for d in data["cases"] if cases_mod.is_case_id(d)]:
+            del data["cases"][d]
+    if any(cases_mod.is_case_id(d) for d in autopilot_store("demo").view()["cases"]):
+        autopilot_store("demo").change(forget)
 
 
 def autopilot_store(src: str) -> autopilot_mod.Record:
@@ -3437,6 +3479,8 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
         who = team_mod.person(t, by)
     if not who:
         return 400, "Say who is approving: a person in this shop's team."
+    if shop_of_case(did) == "demo":
+        case_store("demo")   # the demo's first load first: its own looks approve, under their cases' locks
     with _case_lock(did):  # from reading the review to saving what was sent, or the handoff
         if ai:
             no = _ai_may_not(did, shop_t, ai)
@@ -3657,7 +3701,8 @@ def autopilot_soon(src: str, stage: str, problem: str | None, did: str):
 
 def _look(src: str, did: str) -> dict | None:
     """autopilot_case, which never fails the request that filed the case, nor the server: a look that fails leaves
-    its trace on the case, and the case waits for a person."""
+    its trace on the case, and the case waits for a person. A look never waits for the first load (case_store)."""
+    was, _IN_A_LOOK.on = getattr(_IN_A_LOOK, "on", False), True
     try:
         return autopilot_case(src, did)
     except Exception as err:  # noqa: BLE001 - see above
@@ -3668,6 +3713,8 @@ def _look(src: str, did: str) -> dict | None:
         except Exception as err2:  # noqa: BLE001 - nowhere left to write it: the log has it
             print(f"Second Look's AI ({did}): {err2}", file=sys.stderr)
             return None
+    finally:
+        _IN_A_LOOK.on = was
 
 
 def autopilot_after(src: str, c: dict | None):

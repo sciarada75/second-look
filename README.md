@@ -340,8 +340,9 @@ arrived · Reply only*. Whether it does is your shop's choice.
   your limits, the unconfirmed-refund holds and the same channel back all apply unchanged. Replies,
   and money only within its own limit, which starts at 0. There is no screen to raise it yet: it is
   set in the team file, as the roles' limits are (`policy.json` → `team` → `autopilot` →
-  `refund_up_to`). Over it, it does what a colleague over their limit does: passes the case to a
-  person, and sends nothing. It is never one of the team's people: it is never given a case or a
+  `refund_up_to`; a seller on their own sets it in the same `team` block). Over it, it sends nothing:
+  in a team it does what a colleague over their limit does and passes the case to a person; a seller
+  on their own reads "you decide". It is never one of the team's people: it is never given a case or a
   handoff.
 - **Everything it sends is signed** "Sent by Second Look's AI, under Giulia's setting (since 17 Oct)"
   (a seller on their own reads "under your setting"): on the case, in the action log, in `answer.sent`
@@ -357,9 +358,10 @@ arrived · Reply only*. Whether it does is your shop's choice.
     replaced, a refund PayPal hasn't confirmed);
   - it is less than 90% sure (a person's approval needs 75%), or its own answer is *your call*;
   - its answer isn't a kind that's on, or today's 20 of that kind are used;
-  - the money is over its own limit (passed to a person);
-  - while it looked: a person took the case, the kind was switched off, the case changed, or the
-    review was replaced (it checks again, under the same lock as every approval, before it sends);
+  - the money is over its own limit (passed to a person; a seller on their own decides);
+  - while it looked: a person took the case, the kind was switched off, the case changed, the review
+    was replaced, or the case was answered (it checks again, under the same lock as every approval,
+    before it sends);
   - its look failed; or PayPal didn't confirm a refund it asked for (that one is also listed for a
     person to check: the money may have moved).
 - **You check it.** The morning screen's *I manage* says "Handled by Second Look's AI: 1 — check
@@ -380,8 +382,9 @@ The numbers are your shop's, in its team block: `"autopilot": {"refund_up_to": 0
 Marta, Luca and Sara, switched on by Giulia on 17 Oct. This morning's new request, Margot asking where
 her napkins are (on their way, on time), is answered by Second Look's AI when the demo first loads,
 from the review Claude made of it (shipped in `demo/reviews/`). Sophie's case is Marta's, so it steps
-back from hers. Post a new "where is my order" with no AI key and you see it step back: the rules
-baseline reviewed it.
+back from hers. Post a new "where is my order" with no AI key, from a sender matched to an order and
+on a case nobody has (one of the demo shop's customers, by their email), and you see it step back: the
+rules baseline reviewed it.
 
 ## How it works
 
@@ -408,7 +411,8 @@ PayPal Disputes API ──► judge (Claude) ──► guard (code, seller's pol
 
 Everything up to step 4 needs only Python 3.9 or newer: no packages, no keys, no PayPal account.
 Nothing in steps 1 to 3 reaches PayPal: the demo shop and the practice cases log what they would
-have sent, in `.tmp/`. To start over at any point, stop Second Look and delete `.tmp/`.
+have sent, in `.tmp/`. To start over at any point, stop Second Look and delete `.tmp/`. After
+updating Second Look, delete `.tmp/` (the demo's state) too, to see the new morning.
 
 ```bash
 git clone https://github.com/sciarada75/second-look.git && cd second-look

@@ -327,11 +327,9 @@ def demo_team(seed):
 
 def test_in_a_team_the_inbox_has_tabs_and_owners_and_a_team_of_one_has_neither():
     # The demo shop has its own team now (23/10): the same cases seen by a team of one, for this line only.
-    saved, web.team_for = web.team_for, lambda did: team_mod.of(None)
-    try:
+    with demo_team({}):                      # its assignments in a temporary file: never the real demo state
+        web.team_for = lambda did: team_mod.of(None)        # demo_team puts the saved one back
         solo = web.inbox_page("demo")
-    finally:
-        web.team_for = saved
     assert 'class="tabs"' not in solo and 'class="owner"' not in solo and "You are" not in solo
     open_ids = [d["dispute_id"] for d in DemoPayPal().disputes()
                 if d["status"] in ("WAITING_FOR_SELLER_RESPONSE", "WAITING_FOR_BUYER_RESPONSE")]
@@ -562,8 +560,13 @@ def test_the_customer_card_and_the_evidence_count_the_shop_rate_the_same_way():
     assert f"Your shop: {evidence_rate:.1%}." in web.customer_page("DEMODARIOV7Q", "demo")
 
 def test_the_api_says_what_approving_would_do_for_a_person():
+    from secondlook import team as team_mod
+    from secondlook.demo import DemoPayPal
     # No review of this machine's: DEMO-034 starts from the review shipped in demo/reviews/, as on a fresh clone.
-    kept, web.REVIEWS = web.REVIEWS, Path(tempfile.mkdtemp())
+    # Its assignments in a temporary file too: a test never writes the real demo state (.tmp/).
+    kept, web.REVIEWS = (web.REVIEWS, web.assignments_for), Path(tempfile.mkdtemp())
+    store = team_mod.Assignments(web.REVIEWS / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
+    web.assignments_for = lambda did: store
     try:
         marta = web.api_case("DEMO-034", as_person="marta")["for_person"]
         giulia = web.api_case("DEMO-034", as_person="giulia")["for_person"]
@@ -572,7 +575,7 @@ def test_the_api_says_what_approving_would_do_for_a_person():
         assert "for_person" not in web.api_case("DEMO-034")
         assert web.api_case("DEMO-034", as_person="nobody")["for_person"]["outcome"] == "unknown_person"
     finally:
-        web.REVIEWS = kept
+        web.REVIEWS, web.assignments_for = kept
 
 
 def test_page_offer_has_nothing_to_send_while_paypal_waits_for_the_buyer_with_the_evidence():
