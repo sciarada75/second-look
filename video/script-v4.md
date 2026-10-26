@@ -4,6 +4,8 @@ Spec: `docs/specs/2026-10-25-inquiry-system-design.md` §5 (Decisions 6 and 7). 
 draft 9. Subtitles burned in, cue by cue. No music. Target **≈ 2:48**: draft 9 spoke 390 words in 2:39
 (≈ 147 a minute), so this script keeps to **≈ 400 spoken words**.
 
+**Updated 26/10 (Claudia: "you go with update"):** scene 5 gains earned autonomy, trimmed elsewhere.
+
 **The rules, as in draft 9:** each scene answers one question the previous one raised; the screen shows only
 what the voice names (it lights up, the rest dims); a visible cursor makes every click; people are introduced
 before they act. **New in draft 10:**
@@ -41,9 +43,9 @@ answered early · **14 EUR** claim lost · **28 EUR** busy shop, even when it wi
 its rules first, *Second Look's AI* when they can't settle it · *Second Look's AI* checks the evidence and drafts the answer · *Your limits,
 in code,* have the last word) → **A person approves** (within their own limit) → **Everything updated**
 (the answer, the same way it came · PayPal · the helpdesk · accounting). Under it: **I see. I manage. I know.**]
-- That's where Second Look comes in. Every request, by phone, email, web form or PayPal, lands in one place.
+- That's where Second Look comes in. Every request, by phone, email, form or PayPal, lands in one place.
 - Second Look finds its order. Second Look's AI checks the evidence and drafts the answer. Your limits, written in code, have the last word.
-- A person approves, and everything is updated: the answer goes back the way it came, to PayPal, the helpdesk and the accounts.
+- A person approves, and everything is updated: the reply, PayPal, the helpdesk, the accounts.
 
 ## 4. Who are we following? (≈ 10 s)
 [The shop card: "Linen & Paper — a made-up shop · about 2,000 orders a month". Name tags appear as named:
@@ -51,12 +53,15 @@ in code,* have the last word) → **A person approves** (within their own limit)
 - Meet Linen and Paper, a made-up shop with about two thousand orders a month.
 - Marta, a customer care assistant, can give back up to thirty euros. Giulia, head of customer care, decides above that.
 
-## 5. What came in this morning? (≈ 12 s) — I see, I manage
+## 5. What came in this morning? (≈ 22 s) — I see, I manage, and the routine ones
 [**Second Look › Today**, signed in as Giulia. Light **I see**: the channel counts (1 call, 2 emails, 1 web form,
 3 PayPal disputes) beside 141 new orders, then the list with its *Second Look's AI* lines. Then **I manage**:
-who has which cases.]
-- Giulia's morning starts here: everything that came in, from every channel, beside the day's orders.
+who has which cases, and the line **Handled by Second Look's AI: 1 — check them**; cursor opens it: the
+reply "Sent by Second Look's AI, under Giulia's setting (since 15 Oct)", its record "10 of the last 10 approved as
+advised", the button *I'd have done it differently*.]
+- Giulia's morning starts here: everything that came in, every channel, beside the day's orders.
 - Each request already matched to its order and checked by Second Look's AI. And who has what.
+- And the routine ones? After ten approved unchanged, Giulia let Second Look's AI answer them alone. It signs what it sends, and steps back when it isn't sure.
 
 ## 6. A phone call (≈ 22 s) — Sophie's case
 [Flowchart corner: *Every request* → *Second Look*. **Second Look › Case DEMO-C001**: light the call on the
@@ -71,7 +76,7 @@ as Marta, then *Close: solved before any dispute*.]
 "Defend with evidence". **Second Look › Case DEMO-031**: light the delivery line with its PayPal tag, the
 buyer-history line, then "What each way out costs". Cursor: *Approve as Marta*.]
 - Dario, a customer, went straight to PayPal. In Marta's helpdesk, Second Look's AI says: defend.
-- The parcel was delivered to the address on his PayPal account, and he has disputed four of his five orders.
+- It was delivered to his PayPal address, and he has disputed four of his five orders.
 - Refunding now would cost twenty-six euros. Marta defends: the proof goes to PayPal.
 
 ## 8. When the customer is right (≈ 18 s) — Pablo's case
@@ -85,14 +90,14 @@ then *PayPal dispute opened*: one case, two channels. Then "Your call", "Pass to
 [Flowchart corner: *Everything updated*. **Second Look › Today**, **I know**: requests 64, solved before any
 dispute 31, staff time (estimated), money given back, fees, what open cases could still cost, PayPal's line;
 then *Export for accounting (CSV)* and **Bookbox** (a made-up bookkeeping stand-in) showing the rows it received.]
-- And at the end of the month, Giulia knows: how many requests, how many solved before a dispute, the staff time, the money given back, and the fees.
+- And at the end of the month, Giulia knows: requests, how many were solved before a dispute, staff time, money back and fees.
 - The accounts get every refund as it happens.
 
 ## 10. Is it real? (≈ 12 s)
 [**Live: PayPal sandbox** label. The tote-bag dispute PP-R-UCT-10193281, "What's been said" lit: the reply, then
 "You sent PayPal: proof of shipment". Then a card: **Refund through PayPal's refund API · 1.00 EUR of 12.00 ·
 sandbox, 26 Oct 2026** with the refund id.]
-- And it runs on PayPal. On PayPal's sandbox, a real dispute got its reply and its proof, and Second Look refunded a payment through PayPal's own refund API.
+- And it runs on PayPal. On PayPal's sandbox, a real dispute got its reply and proof, and Second Look refunded a payment through PayPal's own refund API.
 
 ## 11. Can I trust it? (≈ 10 s)
 [The four boxes of draft 9, relabelled: **Second Look's AI recommends** → **Your limits, in code** → **A person
@@ -120,6 +125,8 @@ claudiaonclaude.com · github.com/sciarada75/second-look]
 | everything that came in, every channel, beside the day's orders | `/today` I see: counts by channel + 141 orders (19–20 Oct) |
 | matched to its order and checked by Second Look's AI | each row's order and its review line: the shipped reviews (demo/reviews/, DEMO-C001/C002 since 26/10; disputes since 23/10) |
 | who has what | `/today` I manage |
+| after ten approved unchanged, Giulia let Second Look's AI answer them alone | earned autonomy (spec 2026-10-26): a kind is ready after its last 10 decisions by people were approved as advised; only the head of customer care switches it on. Demo: `inquiry · not_received · reply only`, seeded record, switched on by Giulia 15 Oct. **Backed only once the feature is built and merged** |
+| it signs what it sends, and steps back when it isn't sure | every send signed "Sent by Second Look's AI, under Giulia's setting"; steps back on confidence < 0.90, any guard stop, a rules-baseline review, a changed or assigned case (spec §3, one test each) |
 | the call is transcribed on the shop's own computer | local whisper (`transcribe_calls`), when installed; otherwise the transcript shipped beside the recording, labelled. **Capture on Claudia's Mac shows whisper's words**; a judge's clone shows "transcript shipped with the demo" |
 | her email joins it, one case | DEMO-C001: call 08:31 + email 08:52 |
 | left with a neighbour; Marta sends the reply and closes: solved before any dispute | DEMO-C001 tracking; shipped review MESSAGE; any team member may send a reply (no money); close outcome "solved" |
