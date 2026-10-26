@@ -23,7 +23,7 @@ import re
 import sys
 import threading
 import time
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -40,9 +40,10 @@ REVIEWS = ROOT / ".tmp" / "reviews"
 # Claude's reviews of the demo shop's open cases, shipped with the repo so a fresh clone with no AI key shows
 # them (a judge of the hackathon has no key). Read only, and only for a DEMO-* case with no review of its own
 # in REVIEWS: a fresh look or an approval saves there, so a shipped file is never written. A shipped review
-# goes out of date exactly as a cached one does: it carries what it saw (`seen`).
+# goes out of date exactly as a cached one does: it carries what it saw (`seen`). The demo's open inquiries
+# (DEMO-C001...) ship theirs too; its read-only history cases (DEMO-H...) are never reviewed.
 SHIPPED = ROOT / "demo" / "reviews"
-_DEMO_ID = re.compile(r"DEMO-\d+")
+_DEMO_ID = re.compile(r"DEMO-C?\d+")
 
 REASON = {
     "MERCHANDISE_OR_SERVICE_NOT_RECEIVED": "Says it never arrived",
@@ -833,8 +834,12 @@ def inquiry_case(cid: str) -> dict:
     shop = DemoPayPal().shop if v["src"] == "demo" else _live_shop()
     postage = _num((shop.get("costs") or {}).get("postage"))
     if ret:
+        # the day it came back: the shop's terms count their refund days from it
+        back_on = str(ret.get("received_at_shop") or (ret.get("last_update") if ret.get("status") == "DELIVERED" else "")
+                      or "")[:10]
         records["return"] = (f'{ret.get("carrier") or "Courier"} {ret.get("tracking_number") or ""}'.strip()
-                             + (", back at the shop" if returned else f', {str(ret.get("status") or "on its way").lower()}'))
+                             + ((", back at the shop" + (f" (on {back_on})" if back_on else "")) if returned
+                                else f', {str(ret.get("status") or "on its way").lower()}'))
         sources["return"] = "Courier tracking"
     if returned and tied and not goods and c["problem"]["kind"] == "wrong_size" and postage is not None:
         dispute["exchange_cost"] = min(postage, left)
@@ -895,13 +900,8 @@ def review_inquiry(cid: str, judge: str) -> Decision:
     no = _inquiry_refusal(cid)
     if no:
         raise ValueError(no)
-    case = _case(cid)
-    policy = _policy()
-    case["seller_preferences"] = policy.get("seller_preferences", [])
-    j = judge_mod.INQUIRY_BACKENDS[judge](case)
-    if j.action == "DEFEND":  # there is no claim to defend in an inquiry: the guard routes an answer it doesn't know
-        j = replace(j, action="DEFEND_IS_FOR_PAYPAL_DISPUTES")
-    return apply_policy(j, policy, case["dispute"], case["seller_records"])
+    from .__main__ import review_inquiry_case  # the eval runs this same path
+    return review_inquiry_case(_case(cid), judge, _policy())
 
 
 class RefundNotConfirmed(Exception):

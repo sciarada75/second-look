@@ -1,0 +1,83 @@
+{
+ "dispute": {
+  "dispute_id": "IQ-004",
+  "reason": "SHOP_INQUIRY",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "SHOP_INQUIRY",
+  "create_time": "2026-10-20T08:00",
+  "dispute_amount": {
+   "value": "39.00",
+   "currency_code": "EUR"
+  },
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Where is my order? I need the table runner by the weekend.",
+    "time_posted": "2026-10-20T08:00"
+   }
+  ]
+ },
+ "seller_records": {
+  "order_no": "LP-70004",
+  "order_date": "2026-10-18T21:45:00Z",
+  "paid_with": "card",
+  "items": [
+   {
+    "name": "Linen table runner",
+    "qty": 1
+   }
+  ],
+  "ship_to": "Jonas Weber, Hauptstrasse 12, 80331 Munich, DE",
+  "tracking": {
+   "carrier": "Local courier",
+   "tracking_number": "LC70004IT",
+   "address_matches_order": true,
+   "status": "IN_TRANSIT",
+   "shipped_date": "2026-10-19",
+   "last_update": "2026-10-20T06:10:00Z",
+   "estimated_delivery": "2026-10-22"
+  },
+  "handling_time_promised": "ships within 2 business days",
+  "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
+  "listing_text": "Linen table runner, 40x150 cm.",
+  "order_amount": 39.0,
+  "refunded_so_far": 0,
+  "replaced_so_far": 0,
+  "sources": {
+   "order_no": "Your orders",
+   "order_date": "Your orders",
+   "items": "Your orders",
+   "paid_with": "Your orders",
+   "ship_to": "Your orders",
+   "tracking": "Courier tracking",
+   "handling_time_promised": "shop.json (the shop's published terms)",
+   "return_policy": "shop.json (the shop's published terms)",
+   "listing_text": "shop.json (the shop's published terms)"
+  }
+ },
+ "inquiry": {
+  "case_id": "IQ-004",
+  "channel": "email",
+  "customer": "Jonas Weber",
+  "problem_kind": "not_received",
+  "summary": "Premature",
+  "messages": [
+   {
+    "at": "2026-10-20T08:00",
+    "channel": "email",
+    "from": "Jonas Weber",
+    "direction": "in",
+    "text": "Where is my order? I need the table runner by the weekend."
+   }
+  ],
+  "last_message_at": "2026-10-20T08:00",
+  "amount": 39.0,
+  "currency": "EUR",
+  "dispute_id": null,
+  "identity": "jonas.weber@example.com|LP-70004|IQ-004"
+ },
+ "ground_truth": {
+  "action": "MESSAGE",
+  "why": "Premature: shipped the next day, on its way, due 22 Oct. Reply with the tracking."
+ }
+}

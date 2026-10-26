@@ -1,0 +1,83 @@
+{
+ "dispute": {
+  "dispute_id": "IQ-001",
+  "reason": "SHOP_INQUIRY",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "SHOP_INQUIRY",
+  "create_time": "2026-10-20T09:10",
+  "dispute_amount": {
+   "value": "28.00",
+   "currency_code": "EUR"
+  },
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Hello, my napkins never arrived but the tracking says delivered. Where are they? Ines",
+    "time_posted": "2026-10-20T09:10"
+   }
+  ]
+ },
+ "seller_records": {
+  "order_no": "LP-70001",
+  "order_date": "2026-10-14T19:02:00Z",
+  "paid_with": "card",
+  "items": [
+   {
+    "name": "Linen napkins (set of 4)",
+    "qty": 1
+   }
+  ],
+  "ship_to": "Ines Moreau, Rue des Lices 8, 49100 Angers, FR",
+  "tracking": {
+   "carrier": "Local courier",
+   "tracking_number": "LC70001IT",
+   "address_matches_order": true,
+   "status": "DELIVERED",
+   "shipped_date": "2026-10-15",
+   "last_update": "2026-10-17T10:40:00Z",
+   "delivered_to": "left with a neighbour (Rossi, Rue des Lices 10)"
+  },
+  "handling_time_promised": "ships within 2 business days",
+  "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
+  "listing_text": "Linen napkins, set of 4, 45x45 cm, natural, sage or rust.",
+  "order_amount": 28.0,
+  "refunded_so_far": 0,
+  "replaced_so_far": 0,
+  "sources": {
+   "order_no": "Your orders",
+   "order_date": "Your orders",
+   "items": "Your orders",
+   "paid_with": "Your orders",
+   "ship_to": "Your orders",
+   "tracking": "Courier tracking",
+   "handling_time_promised": "shop.json (the shop's published terms)",
+   "return_policy": "shop.json (the shop's published terms)",
+   "listing_text": "shop.json (the shop's published terms)"
+  }
+ },
+ "inquiry": {
+  "case_id": "IQ-001",
+  "channel": "email",
+  "customer": "Ines Moreau",
+  "problem_kind": "not_received",
+  "summary": "Left with a neighbour",
+  "messages": [
+   {
+    "at": "2026-10-20T09:10",
+    "channel": "email",
+    "from": "Ines Moreau",
+    "direction": "in",
+    "text": "Hello, my napkins never arrived but the tracking says delivered. Where are they? Ines"
+   }
+  ],
+  "last_message_at": "2026-10-20T09:10",
+  "amount": 28.0,
+  "currency": "EUR",
+  "dispute_id": null,
+  "identity": "ines.moreau@example.com|LP-70001|IQ-001"
+ },
+ "ground_truth": {
+  "action": "MESSAGE",
+  "why": "Left with a neighbour: delivered to the order's address. Tell her where it is; nothing is owed."
+ }
+}

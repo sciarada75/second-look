@@ -1,0 +1,83 @@
+{
+ "dispute": {
+  "dispute_id": "IQ-008",
+  "reason": "SHOP_INQUIRY",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "SHOP_INQUIRY",
+  "create_time": "2026-10-20T07:50",
+  "dispute_amount": {
+   "value": "36.00",
+   "currency_code": "EUR"
+  },
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Buongiorno, il mio runner non è mai arrivato, eppure il tracking dice consegnato. Come è possibile? Giorgia",
+    "time_posted": "2026-10-20T07:50"
+   }
+  ]
+ },
+ "seller_records": {
+  "order_no": "LP-70008",
+  "order_date": "2026-10-13T16:00:00Z",
+  "paid_with": "bank",
+  "items": [
+   {
+    "name": "Linen table runner",
+    "qty": 1
+   }
+  ],
+  "ship_to": "Giorgia Ferri, Via Emilia 118, 40026 Imola, IT",
+  "tracking": {
+   "carrier": "Local courier",
+   "tracking_number": "LC70008IT",
+   "address_matches_order": true,
+   "status": "DELIVERED",
+   "shipped_date": "2026-10-14",
+   "last_update": "2026-10-16T12:15:00Z",
+   "delivered_to": "parcel locker, Via Emilia 120 (pickup code sent by text message)"
+  },
+  "handling_time_promised": "ships within 2 business days",
+  "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
+  "listing_text": "Linen table runner, 40x150 cm.",
+  "order_amount": 36.0,
+  "refunded_so_far": 0,
+  "replaced_so_far": 0,
+  "sources": {
+   "order_no": "Your orders",
+   "order_date": "Your orders",
+   "items": "Your orders",
+   "paid_with": "Your orders",
+   "ship_to": "Your orders",
+   "tracking": "Courier tracking",
+   "handling_time_promised": "shop.json (the shop's published terms)",
+   "return_policy": "shop.json (the shop's published terms)",
+   "listing_text": "shop.json (the shop's published terms)"
+  }
+ },
+ "inquiry": {
+  "case_id": "IQ-008",
+  "channel": "email",
+  "customer": "Giorgia Ferri",
+  "problem_kind": "not_received",
+  "summary": "Delivered to the parcel locker next door, pickup code sent",
+  "messages": [
+   {
+    "at": "2026-10-20T07:50",
+    "channel": "email",
+    "from": "Giorgia Ferri",
+    "direction": "in",
+    "text": "Buongiorno, il mio runner non è mai arrivato, eppure il tracking dice consegnato. Come è possibile? Giorgia"
+   }
+  ],
+  "last_message_at": "2026-10-20T07:50",
+  "amount": 36.0,
+  "currency": "EUR",
+  "dispute_id": null,
+  "identity": "giorgia.ferri@example.com|LP-70008|IQ-008"
+ },
+ "ground_truth": {
+  "action": "MESSAGE",
+  "why": "Delivered to the parcel locker next door, pickup code sent: tell her where, in Italian."
+ }
+}

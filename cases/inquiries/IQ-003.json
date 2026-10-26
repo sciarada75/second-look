@@ -1,0 +1,84 @@
+{
+ "dispute": {
+  "dispute_id": "IQ-003",
+  "reason": "SHOP_INQUIRY",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "SHOP_INQUIRY",
+  "create_time": "2026-10-19T17:05",
+  "dispute_amount": {
+   "value": "48.00",
+   "currency_code": "EUR"
+  },
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "The linen dress is too small, size M. Can I exchange it for an L?",
+    "time_posted": "2026-10-19T17:05"
+   }
+  ]
+ },
+ "seller_records": {
+  "order_no": "LP-70003",
+  "order_date": "2026-10-10T14:20:00Z",
+  "paid_with": "card",
+  "items": [
+   {
+    "name": "Linen dress",
+    "qty": 1,
+    "size": "M"
+   }
+  ],
+  "ship_to": "Mia Keller, Lindenweg 3, 8001 Zurich, CH",
+  "tracking": {
+   "carrier": "Local courier",
+   "tracking_number": "LC70003IT",
+   "address_matches_order": true,
+   "status": "DELIVERED",
+   "shipped_date": "2026-10-11",
+   "last_update": "2026-10-14T09:30:00Z",
+   "delivered_to": "handed to the customer"
+  },
+  "handling_time_promised": "ships within 2 business days",
+  "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
+  "listing_text": "Linen dress, sizes S to XL, see the size chart.",
+  "order_amount": 48.0,
+  "refunded_so_far": 0,
+  "replaced_so_far": 0,
+  "sources": {
+   "order_no": "Your orders",
+   "order_date": "Your orders",
+   "items": "Your orders",
+   "paid_with": "Your orders",
+   "ship_to": "Your orders",
+   "tracking": "Courier tracking",
+   "handling_time_promised": "shop.json (the shop's published terms)",
+   "return_policy": "shop.json (the shop's published terms)",
+   "listing_text": "shop.json (the shop's published terms)"
+  }
+ },
+ "inquiry": {
+  "case_id": "IQ-003",
+  "channel": "form",
+  "customer": "Mia Keller",
+  "problem_kind": "wrong_size",
+  "summary": "A size exchange 5 days after delivery, within the 14-day returns",
+  "messages": [
+   {
+    "at": "2026-10-19T17:05",
+    "channel": "form",
+    "from": "Mia Keller",
+    "direction": "in",
+    "text": "The linen dress is too small, size M. Can I exchange it for an L?"
+   }
+  ],
+  "last_message_at": "2026-10-19T17:05",
+  "amount": 48.0,
+  "currency": "EUR",
+  "dispute_id": null,
+  "identity": "mia.keller@example.com|LP-70003|IQ-003"
+ },
+ "ground_truth": {
+  "action": "REPLACE",
+  "why": "A size exchange 5 days after delivery, within the 14-day returns: exchange it."
+ }
+}

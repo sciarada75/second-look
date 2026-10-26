@@ -1,0 +1,87 @@
+{
+ "dispute": {
+  "dispute_id": "IQ-006",
+  "reason": "SHOP_INQUIRY",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "SHOP_INQUIRY",
+  "create_time": "2026-10-19T15:40",
+  "dispute_amount": {
+   "value": "0.00",
+   "currency_code": "EUR"
+  },
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "I returned the tea towels two weeks ago. Where is my refund?",
+    "time_posted": "2026-10-19T15:40"
+   }
+  ]
+ },
+ "seller_records": {
+  "order_no": "LP-70006",
+  "order_date": "2026-09-25T09:00:00Z",
+  "paid_with": "card",
+  "items": [
+   {
+    "name": "Linen tea towels (set of 3)",
+    "qty": 1
+   }
+  ],
+  "ship_to": "Paul Girard, Rue Oberkampf 40, 75011 Paris, FR",
+  "tracking": {
+   "carrier": "Local courier",
+   "tracking_number": "LC70006IT",
+   "address_matches_order": true,
+   "status": "DELIVERED",
+   "shipped_date": "2026-09-26",
+   "last_update": "2026-09-29T11:00:00Z",
+   "delivered_to": "handed to the customer"
+  },
+  "handling_time_promised": "ships within 2 business days",
+  "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
+  "listing_text": "Linen tea towels, set of 3.",
+  "return": "Local courier LR70006IT, back at the shop (on 2026-10-14)",
+  "already_refunded": "24.00 EUR on 17 Oct 2026 by Marta",
+  "order_amount": 24.0,
+  "refunded_so_far": 24.0,
+  "replaced_so_far": 0,
+  "sources": {
+   "order_no": "Your orders",
+   "order_date": "Your orders",
+   "items": "Your orders",
+   "paid_with": "Your orders",
+   "ship_to": "Your orders",
+   "tracking": "Courier tracking",
+   "handling_time_promised": "shop.json (the shop's published terms)",
+   "return_policy": "shop.json (the shop's published terms)",
+   "listing_text": "shop.json (the shop's published terms)",
+   "return": "Courier tracking",
+   "already_refunded": "Your case record"
+  }
+ },
+ "inquiry": {
+  "case_id": "IQ-006",
+  "channel": "email",
+  "customer": "Paul Girard",
+  "problem_kind": "refund_missing",
+  "summary": "Already refunded in full on 17 Oct",
+  "messages": [
+   {
+    "at": "2026-10-19T15:40",
+    "channel": "email",
+    "from": "Paul Girard",
+    "direction": "in",
+    "text": "I returned the tea towels two weeks ago. Where is my refund?"
+   }
+  ],
+  "last_message_at": "2026-10-19T15:40",
+  "amount": 0.0,
+  "currency": "EUR",
+  "dispute_id": null,
+  "identity": "paul.girard@example.com|LP-70006|IQ-006"
+ },
+ "ground_truth": {
+  "action": "MESSAGE",
+  "why": "Already refunded in full on 17 Oct: tell him when, and that a card refund can take a few days."
+ }
+}

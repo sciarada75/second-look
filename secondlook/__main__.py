@@ -56,6 +56,15 @@ def review(pp, dispute_id: str, backend: str) -> Decision:
     return apply_policy(j, policy, case["dispute"], case["seller_records"])
 
 
+def review_inquiry_case(case: dict, backend: str, policy: dict) -> Decision:
+    """An inquiry (web.inquiry_case's shape) judged and guarded: the case page and the eval run this one path."""
+    case["seller_preferences"] = policy.get("seller_preferences", [])
+    j = judge_mod.INQUIRY_BACKENDS[backend](case)
+    if j.action == "DEFEND":  # there is no claim to defend in an inquiry: the guard routes an answer it doesn't know
+        j = dataclasses.replace(j, action="DEFEND_IS_FOR_PAYPAL_DISPUTES")
+    return apply_policy(j, policy, case["dispute"], case["seller_records"])
+
+
 def print_decision(d: Decision, dispute: dict) -> None:
     amt = dispute["dispute_amount"]
     print(f"\n{dispute['dispute_id']}  {dispute['reason']}  {amt['value']} {amt['currency_code']}")
@@ -115,43 +124,61 @@ def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
     return {"status": "NOT_EXECUTED", "reason": "ASK_SELLER: decide, then approve a specific action"}
 
 
-def run_eval(pp, backend: str, only=None) -> int:
-    if not isinstance(pp, MockPayPal):
-        print("eval runs on cases/ only; unset PAYPAL_CLIENT_ID to use the mock"); return 2
-    cases = sorted(pp.cases_dir.glob("*.json"))
-    if only:  # cheap iteration on a few cases; a full run is still required before quoting a score
-        cases = [c for c in cases if c.stem in only]
-    hits, bad_money, bad_fights, asked, rows, details = 0, 0, 0, 0, [], []
-    for f in cases:
-        case = json.loads(f.read_text())
-        truth = case["ground_truth"]["action"]
-        d = review(pp, case["dispute"]["dispute_id"], backend)
+INQUIRIES = ROOT / "cases" / "inquiries"
+GIVES = ("REFUND", "PARTIAL_REFUND", "REPLACE")   # money or goods go out
+
+
+def _eval_set(title: str, cases: list, decide, hold: str, other: str, details: list) -> None:
+    """Score one set. `hold` is the answer that gives nothing (DEFEND for a dispute, MESSAGE for an inquiry):
+    giving when the truth was to hold is an unjustified refund; holding when the truth was to give is `other`
+    (a losing fight in a dispute, refusing what the shop's terms owe in an inquiry)."""
+    hits, bad_money, bad_hold, asked, rows = 0, 0, 0, 0, []
+    for case in cases:
+        cid, truth = case["dispute"]["dispute_id"], case["ground_truth"]["action"]
+        d = decide(case)
         ok = d.action == truth
         hits += ok
-        # the metric Claudia cares about: money given back when the truth was "defend"
-        unjustified = d.action in ("REFUND", "PARTIAL_REFUND", "REPLACE") and truth == "DEFEND"
+        unjustified = d.action in GIVES and truth == hold      # the metric Claudia cares about
+        held = d.action == hold and truth in GIVES             # the other costly mistake
         bad_money += unjustified
-        # the other costly mistake: defending a case the buyer is right about
-        lost_fight = d.action == "DEFEND" and truth in ("REFUND", "PARTIAL_REFUND", "REPLACE")
-        bad_fights += lost_fight
+        bad_hold += held
         asked += d.action == "ASK_SELLER"
-        details.append({"case": case["dispute"]["dispute_id"], "truth": truth, "ai": d.judgment.action,
-                        "after_guard": d.action, "confidence": d.judgment.confidence, "guard_notes": d.reasons,
-                        "checks": d.judgment.checks, "reasoning": d.judgment.reasoning,
-                        "draft_message": d.judgment.draft_message})
-        rows.append((case["dispute"]["dispute_id"], truth, d.judgment.action, d.action,
-                     "ok" if ok else ("UNJUSTIFIED REFUND" if unjustified else
-                                      "LOSING FIGHT" if lost_fight else "miss")))
-    print(f"\njudge={backend}  cases={len(cases)}")
+        details.append({"case": cid, "truth": truth, "ai": d.judgment.action, "after_guard": d.action,
+                        "confidence": d.judgment.confidence, "guard_notes": d.reasons, "checks": d.judgment.checks,
+                        "reasoning": d.judgment.reasoning, "draft_message": d.judgment.draft_message,
+                        "partial_amount": d.judgment.partial_amount,
+                        "truth_partial_amount": case["ground_truth"].get("partial_amount")})
+        rows.append((cid, truth, d.judgment.action, d.action,
+                     "ok" if ok else ("UNJUSTIFIED REFUND" if unjustified else other.upper() if held else "miss")))
+    print(f"\n{title}: {len(cases)}")
     print(f"{'case':<10}{'truth':<16}{'AI said':<16}{'after guard':<16}result")
     for r in rows:
         print(f"{r[0]:<10}{r[1]:<16}{r[2]:<16}{r[3]:<16}{r[4]}")
-    print(f"\ncorrect: {hits}/{len(cases)}   unjustified refunds: {bad_money}   "
-          f"losing fights: {bad_fights}   routed to seller: {asked}")
+    print(f"correct: {hits}/{len(cases)}   unjustified refunds: {bad_money}   {other}: {bad_hold}   "
+          f"routed to seller: {asked}")
+
+
+def run_eval(pp, backend: str, only=None) -> int:
+    if not isinstance(pp, MockPayPal):
+        print("eval runs on cases/ only; unset PAYPAL_CLIENT_ID to use the mock"); return 2
+    policy = load_policy()
+    disputes = [json.loads(f.read_text()) for f in sorted(pp.cases_dir.glob("*.json"))]
+    inquiries = [json.loads(f.read_text()) for f in sorted(INQUIRIES.glob("IQ-*.json"))]
+    if only:  # cheap iteration on a few cases; a full run is still required before quoting a score
+        disputes = [c for c in disputes if c["dispute"]["dispute_id"] in only]
+        inquiries = [c for c in inquiries if c["dispute"]["dispute_id"] in only]
+    details = []
+    print(f"\njudge={backend}")
+    if disputes:
+        _eval_set("PayPal disputes", disputes, lambda c: review(pp, c["dispute"]["dispute_id"], backend),
+                  "DEFEND", "losing fights", details)
+    if inquiries:
+        _eval_set("Shop inquiries", inquiries, lambda c: review_inquiry_case(c, backend, policy),
+                  "MESSAGE", "refused what is owed", details)
     out = ROOT / ".tmp" / f"eval-{backend}-details.json"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(details, indent=1, ensure_ascii=False))
-    print(f"details: {out.relative_to(ROOT)}")
+    print(f"\ndetails: {out.relative_to(ROOT)}")
     u = judge_mod.USAGE
     if u["calls"]:
         # Opus 5.5 list price: $4 / 1M input, $20 / 1M output (checked 2026-10-16)

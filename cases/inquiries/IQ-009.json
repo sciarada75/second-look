@@ -1,0 +1,88 @@
+{
+ "dispute": {
+  "dispute_id": "IQ-009",
+  "reason": "SHOP_INQUIRY",
+  "status": "WAITING_FOR_SELLER_RESPONSE",
+  "dispute_life_cycle_stage": "SHOP_INQUIRY",
+  "create_time": "2026-10-19T19:20",
+  "dispute_amount": {
+   "value": "28.00",
+   "currency_code": "EUR"
+  },
+  "messages": [
+   {
+    "posted_by": "BUYER",
+    "content": "Only one set of napkins arrived. I ordered two. Can you sort it out?",
+    "time_posted": "2026-10-19T19:20"
+   }
+  ]
+ },
+ "seller_records": {
+  "order_no": "LP-70009",
+  "order_date": "2026-10-11T11:11:00Z",
+  "paid_with": "paypal",
+  "items": [
+   {
+    "name": "Linen napkins (set of 4)",
+    "qty": 2
+   }
+  ],
+  "ship_to": "Sam Lee, High Street 22, Oxford OX1 4AA, GB",
+  "tracking": {
+   "carrier": "Local courier",
+   "tracking_number": "LC70009IT",
+   "address_matches_order": true,
+   "status": "DELIVERED",
+   "shipped_date": "2026-10-13",
+   "last_update": "2026-10-16T10:00:00Z",
+   "delivered_to": "handed to the customer"
+  },
+  "handling_time_promised": "ships within 2 business days",
+  "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
+  "listing_text": "Linen napkins, set of 4, 45x45 cm, natural, sage or rust.",
+  "fulfilment_status": "1 of 2 sets shipped: the second set is discontinued and will not be restocked",
+  "packing_slip_qty": 1,
+  "order_amount": 28.0,
+  "refunded_so_far": 0,
+  "replaced_so_far": 0,
+  "sources": {
+   "order_no": "Your orders",
+   "order_date": "Your orders",
+   "items": "Your orders",
+   "paid_with": "Your orders",
+   "ship_to": "Your orders",
+   "tracking": "Courier tracking",
+   "handling_time_promised": "shop.json (the shop's published terms)",
+   "return_policy": "shop.json (the shop's published terms)",
+   "listing_text": "shop.json (the shop's published terms)",
+   "fulfilment_status": "Your orders",
+   "packing_slip_qty": "Your orders"
+  }
+ },
+ "inquiry": {
+  "case_id": "IQ-009",
+  "channel": "email",
+  "customer": "Sam Lee",
+  "problem_kind": "not_received",
+  "summary": "The shop's own record",
+  "messages": [
+   {
+    "at": "2026-10-19T19:20",
+    "channel": "email",
+    "from": "Sam Lee",
+    "direction": "in",
+    "text": "Only one set of napkins arrived. I ordered two. Can you sort it out?"
+   }
+  ],
+  "last_message_at": "2026-10-19T19:20",
+  "amount": 28.0,
+  "currency": "EUR",
+  "dispute_id": null,
+  "identity": "sam.lee@example.com|LP-70009|IQ-009"
+ },
+ "ground_truth": {
+  "action": "PARTIAL_REFUND",
+  "why": "The shop's own record: one of two sets shipped, the second is discontinued. Refund that set, 14.00.",
+  "partial_amount": "14.00 EUR"
+ }
+}
