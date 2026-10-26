@@ -30,7 +30,7 @@ from pathlib import Path
 from datetime import timedelta, timezone
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
-from . import books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
+from . import autopilot as autopilot_mod, books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
 from .guard import apply_policy, may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
@@ -467,6 +467,15 @@ def case_store(src: str) -> cases_mod.CaseStore:
                 for r in DemoPayPal().requests():   # they sort by rules alone (tests/test_demo_shop.py): no AI call
                     _file_request(store, "demo", r, ai=None)
     return store
+
+
+def autopilot_store(src: str) -> autopilot_mod.Record:
+    """Second Look's AI's record in this shop (autopilot.py), beside the shop's case file: .tmp/autopilot-demo.json,
+    seeded from demo/shop.json; records/autopilot-live.json for the live shop, empty (nothing on) until people decide.
+    Beside the case file, so every test bench that moves the case file moves this too."""
+    return autopilot_mod.Record(CASE_FILES[src].with_name(f"autopilot-{src}.json"),
+                                seed=DemoPayPal().raw.get("autopilot") if src == "demo" else None,
+                                fp=autopilot_mod.fingerprint(_policy()))
 
 
 def _num(x) -> float | None:
@@ -924,8 +933,10 @@ class Outbox:
     interface as the PayPal clients, so execute() runs it unchanged. A refund on an order paid through PayPal goes to
     PayPal's refund API; nothing else is sent from here."""
 
-    def __init__(self, cid: str, by: str, ai: bool, amount: float, request_id: str | None = None):
+    def __init__(self, cid: str, by: str, ai: bool, amount: float, request_id: str | None = None,
+                 autopilot: bool = False):
         self.cid, self.by, self.ai, self.amount = cid, by, ai, amount
+        self.autopilot = autopilot        # Second Look's AI approved it on its own: no person wrote or sent it
         self.request_id = request_id      # PayPal-Request-Id: the same for a retry of the same approval
         self.src = shop_of_case(cid)
 
@@ -977,7 +988,8 @@ class Outbox:
         index = len(c0.get("money", []))
 
         def change(c):
-            c["timeline"].append(cases_mod.entry(None, ch, "out", text, self.by, ai=self.ai, action=action))
+            c["timeline"].append(cases_mod.entry(None, ch, "out", text, self.by, ai=self.ai, action=action,
+                                                 **({"autopilot": True} if self.autopilot else {})))
             if money:
                 c["money"].append({**money, **sent, "at": cases_mod.minute(None), "by": self.by})
             if self.request_id:       # a retry PayPal confirmed: its "not confirmed" mark is answered
@@ -3212,17 +3224,22 @@ _WORDS_NEEDED = ("MESSAGE", "REFUND", "PARTIAL_REFUND", "REPLACE")
 
 
 def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None,
-            review: str | None = None) -> tuple[int, str]:
+            review: str | None = None, *, ai_signed: str | None = None) -> tuple[int, str]:
     """Send the answer a person chose. Returns (HTTP status, what happened).
     200 sent · 202 passed to a colleague (nothing sent) · 400 nobody named or no words · 409 changed or not allowed.
-    `review`: the review_mark of the review they were shown; when given, a different review is refused."""
+    `review`: the review_mark of the review they were shown; when given, a different review is refused.
+    `ai_signed`: Second Look's AI approves, on a kind the shop switched on (autopilot_case only: a page or the API
+    always names a person, and "second-look-ai" is nobody in the team), signed so, within its own limit."""
     from .__main__ import execute
     if chosen == "ASK_SELLER":
         # "your call" is what the review says when a person must choose; approving it would mark the review sent
         # with nothing done (found in review, 25/10)
         return 400, "\"Your call\" is not an answer: choose what to send (a reply, a refund, your evidence)."
     t = team_for(did)
-    who = team_mod.person(t, by)
+    if ai_signed:
+        t, who = autopilot_mod.as_ai(t, ai_signed)
+    else:
+        who = team_mod.person(t, by)
     if not who:
         return 400, "Say who is approving: a person in this shop's team."
     with _case_lock(did):  # from reading the review to saving what was sent, or the handoff
@@ -3270,7 +3287,8 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         hand = assignments_for(did).get(did)["handoff"]
         if isinstance(hand, dict) and hand.get("action") == chosen and hand.get("message") is not None:
             message = hand["message"]
-    recommended = dec.action
+    recommended, drafted = dec.action, dec.judgment.draft_message
+    is_ai = who["id"] == autopilot_mod.AI_ID
     dec.action = chosen  # "your call": a question, or the answer held back only for its size
     if message is not None:
         dec.judgment.draft_message = message
@@ -3282,7 +3300,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         n_money = len((case_store(shop_of_case(did)).get(did) or {}).get("money", []))
         rid = "sl-" + hashlib.sha256(f"{did}|{review_mark(did)}|{n_money}".encode()).hexdigest()[:32]
     client = (Outbox(did, by=who["name"], ai=judged == "claude", amount=float(case["dispute"]["dispute_amount"]["value"]),
-                     request_id=rid)
+                     request_id=rid, autopilot=is_ai)
               if inquiry else _client(did))
     try:
         result = execute(client, dec, case["dispute"], case["seller_records"])
@@ -3336,14 +3354,36 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         # a message that lands while it is sent was never seen (re-reading the case here would count it).
         seen = {**seen, "amount": f"{max(0.0, float(seen['amount']) - amount):.2f}"}
     _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged)
-    if not t.get("solo"):
-        # Sent by them: the case is theirs, and any handoff waiting on it is done.
+    if not t.get("solo") and not is_ai:
+        # Sent by them: the case is theirs, and any handoff waiting on it is done. (Second Look's AI is never given
+        # a case: what it sent stays open for a person.)
         assignments_for(did).update(did, lambda a: {"to": who["id"], "handoff": None})
     notify("answer.sent", {**_about(did), "action": chosen, "what_happened": sent, "by": by_name})
+    if not is_ai and (judged or "claude") == "claude":    # a review saved before judges were recorded is Claude's
+        _record_decision(did, case, recommended, chosen, message, drafted, who, now)
     if not inquiry and chosen in ("REFUND", "PARTIAL_REFUND") and amount:
         d, at, name = case["dispute"], now.strftime("%Y-%m-%dT%H:%M"), who["name"]
         post_books(lambda: _dispute_refund_row(did, d, at, round(amount, 2), cur, name))
     return 200, sent
+
+
+def _record_decision(did: str, case: dict, recommended: str, chosen: str, message: str | None, drafted: str,
+                     who: dict, now: datetime) -> None:
+    """A person's decision on a review Second Look's AI made, for its record (autopilot.py): approved as advised =
+    the action it recommended (after your limits), the same amount (an amount is the review's own, so the same
+    action sends the same), the reply not edited. The caller has checked it is a person and the AI's review (never
+    the rules baseline's, never its own sends). "Your call" is no kind it could answer on its own: not recorded."""
+    src = src_of_case(did, "live")
+    if src == "practice" or recommended == "ASK_SELLER":
+        return
+    inquiry = cases_mod.is_case_id(did)
+    stage, problem = ("inquiry", case["inquiry"]["problem_kind"]) if inquiry else ("paypal", case["dispute"].get("reason"))
+    same = message is None or autopilot_mod.same_words(message, drafted)
+    entry = {"case": did, "at": now.isoformat(timespec="minutes"), "by": who["name"], "as_advised": chosen == recommended and same}
+    if not entry["as_advised"]:
+        entry["why"] = "another action" if chosen != recommended else "the reply was edited"
+    autopilot_store(src).decide(autopilot_mod.kind_key(stage, problem, recommended), entry,
+                                autopilot_mod.settings(team_for(did))["window"])
 
 
 def api_case(did: str, as_person: str | None = None) -> dict:

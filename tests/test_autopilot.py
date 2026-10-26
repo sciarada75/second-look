@@ -113,6 +113,101 @@ def test_a_new_setup_empties_the_record_and_switches_every_kind_off_with_the_rea
     assert autopilot.fingerprint({**POLICY, "staff_time": {"hourly_cost": 99}}) == fp   # not a rule the AI follows
 
 
+def no_record(kinds=None):
+    """This bench's record of Second Look's AI in place of the demo's: the morning filed with nothing on (so nothing
+    of it is answered), then an empty record, or these kinds."""
+    path = web.CASE_FILES["demo"].with_name("autopilot-demo.json")
+    for k in ({}, kinds or {}):
+        path.write_text(json.dumps({"fingerprint": autopilot.fingerprint(web._policy()), "kinds": k}))
+        web.case_store("demo")
+    return path
+
+
+def decisions(kind):
+    return [(x["case"], x["by"], x["as_advised"], x.get("why")) for x in
+            web.autopilot_store("demo").view()["kinds"].get(kind, {}).get("decisions", [])]
+
+
+def test_people_s_approvals_of_its_advice_are_its_record_and_nothing_else_is():
+    with morning():
+        no_record()
+        # Sophie's: the review Second Look's AI made (shipped with the demo), approved as it is
+        assert web.approve("DEMO-C001", "MESSAGE", None, by="marta", review=web.review_mark("DEMO-C001"))[0] == 200
+        assert decisions(KIND) == [("DEMO-C001", "Marta", True, None)]
+        # Lena's exchange, its reply edited: a decision on its kind, not as advised
+        lena = web._saved("DEMO-C002")[0].judgment.draft_message
+        assert web.approve("DEMO-C002", "REPLACE", lena + " Thanks!", by="marta")[0] == 200
+        assert decisions("inquiry · wrong_size · REPLACE") == [("DEMO-C002", "Marta", False, "the reply was edited")]
+        # a PayPal dispute: its stage and PayPal's reason
+        assert web.approve("DEMO-031", "DEFEND", None, by="marta")[0] == 200
+        assert decisions("paypal · MERCHANDISE_OR_SERVICE_NOT_RECEIVED · DEFEND") == [("DEMO-031", "Marta", True, None)]
+
+
+def test_the_rules_baseline_s_reviews_never_count():
+    with morning():
+        no_record()
+        web.run_review("DEMO-C001")                      # no key here: the rules baseline
+        assert web.judge_of("DEMO-C001") == "rules"
+        assert web.approve("DEMO-C001", "MESSAGE", None, by="marta")[0] == 200
+        assert web.autopilot_store("demo").view()["kinds"] == {}
+
+
+SIGNED = "Second Look's AI, under Giulia's setting (since 15 Oct)"
+
+
+def test_it_approves_through_the_one_path_signed_never_as_a_person_and_never_given_the_case():
+    with morning() as b:
+        no_record()
+        assert web.approve("DEMO-C001", "MESSAGE", None, by="second-look-ai")[0] == 400       # nobody in the team
+        code, text = web.approve("DEMO-C001", "MESSAGE", None, review=web.review_mark("DEMO-C001"), ai_signed=SIGNED)
+        assert code == 200 and text.startswith(f"Reply sent by email. Sent by {SIGNED}, ")
+        out = web.case_store("demo").get("DEMO-C001")["timeline"][-1]
+        assert (out["direction"], out["by"], out["ai"], out["autopilot"]) == ("out", SIGNED, True, True)
+        log = [json.loads(x) for x in (b.tmp / "actions-demo.jsonl").read_text().splitlines()]
+        assert log[-1]["by"] == SIGNED
+        assert [p for ev, p in b.events if ev == "answer.sent"][-1]["by"] == SIGNED
+        assert web.assignments_for("DEMO-C001").get("DEMO-C001")["to"] is None                 # still nobody's
+        assert web.autopilot_store("demo").view()["kinds"] == {}                               # it can't grade itself
+
+
+def karim(b, text="I sent the art print back last week and I still have no refund. Order DEMOTX02072."):
+    """A request by email from a customer of the demo shop, about a 20 EUR order paid through PayPal."""
+    code, out = web.receive("demo", {"channel": "email", "from": {"name": "Karim Ferrari", "email": "karim.f646@example.com"},
+                                     "text": text, "source_id": f"test:{len(text)}"})
+    assert code == 201 and out["sorted"]["by"] == "rules", out
+    return out["case_id"]
+
+
+def refunds(case):
+    return judge.Judgment("REFUND", 0.95, "The return reached the shop.", [], "Your refund is on its way.")
+
+
+def test_money_over_its_own_limit_passes_to_a_person_and_within_it_goes():
+    with morning(ai_key=True, claude=refunds) as b:
+        no_record()
+        cid = karim(b)
+        assert web.run_review(cid).action == "REFUND"
+        code, text = web.approve(cid, "REFUND", None, review=web.review_mark(cid), ai_signed=SIGNED)
+        assert (code, text) == (202, "Passed to Giulia: refund in full of 20.00 EUR is over your 0.00 EUR limit. Nothing was sent.")
+        assert web.case_store("demo").get(cid)["money"] == []
+        hand = web.assignments_for(cid).get(cid)
+        assert hand["to"] == "giulia" and hand["handoff"]["from"] == "second-look-ai"
+    kept = web.team_for
+    with morning(ai_key=True, claude=refunds) as b:
+        no_record()
+        web.team_for = lambda did: team_mod.of({**kept(did), "autopilot": {"refund_up_to": 30}})
+        try:
+            cid = karim(b)
+            web.run_review(cid)
+            code, text = web.approve(cid, "REFUND", None, review=web.review_mark(cid), ai_signed=SIGNED)
+            assert code == 200 and text.startswith("Refund of 20.00 EUR logged for PayPal's refund API (demo: nothing sent)")
+            [m] = web.case_store("demo").get(cid)["money"]
+            assert (m["kind"], m["amount"], m["by"]) == ("refund", 20.0, SIGNED)
+            assert [r["approved_by"] for r in web.books_rows("demo") if r["case_id"] == cid] == [SIGNED]
+        finally:
+            web.team_for = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
