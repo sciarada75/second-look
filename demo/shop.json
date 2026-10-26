@@ -35,7 +35,13 @@
      "name": "Sara",
      "role": "Customer care assistant"
     }
-   ]
+   ],
+   "autopilot": {
+    "refund_up_to": 0,
+    "window": 10,
+    "min_confidence": 0.9,
+    "per_day": 20
+   }
   },
   "handling_time": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
@@ -144762,6 +144768,10 @@
   "DEMO-039": {
    "to": "luca",
    "handoff": null
+  },
+  "DEMO-C001": {
+   "to": "marta",
+   "handoff": null
   }
  },
  "handled_by": {
@@ -144889,6 +144899,34 @@
     "last_update": "2026-10-20T08:40:00Z",
     "delivered_to": "the shop"
    }
+  },
+  {
+   "order_no": "LP-90003",
+   "paid_with": "card",
+   "name": "Margot Lefèvre",
+   "email": "margot.lefevre@example.com",
+   "phone": "+33 4 55 50 1180",
+   "address": "Rue Mercière 21, 69002 Lyon, FR",
+   "date": "2026-10-15",
+   "time": "2026-10-15T19:20:00Z",
+   "amount": 36.0,
+   "currency": "EUR",
+   "items": [
+    {
+     "item_name": "Linen napkins",
+     "item_quantity": "1"
+    }
+   ],
+   "tracking": {
+    "carrier": "Local courier",
+    "tracking_number": "LC90003FR",
+    "status": "IN_TRANSIT",
+    "shipped_date": "2026-10-16",
+    "last_update": "2026-10-19T18:20:00Z",
+    "last_event": "at the courier's depot in Lyon",
+    "expected_delivery": "2026-10-21",
+    "address_matches_order": true
+   }
   }
  ],
  "requests": [
@@ -144924,6 +144962,17 @@
    "time": "2026-10-19T09:45:00Z",
    "subject": "Refund for my returned shirt?",
    "text": "I sent the shirt back on 5 October and you got it on the 8th. I still have no refund."
+  },
+  {
+   "source_id": "ticketbook:2103",
+   "channel": "email",
+   "from": {
+    "name": "Margot Lefèvre",
+    "email": "margot.lefevre@example.com"
+   },
+   "time": "2026-10-20T07:40:00Z",
+   "subject": "Where is my order?",
+   "text": "Good morning, I ordered linen napkins last Thursday (order LP-90003) and they haven't arrived yet. Where is my parcel? Thank you, Margot"
   }
  ],
  "history": [
@@ -149666,5 +149715,90 @@
     }
    ]
   }
- ]
+ ],
+ "autopilot": {
+  "fingerprint": {
+   "instructions": "bd256fac8c80cadc",
+   "model": "15cd98bbce41024d",
+   "rules": "dad59972f59a30ac"
+  },
+  "restarted": null,
+  "cases": {},
+  "kinds": {
+   "inquiry · not_received · MESSAGE": {
+    "decisions": [
+     {
+      "case": "DEMO-H059",
+      "at": "2026-10-04T00:20",
+      "by": "Sara",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H058",
+      "at": "2026-10-04T12:19",
+      "by": "Marta",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H063",
+      "at": "2026-10-06T20:56",
+      "by": "Marta",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H064",
+      "at": "2026-10-07T21:22",
+      "by": "Luca",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H065",
+      "at": "2026-10-07T23:05",
+      "by": "Luca",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H067",
+      "at": "2026-10-09T06:32",
+      "by": "Sara",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H070",
+      "at": "2026-10-11T23:04",
+      "by": "Sara",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H072",
+      "at": "2026-10-13T22:34",
+      "by": "Luca",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H081",
+      "at": "2026-10-16T18:09",
+      "by": "Luca",
+      "as_advised": true
+     },
+     {
+      "case": "DEMO-H080",
+      "at": "2026-10-16T23:16",
+      "by": "Marta",
+      "as_advised": true
+     }
+    ],
+    "on": true,
+    "switched": {
+     "by": "Giulia",
+     "at": "2026-10-17T09:00"
+    },
+    "off": null,
+    "today": {
+     "day": "",
+     "n": 0
+    }
+   }
+  }
+ }
 }

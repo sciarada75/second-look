@@ -63,7 +63,8 @@ def test_a_customer_care_team_of_four():
     assert [p["name"] for p in team.people(t)] == ["Giulia", "Marta", "Luca", "Sara"]
     assert team.covers(t, "giulia", 240) and team.covers(t, "marta", 30) and not team.covers(t, "marta", 30.01)
     seeded = pp.raw["assignments"]
-    assert sorted(d for d, a in seeded.items() if a["to"] == "marta") == ["DEMO-031", "DEMO-032", "DEMO-034"]
+    # and Sophie's case (DEMO-C001): she called Marta (26/10)
+    assert sorted(d for d, a in seeded.items() if a["to"] == "marta") == ["DEMO-031", "DEMO-032", "DEMO-034", "DEMO-C001"]
     assert sorted(d for d, a in seeded.items() if a["to"] == "luca") == ["DEMO-035", "DEMO-039"]
     assert all(a.get("handoff") is None for a in seeded.values())
 
@@ -114,6 +115,8 @@ def test_adding_requests_moved_nothing_on_the_paypal_side():
     import hashlib
     import json
     keep = {k: pp.raw[k] for k in ("today", "orders", "disputes", "records", "assignments", "handled_by")}
+    # who has which PayPal dispute: a shop inquiry's assignment (Sophie's DEMO-C001, 26/10) is not the PayPal side
+    keep["assignments"] = {d: a for d, a in keep["assignments"].items() if not d.startswith("DEMO-C")}
     assert hashlib.sha256(json.dumps(keep, sort_keys=True, ensure_ascii=False).encode()).hexdigest() == PAYPAL_SIDE
 
 
@@ -135,9 +138,10 @@ def test_the_demo_requests_sort_by_rules_to_the_cases_the_film_follows():
     assert {sid: (s["settled"], s["by"], s["order_no"], s["kind"]) for sid, s in got.items()} == {
         "ticketbook:2101": (True, "rules", "LP-90001", "not_received"),     # Sophie, card
         "ticketbook:2102": (True, "rules", "LP-90002", "wrong_size"),       # Lena, bank, web form
-        "ticketbook:2004": (True, "rules", "DEMOTX01828", "refund_missing")}  # Pablo: the order of DEMO-034
+        "ticketbook:2004": (True, "rules", "DEMOTX01828", "refund_missing"),  # Pablo: the order of DEMO-034
+        "ticketbook:2103": (True, "rules", "LP-90003", "not_received")}     # Margot, card: Second Look's AI's (26/10)
     paid = {o["order_no"]: o["paid_with"] for o in pp.other_orders()}
-    assert paid == {"LP-90001": "card", "LP-90002": "bank"}
+    assert paid == {"LP-90001": "card", "LP-90002": "bank", "LP-90003": "card"}
 
 
 def test_the_team_s_roles_are_the_shop_s_own_titles():

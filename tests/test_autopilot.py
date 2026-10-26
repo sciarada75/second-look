@@ -57,11 +57,11 @@ def test_only_the_head_of_customer_care_switches_and_only_a_ready_kind_goes_on()
     r = record()
     for n in range(1, 10):
         r.decide(KIND, advised(n), 10)
-    assert r.switch(KIND, True, "Giulia", "2026-10-15T09:00", 10) == (409, "Not ready: 9 of the last 10 approved as advised.")
+    assert r.switch(KIND, True, "Giulia", "2026-10-17T09:00", 10) == (409, "Not ready: 9 of the last 10 approved as advised.")
     r.decide(KIND, advised(10), 10)
-    assert r.switch(KIND, True, "Giulia", "2026-10-15T09:00", 10)[0] == 200
+    assert r.switch(KIND, True, "Giulia", "2026-10-17T09:00", 10)[0] == 200
     assert r.kinds_on("inquiry", "not_received") == [KIND] and r.kinds_on("paypal", "not_received") == []
-    assert autopilot.signature(r.view()["kinds"][KIND]) == "Second Look's AI, under Giulia's setting (since 15 Oct)"
+    assert autopilot.signature(r.view()["kinds"][KIND]) == "Second Look's AI, under Giulia's setting (since 17 Oct)"
     r.decide(KIND, {"case": "C012", "at": "2026-10-16T10:00", "by": "Luca", "as_advised": False}, 10)
     k = r.view()["kinds"][KIND]
     assert not k["on"] and k["off"]["why"] == "Luca changed its advice on C012: the count starts again."
@@ -70,8 +70,8 @@ def test_only_the_head_of_customer_care_switches_and_only_a_ready_kind_goes_on()
 def test_second_look_s_ai_is_never_one_of_the_people_and_approves_within_its_own_limit():
     t = team_mod.of(TEAM)
     assert autopilot.AI_ID not in [p["id"] for p in team_mod.people(t)]
-    t2, who = autopilot.as_ai(t, "Second Look's AI, under Giulia's setting (since 15 Oct)")
-    assert who == {"id": "second-look-ai", "name": "Second Look's AI, under Giulia's setting (since 15 Oct)",
+    t2, who = autopilot.as_ai(t, "Second Look's AI, under Giulia's setting (since 17 Oct)")
+    assert who == {"id": "second-look-ai", "name": "Second Look's AI, under Giulia's setting (since 17 Oct)",
                    "role": "Second Look's AI"}
     assert team_mod.limit(t2, "second-look-ai") == 0.0 and not team_mod.covers(t2, "second-look-ai", 0.01)
     assert team_mod.handoff_to(t2, 36.0, exclude="second-look-ai")["id"] == "giulia"
@@ -87,7 +87,7 @@ def test_a_new_setup_empties_the_record_and_switches_every_kind_off_with_the_rea
     fp = autopilot.fingerprint(POLICY)
     assert set(fp) == {"instructions", "rules", "model"}
     seed = {"fingerprint": fp, "kinds": {KIND: {"decisions": [advised(n) for n in range(1, 11)], "on": True,
-                                                "switched": {"by": "Giulia", "at": "2026-10-15T09:00"}}}}
+                                                "switched": {"by": "Giulia", "at": "2026-10-17T09:00"}}}}
     r = record(seed)
     assert r.kinds_on("inquiry", "not_received") == [KIND] and r.view()["restarted"] is None
     ruled = autopilot.fingerprint({**POLICY, "seller_preferences": POLICY["seller_preferences"] + ["Be brief."]})
@@ -152,23 +152,24 @@ def test_the_rules_baseline_s_reviews_never_count():
         assert web.autopilot_store("demo").view()["kinds"] == {}
 
 
-SIGNED = "Second Look's AI, under Giulia's setting (since 15 Oct)"
+SIGNED = "Second Look's AI, under Giulia's setting (since 17 Oct)"
 
 
 def test_it_approves_through_the_one_path_signed_never_as_a_person_and_never_given_the_case():
     with morning() as b:
         no_record(on())
-        assert web.approve("DEMO-C001", "MESSAGE", None, by="second-look-ai")[0] == 400       # nobody in the team
-        assert web.approve("DEMO-C001", "MESSAGE", None, ai_signed=SIGNED)[0] == 400           # only for a kind that's on
-        code, text = web.approve("DEMO-C001", "MESSAGE", None, review=web.review_mark("DEMO-C001"), ai_signed=SIGNED,
+        # Margot's (DEMO-C004): the morning's new request, its review by Second Look's AI shipped with the demo
+        assert web.approve("DEMO-C004", "MESSAGE", None, by="second-look-ai")[0] == 400       # nobody in the team
+        assert web.approve("DEMO-C004", "MESSAGE", None, ai_signed=SIGNED)[0] == 400           # only for a kind that's on
+        code, text = web.approve("DEMO-C004", "MESSAGE", None, review=web.review_mark("DEMO-C004"), ai_signed=SIGNED,
                                  ai_kind=KIND)
         assert code == 200 and text.startswith(f"Reply sent by email. Sent by {SIGNED}, ")
-        out = web.case_store("demo").get("DEMO-C001")["timeline"][-1]
+        out = web.case_store("demo").get("DEMO-C004")["timeline"][-1]
         assert (out["direction"], out["by"], out["ai"], out["autopilot"]) == ("out", SIGNED, True, True)
         log = [json.loads(x) for x in (b.tmp / "actions-demo.jsonl").read_text().splitlines()]
         assert log[-1]["by"] == SIGNED
         assert [p for ev, p in b.events if ev == "answer.sent"][-1]["by"] == SIGNED
-        assert web.assignments_for("DEMO-C001").get("DEMO-C001")["to"] is None                 # still nobody's
+        assert web.assignments_for("DEMO-C004").get("DEMO-C004")["to"] is None                 # still nobody's
         assert decisions(KIND) == [(f"C{n:03d}", "Marta", True, None) for n in range(1, 11)]   # it can't grade itself
 
 
@@ -217,8 +218,8 @@ def test_money_over_its_own_limit_passes_to_a_person_and_within_it_goes():
 
 
 def on(kind=KIND, sent_today=0):
-    """A kind earned and switched on, as the demo's: 10 of the last 10 approved as advised, on since 15 Oct."""
-    k = {"decisions": [advised(n) for n in range(1, 11)], "on": True, "switched": {"by": "Giulia", "at": "2026-10-15T09:00"}}
+    """A kind earned and switched on, as the demo's: 10 of the last 10 approved as advised, on since 17 Oct."""
+    k = {"decisions": [advised(n) for n in range(1, 11)], "on": True, "switched": {"by": "Giulia", "at": "2026-10-17T09:00"}}
     if sent_today:
         k["today"] = {"day": datetime.utcnow().strftime("%Y-%m-%d"), "n": sent_today}
     return {kind: k}
@@ -424,7 +425,7 @@ def test_the_rules_page_shows_each_kind_its_record_the_numbers_and_the_switch_fo
         no_record(on())
         page = web.rules_page(demo=True, me="giulia")
         for words in ("Second Look's AI on its own", "Shop inquiry · Says it never arrived · Reply only",
-                      "10 of the last 10 approved as advised · On, switched on by Giulia on 15 Oct, 09:00",
+                      "10 of the last 10 approved as advised · On, switched on by Giulia on 17 Oct, 09:00",
                       'action="/autopilot/switch"', "Switch off", "at least 90% sure (a person&#x27;s approval needs 75%)",
                       "At most 20 cases of one kind a day.", "up to 0.00 EUR. Over that it passes the case to a person"):
             assert words in page, words
@@ -855,7 +856,7 @@ def test_a_paypal_kind_stored_on_never_reads_on_on_the_rules_page():
 
 
 def test_a_seller_on_their_own_reads_under_your_setting():
-    assert autopilot.signature(on()[KIND], solo=True) == "Second Look's AI, under your setting (since 15 Oct)"
+    assert autopilot.signature(on()[KIND], solo=True) == "Second Look's AI, under your setting (since 17 Oct)"
     assert autopilot.signature(on()[KIND]) == SIGNED
     kept = web.team_for
     with morning(ai_key=True, claude=says("MESSAGE")):
@@ -866,7 +867,58 @@ def test_a_seller_on_their_own_reads_under_your_setting():
         finally:
             web.team_for = kept
         out = web.case_store("demo").get(cid)["timeline"][-1]
-        assert (out["direction"], out["by"]) == ("out", "Second Look's AI, under your setting (since 15 Oct)")
+        assert (out["direction"], out["by"]) == ("out", "Second Look's AI, under your setting (since 17 Oct)")
+
+
+def test_the_demo_s_first_load_has_second_look_s_ai_answer_margot_and_step_back_from_sophie():
+    with morning() as b:                                         # no key: what a judge of the hackathon sees
+        margot = web.case_store("demo").get("DEMO-C004")         # the first load: the morning filed, then its look
+        out = margot["timeline"][-1]
+        assert (margot["customer"]["name"], margot["order_no"]) == ("Margot Lefèvre", "LP-90003")
+        assert (out["direction"], out["by"], out["autopilot"]) == ("out", SIGNED, True)
+        assert web.review_line("DEMO-C004") == {"by": None, "text": "Handled by Second Look's AI · reply sent by email"}
+        log = [json.loads(x) for x in (b.tmp / "actions-demo.jsonl").read_text().splitlines()]
+        assert [(x["case_id"], x["action"], x["by"]) for x in log] == [("DEMO-C004", "reply", SIGNED)]
+        # Sophie called Marta: her case is Marta's, so Second Look's AI steps back (the film's cases don't change)
+        sophie = web.case_store("demo").get("DEMO-C001")
+        assert sophie["timeline"][-1]["text"] == "Second Look's AI stepped back: Marta has this case. A person decides."
+        assert web._saved("DEMO-C001")[1] is None
+        assert web.review_line("DEMO-C001")["text"] == "Reply only · Second Look's AI stepped back: Marta has this case"
+        rec = web.autopilot_store("demo").view()
+        assert [k for k, x in rec["kinds"].items() if x["on"]] == [KIND] and autopilot.ready(rec["kinds"][KIND], 10)
+        assert sorted(rec["cases"]) == ["DEMO-C001", "DEMO-C004"]          # Lena's and Pablo's: nothing on there
+        assert "Handled by Second Look's AI: 1 — check them" in web.today_page("demo", "giulia")
+        assert ("10 of the last 10 approved as advised · On, switched on by Giulia on 17 Oct, 09:00"
+                in web.rules_page(demo=True, me="giulia"))
+        # a judge with no key who posts a new request of that kind sees the step back, honest
+        assert stepped_back(marco())[0] == "the review came from the rules baseline (no AI key, or the model failed)"
+
+
+def test_the_demo_s_record_is_earned_under_today_s_setup_and_its_ai_is_nobody_in_the_team():
+    raw = demo_mod.DemoPayPal().raw
+    assert raw["autopilot"]["fingerprint"] == autopilot.fingerprint(web._policy())   # stale: rebuild demo/shop.json
+    k = raw["autopilot"]["kinds"][KIND]
+    assert [x["by"] for x in k["decisions"]] == ["Sara", "Marta", "Marta", "Luca", "Luca", "Sara", "Sara", "Luca", "Luca", "Marta"]
+    history = {c["id"]: c for c in raw["history"]}
+    assert all(history[x["case"]]["problem"]["kind"] == "not_received" and x["at"] < k["switched"]["at"] for x in k["decisions"])
+    t = web.team_for("DEMO-C004")
+    assert autopilot.settings(t) == autopilot.DEFAULTS and autopilot.AI_ID not in [p["id"] for p in team_mod.people(t)]
+    assert raw["assignments"]["DEMO-C001"] == {"to": "marta", "handoff": None}
+
+
+def test_a_new_rule_restarts_the_demo_s_record_and_the_live_shop_starts_with_nothing_on():
+    with morning():
+        web.case_store("demo")
+        assert web.autopilot_store("demo").kinds_on("inquiry", "not_received") == [KIND]
+        kept = web._policy
+        web._policy = lambda: {**kept(), "seller_preferences": kept()["seller_preferences"] + ["Always sign as the shop."]}
+        try:
+            view = web.autopilot_store("demo").view()
+            assert view["kinds"] == {} and view["restarted"]["why"].startswith("Your rules changed on ")
+            assert "the record starts again." in web.rules_page(demo=True, me="giulia")
+        finally:
+            web._policy = kept
+        assert web.autopilot_store("live").view()["kinds"] == {}
 
 
 if __name__ == "__main__":

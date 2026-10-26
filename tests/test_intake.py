@@ -17,10 +17,12 @@ from secondlook.demo import DemoPayPal  # noqa: E402
 
 @contextmanager
 def morning(ai_key=False, ai=None):
-    """The demo shop's real data, with its case file and assignments in a temporary folder (nothing on this
-    machine changes), and Second Look's AI either absent or faked. The real AI fails the test if it is asked."""
+    """The demo shop's real data, with its case file, assignments, reviews and action log in a temporary folder
+    (nothing on this machine changes: the demo's first load has Second Look's AI answer Margot, 26/10), and Second
+    Look's AI either absent or faked. The real AI fails the test if it is asked."""
     tmp = Path(tempfile.mkdtemp())
-    kept = web.CASE_FILES, web.assignments_for, web.has_ai_key, sort_mod.read_with_ai, web.SUGGESTED
+    kept = (web.CASE_FILES, web.assignments_for, web.has_ai_key, sort_mod.read_with_ai, web.SUGGESTED, web.REVIEWS,
+            web.OUTBOX_LOGS)
     store = team_mod.Assignments(tmp / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
 
     def no_paid_call(request):
@@ -30,10 +32,12 @@ def morning(ai_key=False, ai=None):
         web.assignments_for = lambda did: store
         web.has_ai_key = lambda: ai_key
         sort_mod.read_with_ai = ai or no_paid_call
-        web.SUGGESTED = tmp / "suggested.json"
+        web.SUGGESTED, web.REVIEWS = tmp / "suggested.json", tmp / "reviews"
+        web.OUTBOX_LOGS = {"demo": tmp / "actions-demo.jsonl", "live": tmp / "actions-live.jsonl"}
         yield tmp
     finally:
-        web.CASE_FILES, web.assignments_for, web.has_ai_key, sort_mod.read_with_ai, web.SUGGESTED = kept
+        (web.CASE_FILES, web.assignments_for, web.has_ai_key, sort_mod.read_with_ai, web.SUGGESTED, web.REVIEWS,
+         web.OUTBOX_LOGS) = kept
 
 
 def email(text, address, source_id=None, subject="", channel="email", time="2026-10-20T08:15:00Z"):
@@ -55,8 +59,11 @@ def test_a_request_is_checked_before_anything_is_filed():
 def test_the_demo_morning_starts_with_its_requests_on_their_cases():
     with morning():
         cs = {c["id"]: c for c in web.case_store("demo").all()}
-        assert sorted(cs) == ["DEMO-C001", "DEMO-C002", "DEMO-C003"]
-        sophie, lena, pablo = cs["DEMO-C001"], cs["DEMO-C002"], cs["DEMO-C003"]
+        assert sorted(cs) == ["DEMO-C001", "DEMO-C002", "DEMO-C003", "DEMO-C004"]
+        sophie, lena, pablo, margot = cs["DEMO-C001"], cs["DEMO-C002"], cs["DEMO-C003"], cs["DEMO-C004"]
+        # Margot's (26/10): where is my order, by email; Second Look's AI answers it on its own (tests/test_autopilot.py)
+        assert (margot["order_no"], margot["problem"]["kind"], margot["timeline"][0]["channel"]) == (
+            "LP-90003", "not_received", "email")
         assert (sophie["customer"]["name"], sophie["order_no"], sophie["stage"]) == ("Sophie Durand", "LP-90001", "inquiry")
         assert (lena["order_no"], lena["problem"]["kind"], lena["timeline"][0]["channel"]) == ("LP-90002", "wrong_size", "form")
         assert (pablo["dispute_id"], pablo["stage"], pablo["order_no"]) == ("DEMO-034", "paypal_dispute", "DEMOTX01828")
@@ -133,7 +140,8 @@ def test_an_unknown_sender_waits_unsorted_until_a_person_picks_the_order():
         assert web.pick_order(out["case_id"], "LP-90001", None)[0] == 400          # nobody named
         assert web.pick_order(out["case_id"], "LP-99999", "marta")[0] == 400       # no such order
         assert web.pick_order(out["case_id"], "LP-90001", "marta") == (200, "DEMO-C001")   # joins Sophie's case
-        assert len(web.case_store("demo").get("DEMO-C001")["timeline"]) == 4     # her call, her email, this, the note
+        # her call, her email, this, Second Look's AI's step back (Marta has her case, 26/10), the note
+        assert len(web.case_store("demo").get("DEMO-C001")["timeline"]) == 5
 
 
 def test_the_case_page_shows_every_channel_every_role_and_the_cost_so_far():
@@ -146,7 +154,9 @@ def test_the_case_page_shows_every_channel_every_role_and_the_cost_so_far():
         assert 'href="/d/DEMO-034"' in pablo and "Pass to Giulia" in pablo          # the dispute's own buttons, here
         sophie = web.case_file_page("DEMO-C001", me="marta")
         assert "Shop inquiry" in sophie and "Order LP-90001: Linen tablecloth × 1, 64.00 EUR, paid by card." in sophie
-        assert "Nobody has this case yet." in sophie and "Sorted by Second Look&#x27;s rules" in sophie
+        # she called Marta: her case is Marta's (26/10); Lena's has nobody yet
+        assert "Marta, <i>Customer care assistant</i>, has this case." in sophie and "Sorted by Second Look&#x27;s rules" in sophie
+        assert "Nobody has this case yet." in web.case_file_page("DEMO-C002", me="marta")
         assert "shipped with the demo" in sophie and "Approve: reply only" in sophie   # the review that ships with it
         kept, web.SHIPPED = web.SHIPPED, web.ROOT / "no-shipped-reviews"
         try:                                   # no review and no AI key: the rules baseline, labelled
@@ -174,7 +184,8 @@ def test_the_list_shows_the_requests_under_the_disputes_by_whose_they_are():
         everyone = web.inbox_page("demo", "marta", "all")
         assert "Requests by email and web form" in everyone and "/c/DEMO-C001" in everyone and "/c/DEMO-C002" in everyone
         assert "/c/DEMO-C003" not in everyone          # Pablo's is a PayPal dispute: it is in the list above
-        assert "/c/DEMO-C001" not in web.inbox_page("demo", "marta", "mine")
+        assert "/c/DEMO-C002" not in web.inbox_page("demo", "marta", "mine")
+        assert "/c/DEMO-C001" in web.inbox_page("demo", "marta", "mine")     # Sophie's is Marta's (26/10)
 
 
 def test_the_shop_s_rules_say_how_staff_time_is_estimated():
@@ -399,10 +410,11 @@ def test_a_post_from_another_site_is_refused_and_your_own_pages_and_ticketbook_s
     done = []
     names = ("approve", "take", "run_review", "add_rule", "settle_suggestion", "remove_rule")
     kept = {n: getattr(web, n) for n in names}
-    for n in names:   # nothing real can happen in this test, whatever the check does
-        setattr(web, n, lambda *a, _n=n, **k: (done.append(_n), (200, "ok"))[1])
     try:
         with morning():
+            web.case_store("demo")    # the demo's first load, real: Second Look's AI answers Margot's request (26/10)
+            for n in names:   # nothing real can happen in this test, whatever the check does
+                setattr(web, n, lambda *a, _n=n, **k: (done.append(_n), (200, "ok"))[1])
             _, out = web.receive("demo", email("My tablecloth still isn't here.", "s.durand@work.example"))
             cid = out["case_id"]
             srv = _server()

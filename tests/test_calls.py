@@ -127,7 +127,9 @@ def morning(live_box=None):
 def test_sophie_calls_first_and_her_email_joins_the_same_case():
     with morning():
         c = web.case_store("demo").get("DEMO-C001")
-        assert [(x["channel"], x["by"]) for x in c["timeline"]] == [("call", "Sophie Durand"), ("email", "Sophie Durand")]
+        # her call, her email, and the note that Second Look's AI stepped back: her case is Marta's (26/10)
+        assert [(x["channel"], x["direction"], x["by"]) for x in c["timeline"]] == [
+            ("call", "in", "Sophie Durand"), ("email", "in", "Sophie Durand"), ("email", "note", "Second Look's AI")]
         call = c["timeline"][0]
         assert (call["minutes"], call["transcript"], call["recording"]) == (0.57, calls.SHIPPED, f"{SOPHIE}.wav")
         assert c["order_no"] == "LP-90001" and "the caller's number is Sophie Durand's" in c["sorted"]["how"]

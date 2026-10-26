@@ -113,8 +113,8 @@ def _day(at: str | None) -> str:
 
 
 def signature(k: dict, solo: bool = False) -> str:
-    """How everything it sends is signed: "Second Look's AI, under Giulia's setting (since 15 Oct)"; for a seller on
-    their own, "Second Look's AI, under your setting (since 15 Oct)"."""
+    """How everything it sends is signed: "Second Look's AI, under Giulia's setting (since 17 Oct)"; for a seller on
+    their own, "Second Look's AI, under your setting (since 17 Oct)"."""
     sw = (k or {}).get("switched") or {}
     since = f" (since {_day(sw.get('at'))})" if sw.get("at") else ""
     return f"{AI_NAME}, under {sw['by']}'s setting{since}" if sw.get("by") and not solo \

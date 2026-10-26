@@ -38,6 +38,21 @@
    ]
   },
   {
+   "id": 2103,
+   "from_name": "Margot Lefèvre",
+   "from_email": "margot.lefevre@example.com",
+   "subject": "Where is my order?",
+   "status": "open",
+   "source": "email",
+   "messages": [
+    {
+     "from": "customer",
+     "at": "2026-10-20T07:40:00Z",
+     "text": "Good morning, I ordered linen napkins last Thursday (order LP-90003) and they haven't arrived yet. Where is my parcel? Thank you, Margot"
+    }
+   ]
+  },
+  {
    "id": 2102,
    "from_name": "Lena Vogel",
    "from_email": "lena.vogel@example.com",

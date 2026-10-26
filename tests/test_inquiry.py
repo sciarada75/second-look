@@ -135,7 +135,9 @@ def test_sophie_s_answer_goes_out_by_email_signed_by_marta_and_only_once():
         out = web.case_store("demo").get("DEMO-C001")["timeline"][-1]
         assert (out["direction"], out["channel"], out["by"], out["ai"]) == ("out", "email", "Marta", False)
         log = [json.loads(x) for x in (b.tmp / "actions-demo.jsonl").read_text().splitlines()]
-        assert [(x["case_id"], x["action"], x["channel"]) for x in log] == [("DEMO-C001", "reply", "email")]
+        # after Margot's (DEMO-C004), which Second Look's AI answered on its own when the morning was filed (26/10)
+        assert [(x["case_id"], x["action"], x["channel"]) for x in log] == [("DEMO-C004", "reply", "email"),
+                                                                            ("DEMO-C001", "reply", "email")]
         sent = [p for ev, p in b.events if ev == "answer.sent"][-1]
         assert sent["case_id"] == "DEMO-C001" and sent["channel"] == "email" and "dispute_id" not in sent
         assert web.approve("DEMO-C001", "MESSAGE", "Again", by="giulia")[1] == text     # sent once
@@ -166,7 +168,7 @@ def test_lena_s_exchange_before_her_shirt_is_back_counts_full_price_and_giulia_s
         o = web.page_offer("DEMO-C002", "marta")
         assert o["outcome"] == "pass" and o["to"] == "Giulia" and o["action"] == "REPLACE"
         code, text = web.approve("DEMO-C002", "REPLACE", "We'll exchange it.", by="marta")
-        assert code == 202 and "Giulia" in text and not (b.tmp / "actions-demo.jsonl").exists()   # nothing sent
+        assert code == 202 and "Giulia" in text and "DEMO-C002" not in (b.tmp / "actions-demo.jsonl").read_text()  # nothing sent
         assert b.store.get("DEMO-C002")["to"] == "giulia" and b.events[-1][0] == "case.handed_off"
         assert b.events[-1][1]["case_id"] == "DEMO-C002" and b.events[-1][1]["channel"] == "form"
         code, text = web.approve("DEMO-C002", "REPLACE", None, by="giulia")

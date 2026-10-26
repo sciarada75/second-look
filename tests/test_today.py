@@ -137,30 +137,37 @@ def test_the_demo_morning_reads_every_channel_against_its_orders():
     with morning():
         v = web.today_view("demo")
         s = v["see"]
-        assert s["since"] == "2026-10-19T00:00" and s["counts"] == {"call": 1, "email": 2, "form": 1, "paypal": 3}
+        # 3 emails: Sophie's, Pablo's and Margot's (26/10: where is my order, answered by Second Look's AI on its own)
+        assert s["since"] == "2026-10-19T00:00" and s["counts"] == {"call": 1, "email": 3, "form": 1, "paypal": 3}
         assert s["orders"] == 141                                # 68 orders on 19 Oct, 73 on 20 Oct: made-up, ~2,000 a month
-        assert [r["link"] for r in s["rows"]] == ["/c/DEMO-C003", "/d/DEMO-039", "/d/DEMO-036", "/c/DEMO-C001", "/c/DEMO-C002"]
+        assert [r["link"] for r in s["rows"]] == ["/c/DEMO-C003", "/d/DEMO-039", "/d/DEMO-036", "/c/DEMO-C001",
+                                                  "/c/DEMO-C002", "/c/DEMO-C004"]
         pablo = s["rows"][0]
         assert pablo["channels"] == ["email", "paypal"] and pablo["decision_id"] == "DEMO-034" and pablo["days_left"] == 19
         assert pablo["review"] == {"by": "ai", "text": "Your call (your limits held back: refund in full)"}
-        # Sophie's and Lena's: the reviews Second Look's AI made of them, shipped with the demo (26/10)
-        assert s["rows"][3]["review"] == {"by": "ai", "text": "Reply only"}
+        # Sophie's and Lena's: the reviews Second Look's AI made of them, shipped with the demo (26/10). Sophie's case
+        # is Marta's, so Second Look's AI stepped back from it; Margot's it answered on its own.
+        assert s["rows"][3]["review"] == {"by": "ai", "text": "Reply only · Second Look's AI stepped back: Marta has this case"}
         assert s["rows"][4]["review"] == {"by": "ai", "text": "Exchange or replace"}
+        assert s["rows"][5]["review"] == {"by": None, "text": "Handled by Second Look's AI · reply sent by email"}
         people = {p["name"]: (p["role"], len(p["items"])) for p in v["manage"]["people"]}
-        assert people == {"Giulia": ("Head of customer care", 0), "Marta": ("Customer care assistant", 3),
+        assert people == {"Giulia": ("Head of customer care", 0), "Marta": ("Customer care assistant", 4),
                           "Luca": ("Customer care assistant", 2), "Sara": ("Customer care assistant", 0)}
+        # unassigned still 9: Sophie's left it (Marta's), Margot's open case joined it (a person checks it)
         assert len(v["manage"]["unassigned"]) == 9 and v["manage"]["handoffs"] == []
+        assert [h["id"] for h in v["autopilot"]["handled"]] == ["DEMO-C004"]
         k = v["know"]
-        assert (k["from"], k["orders"], k["requests"], k["solved_before_dispute"]) == ("2026-10-01T00:00", 1329, 64, 31)
+        # Margot's order (15 Oct) and her request count this month; her answer is nobody's staff time (Second Look's AI)
+        assert (k["from"], k["orders"], k["requests"], k["solved_before_dispute"]) == ("2026-10-01T00:00", 1330, 65, 31)
         assert (k["answers"], k["staff_cost"], k["back_cases"], k["back_paypal"], k["fees"]) == (23, 57.74, 160.0, 154.7, 14.0)
-        assert k["could_still_cost"] == 1073.0
+        assert k["could_still_cost"] == 1109.0                 # + Margot's open inquiry, 36.00 EUR, refunded in full
 
 
 def test_what_the_team_does_this_morning_shows_at_once():
     with morning() as store:
         web.run_review("DEMO-C001")                             # the rules baseline: no key here
         row = next(r for r in web.today_view("demo")["see"]["rows"] if r["case_id"] == "DEMO-C001")
-        assert row["review"] == {"by": "rules", "text": "Reply only"}
+        assert row["review"] == {"by": "rules", "text": "Reply only · Second Look's AI stepped back: Marta has this case"}
         assert web.approve("DEMO-C001", "MESSAGE", "It was left with your neighbour.", by="marta")[0] == 200
         assert web.close_case("DEMO-C001", "solved", "marta")[0] == 200
         assert web.case_store("demo").get("DEMO-C001")["closed_at"]          # when it closed, for "this month"
@@ -194,12 +201,13 @@ def test_a_buyer_s_new_message_on_an_older_dispute_came_in_too():
 def test_the_morning_screen_says_whose_names_and_roles_and_labels_every_estimate():
     with morning():
         html_ = web.today_page("demo", "giulia")
-        for words in ("I see", "I manage", "I know", "🛒 141 new orders", "✉️ 2 emails", "📝 1 web form",
+        for words in ("I see", "I manage", "I know", "🛒 141 new orders", "✉️ 3 emails", "📝 1 web form",
                       "PayPal 3 PayPal disputes", "📞 1 call", "<b>Pablo Martin</b>, <i>customer</i>",
                       "<b>Marta</b>, <i>Customer care assistant</i>", "<b>Giulia</b>, <i>Head of customer care</i>",
                       "Second Look's AI", "19 days left", "no PayPal deadline", "This month (October 2026)",
-                      "estimated: 23 written answers", "estimated from PayPal&#x27;s fee table", "at most 1,073.00 EUR",
-                      "PayPal's high-volume line", 'href="/?shop=demo">Disputes and requests'):
+                      "estimated: 23 written answers", "estimated from PayPal&#x27;s fee table", "at most 1,109.00 EUR",
+                      "PayPal's high-volume line", 'href="/?shop=demo">Disputes and requests',
+                      "Handled by Second Look's AI: 1 — check them", "Margot Lefèvre</b>, <i>customer</i>"):
             assert words in html_, words
         assert 'href="/books.csv?month=2026-10&shop=demo">Export for accounting (CSV, October 2026)' in html_
         nav = html_.split("<nav>")[1].split("</nav>")[0]
@@ -224,7 +232,8 @@ def test_the_morning_screen_over_http_and_as_data():
             con.request("GET", "/api/today?shop=demo")
             r = con.getresponse()
             data = json.loads(r.read())
-            assert data["today"] == "2026-10-20" and data["see"]["counts"]["form"] == 1 and data["know"]["requests"] == 64
+            assert data["today"] == "2026-10-20" and data["see"]["counts"]["form"] == 1 and data["know"]["requests"] == 65
+            assert [h["id"] for h in data["autopilot"]["handled"]] == ["DEMO-C004"]
             con.request("GET", "/today?practice=1")
             r = con.getresponse()
             r.read()
