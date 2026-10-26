@@ -29,7 +29,8 @@ from .cases import KIND_LABEL, KINDS
 # "stainless" is not a stain.
 KIND_WORDS = [
     ("refund_missing", r"\bno refund|\bnot (been )?refunded\b|\bnever refunded\b|\brefund (never|still|hasn't|has not)\b"
-                       r"|\bstill waiting for (my|the) refund|\bnessun rimborso\b|\brimborso non\b", None),
+                       r"|\bstill waiting for (my|the) refund|\bwhere(?: is|'s) (my|the) refund\b"
+                       r"|\bnessun rimborso\b|\brimborso non\b", None),
     ("wrong_size", r"\btoo (small|big|large|tight|loose|short|long)\b|\b(doesn't|does not|don't|do not) fit\b",
      r"\bsizes?\b|\btaglia\b"),
     ("not_as_described", r"\bdamaged\b|\bbroken\b|\bcracked\b|\bstain(s|ed)?\b|\btorn\b|\bpulled thread|\bcame apart\b"
@@ -39,7 +40,10 @@ KIND_WORDS = [
                          r"|\bcame off\b|\bfell off\b|\bfalling apart\b|\bripped\b|\bmissing (a |the |one )?button"
                          r"|\bbuttons? (is |was |are )?missing\b|\bstaccat|\bstrappat|\bscucit", None),
     ("not_received", r"\bnever (arrived|came|got)\b|(\bnot|n't) (yet )?(arrived|received|come)\b|\bnot here\b"
-                     r"|\bwhere is (my|the)\b|\bnon (è )?(ancora )?(mai )?arrivat|\bmai arrivat", r"\btracking\b|\blost\b"),
+                     r"|\bwhere is (my|the)\b|\bnon (è )?(ancora )?(mai )?arrivat|\bmai arrivat"
+                     # an order that never left the shop: "it still hasn't shipped", "non è ancora stato spedito"
+                     r"|(\bnot|n't) (yet )?(been )?(shipped|sent|dispatched)\b|\bnon (è )?(ancora )?(stat[oa] )?spedit",
+                     r"\btracking\b|\blost\b"),
 ]
 # Words in an item's name that say nothing about which item it is.
 _PLAIN = {"linen", "set", "with", "pack", "and", "the"}

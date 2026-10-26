@@ -12,7 +12,7 @@
   "messages": [
    {
     "posted_by": "BUYER",
-    "content": "Hello, my napkins never arrived but the tracking says delivered. Where are they? Ines",
+    "content": "Hello, my napkins (order LP-70001) never arrived, but the tracking says delivered. Where are they? Ines",
     "time_posted": "2026-10-20T09:10"
    }
   ]
@@ -23,7 +23,7 @@
   "paid_with": "card",
   "items": [
    {
-    "name": "Linen napkins (set of 4)",
+    "name": "Linen napkins",
     "qty": 1
    }
   ],
@@ -39,7 +39,7 @@
   },
   "handling_time_promised": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
-  "listing_text": "Linen napkins, set of 4, 45x45 cm, natural, sage or rust.",
+  "listing_text": "Set of 4 linen napkins, 45x45 cm, stonewashed: small slubs are part of the weave.",
   "order_amount": 28.0,
   "refunded_so_far": 0,
   "replaced_so_far": 0,
@@ -60,24 +60,24 @@
   "channel": "email",
   "customer": "Ines Moreau",
   "problem_kind": "not_received",
-  "summary": "Left with a neighbour",
+  "summary": "Napkins not arrived",
   "messages": [
    {
     "at": "2026-10-20T09:10",
     "channel": "email",
     "from": "Ines Moreau",
     "direction": "in",
-    "text": "Hello, my napkins never arrived but the tracking says delivered. Where are they? Ines"
+    "text": "Hello, my napkins (order LP-70001) never arrived, but the tracking says delivered. Where are they? Ines"
    }
   ],
   "last_message_at": "2026-10-20T09:10",
   "amount": 28.0,
   "currency": "EUR",
   "dispute_id": null,
-  "identity": "ines.moreau@example.com|LP-70001|IQ-001"
+  "identity": "ines.moreau@example.com|LP-70001|ticketbook:7001"
  },
  "ground_truth": {
   "action": "MESSAGE",
-  "why": "Left with a neighbour: delivered to the order's address. Tell her where it is; nothing is owed."
+  "why": "Left with a neighbour at the order's address: delivered. Tell her where; nothing is owed."
  }
 }

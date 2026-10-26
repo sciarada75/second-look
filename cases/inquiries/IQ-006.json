@@ -12,7 +12,7 @@
   "messages": [
    {
     "posted_by": "BUYER",
-    "content": "I returned the tea towels two weeks ago. Where is my refund?",
+    "content": "I returned the napkins from order LP-70006 two weeks ago. Where is my refund?",
     "time_posted": "2026-10-19T15:40"
    }
   ]
@@ -23,7 +23,7 @@
   "paid_with": "card",
   "items": [
    {
-    "name": "Linen tea towels (set of 3)",
+    "name": "Linen napkins",
     "qty": 1
    }
   ],
@@ -33,18 +33,18 @@
    "tracking_number": "LC70006IT",
    "address_matches_order": true,
    "status": "DELIVERED",
-   "shipped_date": "2026-09-26",
-   "last_update": "2026-09-29T11:00:00Z",
+   "shipped_date": "2026-09-28",
+   "last_update": "2026-09-30T11:00:00Z",
    "delivered_to": "handed to the customer"
   },
   "handling_time_promised": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
-  "listing_text": "Linen tea towels, set of 3.",
-  "return": "Local courier LR70006IT, back at the shop (on 2026-10-14)",
-  "already_refunded": "24.00 EUR on 17 Oct 2026 by Marta",
+  "listing_text": "Set of 4 linen napkins, 45x45 cm, stonewashed: small slubs are part of the weave.",
+  "return": "Local courier LC70006RT, back at the shop (on 2026-10-12)",
   "order_amount": 24.0,
   "refunded_so_far": 24.0,
   "replaced_so_far": 0,
+  "already_refunded": "24.00 EUR on 17 Oct 2026 by Marta, on case DEMO-C009",
   "sources": {
    "order_no": "Your orders",
    "order_date": "Your orders",
@@ -64,24 +64,24 @@
   "channel": "email",
   "customer": "Paul Girard",
   "problem_kind": "refund_missing",
-  "summary": "Already refunded in full on 17 Oct",
+  "summary": "Where is my refund?",
   "messages": [
    {
     "at": "2026-10-19T15:40",
     "channel": "email",
     "from": "Paul Girard",
     "direction": "in",
-    "text": "I returned the tea towels two weeks ago. Where is my refund?"
+    "text": "I returned the napkins from order LP-70006 two weeks ago. Where is my refund?"
    }
   ],
   "last_message_at": "2026-10-19T15:40",
-  "amount": 0.0,
+  "amount": 24.0,
   "currency": "EUR",
   "dispute_id": null,
-  "identity": "paul.girard@example.com|LP-70006|IQ-006"
+  "identity": "paul.girard@example.com|LP-70006|ticketbook:7106"
  },
  "ground_truth": {
   "action": "MESSAGE",
-  "why": "Already refunded in full on 17 Oct: tell him when, and that a card refund can take a few days."
+  "why": "Already refunded in full on 17 Oct, on the earlier case: tell him when; a card refund can take a few days to show."
  }
 }

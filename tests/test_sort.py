@@ -41,6 +41,11 @@ def test_the_problem_is_read_from_the_words():
     assert sort.problem_kind("My framed prints haven't arrived") == "not_received"
     assert sort.problem_kind("Ciao, il mio ordine non è ancora arrivato") == "not_received"
     assert sort.problem_kind("Do you ship to Norway?") == "question"
+    # found by the inquiry eval (26/10): asking where a refund is, and an order that never left the shop
+    assert sort.problem_kind("I returned the napkins two weeks ago. Where is my refund?") == "refund_missing"
+    assert sort.problem_kind("I ordered a tote bag last Wednesday and it still hasn't shipped.") == "not_received"
+    assert sort.problem_kind("Il mio ordine non è ancora stato spedito") == "not_received"
+    assert sort.problem_kind("Have you shipped it yet?") == "question"            # a question, not a complaint
 
 
 def test_the_rules_sort_by_sender_then_order_number_open_case_item_or_only_order():

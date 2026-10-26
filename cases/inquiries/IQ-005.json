@@ -6,13 +6,13 @@
   "dispute_life_cycle_stage": "SHOP_INQUIRY",
   "create_time": "2026-10-20T10:15",
   "dispute_amount": {
-   "value": "49.00",
+   "value": "42.00",
    "currency_code": "EUR"
   },
   "messages": [
    {
     "posted_by": "BUYER",
-    "content": "It has been three weeks. The tracking hasn't moved since 1 October. I'd like my money back, please.",
+    "content": "It has been three weeks since order LP-70005. The courier now says the parcel is lost. I'd like my money back, please.",
     "time_posted": "2026-10-20T10:15"
    }
   ]
@@ -20,10 +20,10 @@
  "seller_records": {
   "order_no": "LP-70005",
   "order_date": "2026-09-28T12:00:00Z",
-  "paid_with": "paypal",
+  "paid_with": "card",
   "items": [
    {
-    "name": "Linen throw",
+    "name": "Linen tote bag",
     "qty": 1
    }
   ],
@@ -32,14 +32,15 @@
    "carrier": "Local courier",
    "tracking_number": "LC70005IT",
    "address_matches_order": true,
-   "status": "IN_TRANSIT",
+   "status": "LOST",
    "shipped_date": "2026-09-29",
-   "last_update": "2026-10-01T07:20:00Z"
+   "last_update": "2026-10-16T15:00:00Z",
+   "courier_note": "Investigation closed: the parcel was not found."
   },
   "handling_time_promised": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
-  "listing_text": "Linen throw, 130x170 cm.",
-  "order_amount": 49.0,
+  "listing_text": "Linen tote bag, natural (undyed, oatmeal colour), 40x38 cm.",
+  "order_amount": 42.0,
   "refunded_so_far": 0,
   "replaced_so_far": 0,
   "sources": {
@@ -59,24 +60,24 @@
   "channel": "email",
   "customer": "Ana Silva",
   "problem_kind": "not_received",
-  "summary": "Lost in transit",
+  "summary": "Still nothing",
   "messages": [
    {
     "at": "2026-10-20T10:15",
     "channel": "email",
     "from": "Ana Silva",
     "direction": "in",
-    "text": "It has been three weeks. The tracking hasn't moved since 1 October. I'd like my money back, please."
+    "text": "It has been three weeks since order LP-70005. The courier now says the parcel is lost. I'd like my money back, please."
    }
   ],
   "last_message_at": "2026-10-20T10:15",
-  "amount": 49.0,
+  "amount": 42.0,
   "currency": "EUR",
   "dispute_id": null,
-  "identity": "ana.silva@example.com|LP-70005|IQ-005"
+  "identity": "ana.silva@example.com|LP-70005|ticketbook:7005"
  },
  "ground_truth": {
   "action": "REFUND",
-  "why": "Lost in transit: no movement for 19 days, no delivery the shop can show. She asks for her money: refund."
+  "why": "The courier closed its search: parcel lost. Nothing reached her and she asks for her money: refund."
  }
 }

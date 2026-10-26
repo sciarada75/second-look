@@ -12,7 +12,7 @@
   "messages": [
    {
     "posted_by": "BUYER",
-    "content": "I sent the linen shirt back and your courier delivered it to you on 8 October. Twelve days later I still have no refund. Please refund me.",
+    "content": "I sent the linen shirt back (order LP-70002) and your courier delivered it to you on 8 October. Twelve days later I still have no refund. Please refund me.",
     "time_posted": "2026-10-20T11:30"
    }
   ]
@@ -20,7 +20,7 @@
  "seller_records": {
   "order_no": "LP-70002",
   "order_date": "2026-09-28T08:15:00Z",
-  "paid_with": "paypal",
+  "paid_with": "card",
   "items": [
    {
     "name": "Linen shirt",
@@ -40,8 +40,8 @@
   },
   "handling_time_promised": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
-  "listing_text": "Linen shirt, relaxed fit, sizes S to XL.",
-  "return": "Local courier LR70002IT, back at the shop (on 2026-10-08)",
+  "listing_text": "Linen shirt, sizes S-XL, relaxed fit; size chart on the listing.",
+  "return": "Local courier LC70002RT, back at the shop (on 2026-10-08)",
   "order_amount": 45.0,
   "refunded_so_far": 0,
   "replaced_so_far": 0,
@@ -63,24 +63,24 @@
   "channel": "email",
   "customer": "Tom Becker",
   "problem_kind": "refund_missing",
-  "summary": "Return back at the shop on 8 Oct, no refund on record",
+  "summary": "Refund?",
   "messages": [
    {
     "at": "2026-10-20T11:30",
     "channel": "email",
     "from": "Tom Becker",
     "direction": "in",
-    "text": "I sent the linen shirt back and your courier delivered it to you on 8 October. Twelve days later I still have no refund. Please refund me."
+    "text": "I sent the linen shirt back (order LP-70002) and your courier delivered it to you on 8 October. Twelve days later I still have no refund. Please refund me."
    }
   ],
   "last_message_at": "2026-10-20T11:30",
   "amount": 45.0,
   "currency": "EUR",
   "dispute_id": null,
-  "identity": "tom.becker@example.com|LP-70002|IQ-002"
+  "identity": "tom.becker@example.com|LP-70002|ticketbook:7002"
  },
  "ground_truth": {
   "action": "REFUND",
-  "why": "Return back at the shop on 8 Oct, no refund on record: the terms promise one within 5 days."
+  "why": "The return reached the shop on 8 Oct and nothing has been refunded: the terms promise a refund within 5 days."
  }
 }

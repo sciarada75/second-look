@@ -12,18 +12,18 @@
   "messages": [
    {
     "posted_by": "BUYER",
-    "content": "The linen dress is too small, size M. Can I exchange it for an L?",
+    "content": "Order LP-70003: the linen shirt is too small, size M. Can I exchange it for an L?",
     "time_posted": "2026-10-19T17:05"
    }
   ]
  },
  "seller_records": {
   "order_no": "LP-70003",
-  "order_date": "2026-10-10T14:20:00Z",
-  "paid_with": "card",
+  "order_date": "2026-10-12T14:20:00Z",
+  "paid_with": "bank",
   "items": [
    {
-    "name": "Linen dress",
+    "name": "Linen shirt",
     "qty": 1,
     "size": "M"
    }
@@ -34,13 +34,13 @@
    "tracking_number": "LC70003IT",
    "address_matches_order": true,
    "status": "DELIVERED",
-   "shipped_date": "2026-10-11",
-   "last_update": "2026-10-14T09:30:00Z",
+   "shipped_date": "2026-10-13",
+   "last_update": "2026-10-15T09:30:00Z",
    "delivered_to": "handed to the customer"
   },
   "handling_time_promised": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
-  "listing_text": "Linen dress, sizes S to XL, see the size chart.",
+  "listing_text": "Linen shirt, sizes S-XL, relaxed fit; size chart on the listing.",
   "order_amount": 48.0,
   "refunded_so_far": 0,
   "replaced_so_far": 0,
@@ -61,24 +61,24 @@
   "channel": "form",
   "customer": "Mia Keller",
   "problem_kind": "wrong_size",
-  "summary": "A size exchange 5 days after delivery, within the 14-day returns",
+  "summary": "Too small",
   "messages": [
    {
     "at": "2026-10-19T17:05",
     "channel": "form",
     "from": "Mia Keller",
     "direction": "in",
-    "text": "The linen dress is too small, size M. Can I exchange it for an L?"
+    "text": "Order LP-70003: the linen shirt is too small, size M. Can I exchange it for an L?"
    }
   ],
   "last_message_at": "2026-10-19T17:05",
   "amount": 48.0,
   "currency": "EUR",
   "dispute_id": null,
-  "identity": "mia.keller@example.com|LP-70003|IQ-003"
+  "identity": "mia.keller@example.com|LP-70003|ticketbook:7003"
  },
  "ground_truth": {
   "action": "REPLACE",
-  "why": "A size exchange 5 days after delivery, within the 14-day returns: exchange it."
+  "why": "A size exchange 4 days after delivery, within the 14-day returns, for an item sent in the size ordered: agree the exchange (REPLACE), even before the shirt is back."
  }
 }

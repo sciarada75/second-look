@@ -834,9 +834,11 @@ def inquiry_case(cid: str) -> dict:
     shop = DemoPayPal().shop if v["src"] == "demo" else _live_shop()
     postage = _num((shop.get("costs") or {}).get("postage"))
     if ret:
-        # the day it came back: the shop's terms count their refund days from it
-        back_on = str(ret.get("received_at_shop") or (ret.get("last_update") if ret.get("status") == "DELIVERED" else "")
-                      or "")[:10]
+        # the day it came back: the shop's terms count their refund days from it. Both records: the earlier one,
+        # so a receipt the shop logged late never stretches the days the customer is owed.
+        back_on = min((str(d)[:10] for d in (ret.get("received_at_shop"),
+                                             ret.get("last_update") if ret.get("status") == "DELIVERED" else None) if d),
+                      default="")
         records["return"] = (f'{ret.get("carrier") or "Courier"} {ret.get("tracking_number") or ""}'.strip()
                              + ((", back at the shop" + (f" (on {back_on})" if back_on else "")) if returned
                                 else f', {str(ret.get("status") or "on its way").lower()}'))

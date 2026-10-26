@@ -128,14 +128,14 @@ INQUIRIES = ROOT / "cases" / "inquiries"
 GIVES = ("REFUND", "PARTIAL_REFUND", "REPLACE")   # money or goods go out
 
 
-def _eval_set(title: str, cases: list, decide, hold: str, other: str, details: list) -> None:
+def _eval_set(title: str, cases: list, decide, hold: str, other: str, row: str, details: list) -> None:
     """Score one set. `hold` is the answer that gives nothing (DEFEND for a dispute, MESSAGE for an inquiry):
     giving when the truth was to hold is an unjustified refund; holding when the truth was to give is `other`
     (a losing fight in a dispute, refusing what the shop's terms owe in an inquiry)."""
     hits, bad_money, bad_hold, asked, rows = 0, 0, 0, 0, []
     for case in cases:
         cid, truth = case["dispute"]["dispute_id"], case["ground_truth"]["action"]
-        d = decide(case)
+        d = decide({k: v for k, v in case.items() if k != "ground_truth"})   # the judge never sees the answer
         ok = d.action == truth
         hits += ok
         unjustified = d.action in GIVES and truth == hold      # the metric Claudia cares about
@@ -149,7 +149,7 @@ def _eval_set(title: str, cases: list, decide, hold: str, other: str, details: l
                         "partial_amount": d.judgment.partial_amount,
                         "truth_partial_amount": case["ground_truth"].get("partial_amount")})
         rows.append((cid, truth, d.judgment.action, d.action,
-                     "ok" if ok else ("UNJUSTIFIED REFUND" if unjustified else other.upper() if held else "miss")))
+                     "ok" if ok else ("UNJUSTIFIED REFUND" if unjustified else row if held else "miss")))
     print(f"\n{title}: {len(cases)}")
     print(f"{'case':<10}{'truth':<16}{'AI said':<16}{'after guard':<16}result")
     for r in rows:
@@ -171,11 +171,12 @@ def run_eval(pp, backend: str, only=None) -> int:
     print(f"\njudge={backend}")
     if disputes:
         _eval_set("PayPal disputes", disputes, lambda c: review(pp, c["dispute"]["dispute_id"], backend),
-                  "DEFEND", "losing fights", details)
+                  "DEFEND", "losing fights", "LOSING FIGHT", details)
     if inquiries:
         _eval_set("Shop inquiries", inquiries, lambda c: review_inquiry_case(c, backend, policy),
-                  "MESSAGE", "refused what is owed", details)
-    out = ROOT / ".tmp" / f"eval-{backend}-details.json"
+                  "MESSAGE", "refused what is owed", "REFUSED WHAT IS OWED", details)
+    # a run of a few cases never writes over a full run's details
+    out = ROOT / ".tmp" / (f"eval-{backend}-only-details.json" if only else f"eval-{backend}-details.json")
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(details, indent=1, ensure_ascii=False))
     print(f"\ndetails: {out.relative_to(ROOT)}")

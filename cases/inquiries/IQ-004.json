@@ -6,13 +6,13 @@
   "dispute_life_cycle_stage": "SHOP_INQUIRY",
   "create_time": "2026-10-20T08:00",
   "dispute_amount": {
-   "value": "39.00",
+   "value": "22.00",
    "currency_code": "EUR"
   },
   "messages": [
    {
     "posted_by": "BUYER",
-    "content": "Where is my order? I need the table runner by the weekend.",
+    "content": "Where is my order LP-70004? I need the notebooks by the weekend.",
     "time_posted": "2026-10-20T08:00"
    }
   ]
@@ -23,7 +23,7 @@
   "paid_with": "card",
   "items": [
    {
-    "name": "Linen table runner",
+    "name": "Notebook set",
     "qty": 1
    }
   ],
@@ -39,8 +39,8 @@
   },
   "handling_time_promised": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
-  "listing_text": "Linen table runner, 40x150 cm.",
-  "order_amount": 39.0,
+  "listing_text": "Set of 2 linen-bound notebooks, A5, dotted.",
+  "order_amount": 22.0,
   "refunded_so_far": 0,
   "replaced_so_far": 0,
   "sources": {
@@ -60,24 +60,24 @@
   "channel": "email",
   "customer": "Jonas Weber",
   "problem_kind": "not_received",
-  "summary": "Premature",
+  "summary": "Where is my order?",
   "messages": [
    {
     "at": "2026-10-20T08:00",
     "channel": "email",
     "from": "Jonas Weber",
     "direction": "in",
-    "text": "Where is my order? I need the table runner by the weekend."
+    "text": "Where is my order LP-70004? I need the notebooks by the weekend."
    }
   ],
   "last_message_at": "2026-10-20T08:00",
-  "amount": 39.0,
+  "amount": 22.0,
   "currency": "EUR",
   "dispute_id": null,
-  "identity": "jonas.weber@example.com|LP-70004|IQ-004"
+  "identity": "jonas.weber@example.com|LP-70004|ticketbook:7004"
  },
  "ground_truth": {
   "action": "MESSAGE",
-  "why": "Premature: shipped the next day, on its way, due 22 Oct. Reply with the tracking."
+  "why": "Premature: shipped the next business day, on its way, due 22 Oct. Reply with the tracking."
  }
 }

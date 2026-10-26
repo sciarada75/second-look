@@ -4,45 +4,42 @@
   "reason": "SHOP_INQUIRY",
   "status": "WAITING_FOR_SELLER_RESPONSE",
   "dispute_life_cycle_stage": "SHOP_INQUIRY",
-  "create_time": "2026-10-19T19:20",
+  "create_time": "2026-10-20T10:20",
   "dispute_amount": {
-   "value": "28.00",
+   "value": "38.00",
    "currency_code": "EUR"
   },
   "messages": [
    {
     "posted_by": "BUYER",
-    "content": "Only one set of napkins arrived. I ordered two. Can you sort it out?",
-    "time_posted": "2026-10-19T19:20"
+    "content": "Luca (customer care assistant): Linen and Paper, this is Luca. How can I help?\nHenrik (customer): Hi, Henrik Olsen. I ordered a tote bag last Wednesday and it still hasn't shipped. I don't want it any more: please cancel it and give me my money back.\nLuca (customer care assistant): I'm sorry. Let me check, and I'll email you today.\nHenrik (customer): Thanks.",
+    "time_posted": "2026-10-20T10:20"
    }
   ]
  },
  "seller_records": {
   "order_no": "LP-70009",
-  "order_date": "2026-10-11T11:11:00Z",
-  "paid_with": "paypal",
+  "order_date": "2026-10-14T10:05:00Z",
+  "paid_with": "card",
   "items": [
    {
-    "name": "Linen napkins (set of 4)",
-    "qty": 2
+    "name": "Linen tote bag",
+    "qty": 1
    }
   ],
-  "ship_to": "Sam Lee, High Street 22, Oxford OX1 4AA, GB",
+  "ship_to": "Henrik Olsen, Storgata 5, 0155 Oslo, NO",
   "tracking": {
    "carrier": "Local courier",
    "tracking_number": "LC70009IT",
    "address_matches_order": true,
-   "status": "DELIVERED",
-   "shipped_date": "2026-10-13",
-   "last_update": "2026-10-16T10:00:00Z",
-   "delivered_to": "handed to the customer"
+   "status": "LABEL_CREATED",
+   "shipped_date": null,
+   "last_update": "2026-10-15T08:00:00Z"
   },
   "handling_time_promised": "ships within 2 business days",
   "return_policy": "returns accepted within 14 days; refund within 5 days of receiving the return",
-  "listing_text": "Linen napkins, set of 4, 45x45 cm, natural, sage or rust.",
-  "fulfilment_status": "1 of 2 sets shipped: the second set is discontinued and will not be restocked",
-  "packing_slip_qty": 1,
-  "order_amount": 28.0,
+  "listing_text": "Linen tote bag, natural (undyed, oatmeal colour), 40x38 cm.",
+  "order_amount": 38.0,
   "refunded_so_far": 0,
   "replaced_so_far": 0,
   "sources": {
@@ -54,35 +51,32 @@
    "tracking": "Courier tracking",
    "handling_time_promised": "shop.json (the shop's published terms)",
    "return_policy": "shop.json (the shop's published terms)",
-   "listing_text": "shop.json (the shop's published terms)",
-   "fulfilment_status": "Your orders",
-   "packing_slip_qty": "Your orders"
+   "listing_text": "shop.json (the shop's published terms)"
   }
  },
  "inquiry": {
   "case_id": "IQ-009",
-  "channel": "email",
-  "customer": "Sam Lee",
+  "channel": "call",
+  "customer": "Henrik Olsen",
   "problem_kind": "not_received",
-  "summary": "The shop's own record",
+  "summary": "Phone call: says it never arrived",
   "messages": [
    {
-    "at": "2026-10-19T19:20",
-    "channel": "email",
-    "from": "Sam Lee",
+    "at": "2026-10-20T10:20",
+    "channel": "call",
+    "from": "Henrik Olsen",
     "direction": "in",
-    "text": "Only one set of napkins arrived. I ordered two. Can you sort it out?"
+    "text": "Luca (customer care assistant): Linen and Paper, this is Luca. How can I help?\nHenrik (customer): Hi, Henrik Olsen. I ordered a tote bag last Wednesday and it still hasn't shipped. I don't want it any more: please cancel it and give me my money back.\nLuca (customer care assistant): I'm sorry. Let me check, and I'll email you today.\nHenrik (customer): Thanks."
    }
   ],
-  "last_message_at": "2026-10-19T19:20",
-  "amount": 28.0,
+  "last_message_at": "2026-10-20T10:20",
+  "amount": 38.0,
   "currency": "EUR",
   "dispute_id": null,
-  "identity": "sam.lee@example.com|LP-70009|IQ-009"
+  "identity": "henrik.olsen@example.com|LP-70009|callbox:iq-009"
  },
  "ground_truth": {
-  "action": "PARTIAL_REFUND",
-  "why": "The shop's own record: one of two sets shipped, the second is discontinued. Refund that set, 14.00.",
-  "partial_amount": "14.00 EUR"
+  "action": "REFUND",
+  "why": "Not shipped 4 business days after the order (only a label made, never picked up), against the promise of 2: he cancels, the item never left; refund."
  }
 }
