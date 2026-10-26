@@ -147,7 +147,13 @@ def test_the_case_page_shows_every_channel_every_role_and_the_cost_so_far():
         sophie = web.case_file_page("DEMO-C001", me="marta")
         assert "Shop inquiry" in sophie and "Order LP-90001: Linen tablecloth × 1, 64.00 EUR, paid by card." in sophie
         assert "Nobody has this case yet." in sophie and "Sorted by Second Look&#x27;s rules" in sophie
-        assert "Take a second look (rules baseline)" in sophie and "the courier's status" in sophie   # no AI key here
+        assert "shipped with the demo" in sophie and "Approve: reply only" in sophie   # the review that ships with it
+        kept, web.SHIPPED = web.SHIPPED, web.ROOT / "no-shipped-reviews"
+        try:                                   # no review and no AI key: the rules baseline, labelled
+            bare = web.case_file_page("DEMO-C001", me="marta")
+        finally:
+            web.SHIPPED = kept
+        assert "Take a second look (rules baseline)" in bare and "the courier's status" in bare
         assert "No case with that id" in web.case_file_page("DEMO-C999")
         assert "/c/DEMO-C003" in web.case_page("DEMO-034", me="marta")             # the dispute names its case
 

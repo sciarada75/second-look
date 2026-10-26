@@ -416,7 +416,8 @@ start `python3 -m bookbox serve` in a third. Approve DEMO-034's refund as Giulia
 (http://127.0.0.1:8765/d/DEMO-034?shop=demo&as=giulia) and Bookbox (http://127.0.0.1:8767) shows the row.
 On the morning screen, *Export for accounting* downloads the month as CSV.
 
-**3. Practice cases and the eval.** `cases/` holds 16 test disputes with known answers. In the browser
+**3. Practice cases and the eval.** `cases/` holds 16 test disputes with known answers, and
+`cases/inquiries/` 9 shop inquiries (email, web form, a phone call) with known answers. In the browser
 they are at http://127.0.0.1:8765/?practice=1 (no review yet: *Take a second look* runs the rules
 baseline). From the command line:
 
@@ -424,9 +425,10 @@ baseline). From the command line:
 python3 -m secondlook list                               # the 16 practice disputes (no PayPal keys)
 python3 -m secondlook review PP-D-014                    # rules baseline + your limits; nothing executed
 python3 -m secondlook approve PP-D-014 --action DEFEND   # practice: logged in .tmp/actions.jsonl, never sent
-python3 -m secondlook eval --judge rules                 # scores the rules baseline on all 16 cases
+python3 -m secondlook eval --judge rules                 # scores the rules baseline on all 25 cases
 for f in tests/test_*.py; do python3 $f | tail -1; done  # the tests: plain scripts, no packages
 python3 cases/make_cases.py                              # rewrites the 16 test disputes
+python3 cases/inquiries/make_inquiries.py                # rewrites the 9 inquiries, through the app's own path
 python3 demo/make_demo.py                                # rebuilds the demo shop (made-up data, fixed seed)
 ```
 
@@ -444,7 +446,7 @@ python3 demo/make_demo.py                                # rebuilds the demo sho
    runs Claude (one model call, about $0.05), and a review the rules baseline made earlier offers
    *Take a second look with Claude*. Approving here acts on your sandbox account: PayPal receives the
    evidence, the refund or the message.
-6. `python3 -m secondlook eval --judge claude` runs Claude on the 16 practice cases (about $0.80).
+6. `python3 -m secondlook eval --judge claude` runs Claude on the 25 practice cases (about $1.40).
 
 ## The eval: measured, not claimed
 
@@ -456,28 +458,42 @@ the seller forgot to refund, a weight record that proves a short shipment, an It
 complaint, a high-value case, a third dispute in 90 days, and a buyer message that tries to
 command the assistant.
 
+**And 9 shop inquiries** (`cases/inquiries/`), requests that are not PayPal disputes, judged on the shop's
+own terms: a parcel left with a neighbour, a refund owed after a return, a size exchange, a parcel still on
+its way, a parcel the courier lost, a refund already made, a colour complaint that tries to command the
+assistant, an Italian customer whose parcel is in a locker, and a phone call cancelling an order that never
+shipped. They are made by the app's own path, not written by hand: each order joins the demo shop's orders,
+each request is filed and sorted as one that arrived, and the case is what the case page gives the judge.
+The right answers were committed before any model saw the cases.
+
 The number that matters to a seller is **unjustified refunds**: money given back when the right
-answer was to defend.
+answer was to defend (a dispute) or only to reply (an inquiry).
 
-| judge | correct (after guard) | unjustified refunds | losing fights | sent to the seller |
+| judge | PayPal disputes correct | unjustified refunds | losing fights | sent to the seller |
 |---|---|---|---|---|
-| `rules` baseline (re-measured 23/10) | 10/16 | 0 | 1 (PP-D-013) | 3 |
-| `claude` (Opus 5.5, effort high) | **15/16** | **0** | **0** | 3 |
+| `rules` baseline | 10/16 | 0 | 1 (PP-D-013) | 3 |
+| `claude` (Opus 5.5, effort high) | **16/16** | **0** | **0** | 2 |
 
-**Re-measure pending** for the `claude` row. Its score was measured on 2026-10-17. Since then the judge has a third
-seller rule, a "plain words" instruction and, on 2026-10-20, the costs and escalation rule (10). A
-score is only quoted for the prompt it was measured with, so a full run comes before quoting it again.
+| judge | shop inquiries correct | unjustified refunds | refused what is owed | sent to the seller |
+|---|---|---|---|---|
+| `rules` baseline | 7/9 | 1 (IQ-004, a parcel on its way) | 0 | 1 |
+| `claude` (Opus 5.5, effort high) | **9/9** | **0** | **0** | 0 |
+
+Measured 2026-10-26, both judges on the same run of the code, after the guard. The two tables measure
+different things, so their columns are never added together.
 
 Two costly mistakes are counted separately: an **unjustified refund** (money given back when the
-seller should have defended) and a **losing fight** (defending a case the buyer is right about).
+seller should have defended, or only replied) and a **losing fight** (defending a case the buyer is right
+about); for an inquiry, its twin is **refusing what is owed** (only a reply when the shop's terms owe money
+or goods).
 
-Measured 2026-10-17 (with seller preferences on) on 16 cases we wrote ourselves, and tuned the
-prompt on: read it as a development score, not a guarantee. Runs vary on borderline cases: the
-previous run scored 16/16; in this one the short-shipment case went to the seller because the
-shop's packing slip (3 prints) and its scale (2 prints) contradict each other. Safe direction. A held-out set of new cases is the honest next measure.
-One right answer (case 006, a shirt that "doesn't fit") was decided by a human who hadn't written
-the case, after the model and the case author disagreed. The score checks the action, not yet the
-wording of the reply to the buyer.
+These are cases we wrote ourselves, and the prompts were developed on cases like them (two inquiries are
+close to the demo's own Sophie and Lena): read the score as a development score, not a guarantee. Runs
+vary on borderline cases: on 2026-10-17 the short-shipment dispute went to the seller (safe direction),
+on 2026-10-26 it didn't. A held-out set of new cases is the honest next measure. One right answer (case 006,
+a shirt that "doesn't fit") was decided by a human who hadn't written the case, after the model and the
+case author disagreed. The score checks the action; the replies are read by a person (in the details file
+the run writes).
 
 **The eval earned its keep.** Building it found: a guard that compared the whole order with the
 refund cap instead of the partial refund proposed; a guard that couldn't read "20.00 EUR"; a
@@ -485,10 +501,15 @@ checklist that used FAIL for both "the buyer wins" and "the evidence is broken";
 action that the model over-used until the prompt said why evidence protects a seller and a message
 doesn't; a prompt sentence of ours ("shipped counts as evidence") that made the model defend a
 parcel lost in transit; and three shortcuts in our own test data, each caught by the model's
-timeline and evidence checks. Every fix is in the git history, most with a test.
+timeline and evidence checks. The inquiries found more: our own first draft of them leaked part of each
+answer through the line the judge reads as the request's summary (caught by a review before any paid run,
+and the reason the set is now made by the app's own path); the sorting rules read "Where is my refund?"
+as a parcel not received and "it still hasn't shipped" as a question with no order; and a return back at
+the shop didn't say which day, so nobody could check a "refund within 5 days" promise. Every fix is in
+the git history, most with a test.
 
 **Cost:** about 2.5k input and 2k output tokens per dispute on Opus 5.5, about **$0.05 per dispute**
-(a full 16-case run is about $0.80). Tools that charge 25% of what they recover would take about
+(the full 25-case run on 2026-10-26 cost $1.38). Tools that charge 25% of what they recover would take about
 EUR 10 of a EUR 42 dispute.
 
 ## Honest status

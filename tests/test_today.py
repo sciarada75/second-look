@@ -143,7 +143,9 @@ def test_the_demo_morning_reads_every_channel_against_its_orders():
         pablo = s["rows"][0]
         assert pablo["channels"] == ["email", "paypal"] and pablo["decision_id"] == "DEMO-034" and pablo["days_left"] == 19
         assert pablo["review"] == {"by": "ai", "text": "Your call (your limits held back: refund in full)"}
-        assert s["rows"][3]["review"] == {"by": None, "text": "Not reviewed yet"}
+        # Sophie's and Lena's: the reviews Second Look's AI made of them, shipped with the demo (26/10)
+        assert s["rows"][3]["review"] == {"by": "ai", "text": "Reply only"}
+        assert s["rows"][4]["review"] == {"by": "ai", "text": "Exchange or replace"}
         people = {p["name"]: (p["role"], len(p["items"])) for p in v["manage"]["people"]}
         assert people == {"Giulia": ("Head of customer care", 0), "Marta": ("Customer care assistant", 3),
                           "Luca": ("Customer care assistant", 2), "Sara": ("Customer care assistant", 0)}
