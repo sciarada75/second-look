@@ -1278,8 +1278,8 @@ def autopilot_block(src: str, me: str | None) -> str:
         record = (f"{s['window']} of the last {s['window']} approved as advised" if ready
                   else f"{n} approved as advised in a row: it needs {s['window']}")
         later = autopilot_mod.split_kind(kind)[0] not in autopilot_mod.SWITCHABLE
-        state = (f"On, switched on by {sw.get('by')} on {_when(sw.get('at') or '')}" if k.get("on")
-                 else autopilot_mod.NOT_YET if later
+        state = (autopilot_mod.NOT_YET if later
+                 else f"On, switched on by {sw.get('by')} on {_when(sw.get('at') or '')}" if k.get("on")
                  else "Ready: off until it is switched on" if ready
                  else "Off" + (f": {off['why']}" if off.get("why") else ""))
         switch = (f'<form method="post" action="/autopilot/switch"><input type="hidden" name="kind" value="{e(kind)}">'
@@ -3415,10 +3415,10 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
     `review`: the review_mark of the review they were shown; when given, a different review is refused.
     `ai_signed`: Second Look's AI approves, on a kind the shop switched on (autopilot_case only: a page or the API
     always names a person, and "second-look-ai" is nobody in the team), signed so, within its own limit. Under the
-    case's lock it checks again that the case is nobody's and, with `ai_kind`, that the kind is still on: a review
-    takes seconds, and a person may take the case or switch the kind off meanwhile. `report` gets what happened as
-    data: report["code"] ("sent", "pass", "over", "person", "off", "paypal", "already_sent", "review_changed",
-    "case_changed", "refused"), so its look never reads approve's sentences."""
+    case's lock it checks again that the case is nobody's and that `ai_kind` (required) is still on: a review takes
+    seconds, and a person may take the case or switch the kind off meanwhile. `report` gets what happened as data:
+    report["code"] ("sent", "unconfirmed", "pass", "over", "person", "off", "paypal", "already_sent",
+    "review_changed", "case_changed", "refused"), so its look never reads approve's sentences."""
     from .__main__ import execute
     if chosen == "ASK_SELLER":
         # "your call" is what the review says when a person must choose; approving it would mark the review sent
@@ -3426,6 +3426,8 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
         return 400, "\"Your call\" is not an answer: choose what to send (a reply, a refund, your evidence)."
     t = team_for(did)
     ai = None
+    if ai_signed and not ai_kind:
+        return 400, "Second Look's AI approves only for a kind of case that is on: say which."
     if ai_signed:
         ai = {"kind": ai_kind, "solo": bool(t.get("solo")), "src": shop_of_case(did),
               "report": report if report is not None else {}}
@@ -3443,6 +3445,15 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
         return _approve(did, chosen, message, rule, t, who, execute, review, ai)
 
 
+def _ai_handled(did: str, ai: dict, what: str) -> None:
+    """Second Look's AI's send on its record, under the case's lock, after the review is saved as sent. A record
+    that can't be written is logged only: it never stops the save, nor makes what went out look unsent."""
+    try:
+        autopilot_store(ai["src"]).handled(did, ai["kind"], cases_mod.minute(None), what)
+    except Exception as err:  # noqa: BLE001 - see above
+        print(f"Second Look's AI ({did}): its record wasn't written: {err}", file=sys.stderr)
+
+
 def _ai_may_not(did: str, t: dict, ai: dict) -> str | None:
     """Why Second Look's AI may not send on this case now (under the case's lock, as `take` and every approval are),
     or None. `t`: the shop's own team. Sets ai["report"]."""
@@ -3454,7 +3465,7 @@ def _ai_may_not(did: str, t: dict, ai: dict) -> str | None:
     if why:
         rep["code"], rep["why"] = "person", why
         return why[:1].upper() + why[1:] + "."
-    if ai["kind"] and not (autopilot_store(ai["src"]).view()["kinds"].get(ai["kind"]) or {}).get("on"):
+    if not (autopilot_store(ai["src"]).view()["kinds"].get(ai["kind"]) or {}).get("on"):
         rep["code"] = "off"
         return "This kind was switched off while it looked."
     return None
@@ -3540,7 +3551,13 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
                     "at": cases_mod.minute(None), "by": who["name"]}
             case_store(shop_of_case(did)).update(did, lambda c: c.update(
                 unconfirmed=[x for x in c.get("unconfirmed", []) if x.get("request_id") != rid] + [mark]))
+            if ai:
+                # Second Look's AI asked PayPal: the money may have moved. Its slot stays used, and the case is on
+                # the list a person checks.
+                rep["code"] = "unconfirmed"
+                _ai_handled(did, ai, "Refund not confirmed by PayPal: check the payment in PayPal.")
         return 502, "PayPal didn't confirm the refund: check the payment in PayPal before trying again."
+    rep["code"] = "sent"    # Second Look's AI's answer is out: whatever fails after, it is never taken for unsent
     if not is_demo(did):
         _live_forget()      # PayPal's side may have changed: the next page reads it afresh
     if result.get("amount") is not None:
@@ -3567,11 +3584,6 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
         sent += " (Demo shop: logged, not sent to PayPal.)"
     elif isinstance(_client(did), MockPayPal):
         sent += " (Practice case: logged, not sent to PayPal.)"
-    if ai and ai["kind"]:
-        # Second Look's AI sent it: on its record at once (its slot is taken already), so nothing that fails after
-        # can lose it from its record, its count or the list a person checks.
-        autopilot_store(ai["src"]).handled(did, ai["kind"], cases_mod.minute(None), sent)
-        rep["code"] = "sent"
     if suggest_rule(rule or "", did):
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
@@ -3585,6 +3597,8 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
         # a message that lands while it is sent was never seen (re-reading the case here would count it).
         seen = {**seen, "amount": f"{max(0.0, float(seen['amount']) - amount):.2f}"}
     _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged)
+    if ai:
+        _ai_handled(did, ai, sent)    # on its record and the list a person checks (its slot is taken already)
     if not t.get("solo") and not is_ai:
         # Sent by them: the case is theirs, and any handoff waiting on it is done. (Second Look's AI is never given
         # a case: what it sent stays open for a person.)
@@ -3668,7 +3682,8 @@ def autopilot_after(src: str, c: dict | None):
 
 # What approve() refused Second Look's AI for (its report's code), in the words a step back gives; any other
 # refusal is given in approve's own words.
-AI_REFUSED = {"off": "this kind was switched off while it looked",
+AI_REFUSED = {"unconfirmed": "PayPal didn't confirm its refund: check the payment in PayPal",
+              "off": "this kind was switched off while it looked",
               "review_changed": "its review was replaced while it looked",
               "case_changed": "the case changed since the review",
               "already_sent": "the case was answered while it looked"}
@@ -3785,10 +3800,10 @@ def _autopilot_case(src: str, did: str) -> dict:
         return back(f"today's {s['per_day']} for this kind are used", kind)
     rep = {}
     try:
-        signed = autopilot_mod.signature(store.view()["kinds"][kind])
+        signed = autopilot_mod.signature(store.view()["kinds"][kind], solo=bool(t.get("solo")))
         code, text = approve(did, dec.action, None, review=mark, ai_signed=signed, ai_kind=kind, report=rep)
     finally:
-        if rep.get("code") != "sent":
+        if rep.get("code") not in ("sent", "unconfirmed"):
             store.release(kind, day)                        # nothing went: the slot is free again
     code = rep.get("code")
     if code == "sent":

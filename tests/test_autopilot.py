@@ -157,9 +157,11 @@ SIGNED = "Second Look's AI, under Giulia's setting (since 15 Oct)"
 
 def test_it_approves_through_the_one_path_signed_never_as_a_person_and_never_given_the_case():
     with morning() as b:
-        no_record()
+        no_record(on())
         assert web.approve("DEMO-C001", "MESSAGE", None, by="second-look-ai")[0] == 400       # nobody in the team
-        code, text = web.approve("DEMO-C001", "MESSAGE", None, review=web.review_mark("DEMO-C001"), ai_signed=SIGNED)
+        assert web.approve("DEMO-C001", "MESSAGE", None, ai_signed=SIGNED)[0] == 400           # only for a kind that's on
+        code, text = web.approve("DEMO-C001", "MESSAGE", None, review=web.review_mark("DEMO-C001"), ai_signed=SIGNED,
+                                 ai_kind=KIND)
         assert code == 200 and text.startswith(f"Reply sent by email. Sent by {SIGNED}, ")
         out = web.case_store("demo").get("DEMO-C001")["timeline"][-1]
         assert (out["direction"], out["by"], out["ai"], out["autopilot"]) == ("out", SIGNED, True, True)
@@ -167,7 +169,7 @@ def test_it_approves_through_the_one_path_signed_never_as_a_person_and_never_giv
         assert log[-1]["by"] == SIGNED
         assert [p for ev, p in b.events if ev == "answer.sent"][-1]["by"] == SIGNED
         assert web.assignments_for("DEMO-C001").get("DEMO-C001")["to"] is None                 # still nobody's
-        assert web.autopilot_store("demo").view()["kinds"] == {}                               # it can't grade itself
+        assert decisions(KIND) == [(f"C{n:03d}", "Marta", True, None) for n in range(1, 11)]   # it can't grade itself
 
 
 def karim(b, text="I sent the art print back last week and I still have no refund. Order DEMOTX02072."):
@@ -176,6 +178,9 @@ def karim(b, text="I sent the art print back last week and I still have no refun
                                      "text": text, "source_id": f"test:{len(text)}"})
     assert code == 201 and out["sorted"]["by"] == "rules", out
     return out["case_id"]
+
+
+REFUND_KIND = "inquiry · refund_missing · REFUND"
 
 
 def refunds(case):
@@ -187,7 +192,8 @@ def test_money_over_its_own_limit_passes_to_a_person_and_within_it_goes():
         no_record()
         cid = karim(b)
         assert web.run_review(cid).action == "REFUND"
-        code, text = web.approve(cid, "REFUND", None, review=web.review_mark(cid), ai_signed=SIGNED)
+        no_record(on(REFUND_KIND))
+        code, text = web.approve(cid, "REFUND", None, review=web.review_mark(cid), ai_signed=SIGNED, ai_kind=REFUND_KIND)
         assert (code, text) == (202, "Passed to Giulia: refund in full of 20.00 EUR is over your 0.00 EUR limit. Nothing was sent.")
         assert web.case_store("demo").get(cid)["money"] == []
         hand = web.assignments_for(cid).get(cid)
@@ -199,7 +205,9 @@ def test_money_over_its_own_limit_passes_to_a_person_and_within_it_goes():
         try:
             cid = karim(b)
             web.run_review(cid)
-            code, text = web.approve(cid, "REFUND", None, review=web.review_mark(cid), ai_signed=SIGNED)
+            no_record(on(REFUND_KIND))
+            code, text = web.approve(cid, "REFUND", None, review=web.review_mark(cid), ai_signed=SIGNED,
+                                     ai_kind=REFUND_KIND)
             assert code == 200 and text.startswith("Refund of 20.00 EUR logged for PayPal's refund API (demo: nothing sent)")
             [m] = web.case_store("demo").get(cid)["money"]
             assert (m["kind"], m["amount"], m["by"]) == ("refund", 20.0, SIGNED)
@@ -571,7 +579,8 @@ def test_a_paypal_kind_is_never_switched_on_in_this_version_and_a_stored_one_sti
         assert web.autopilot_case("demo", "DEMO-036")["why"] == \
             "not in this version: on a PayPal dispute, a person sends every answer"
         assert web._saved("DEMO-036") == before                     # no review, nothing sent
-        code, text = web.approve("DEMO-036", "DEFEND", None, review=web.review_mark("DEMO-036"), ai_signed=SIGNED)
+        code, text = web.approve("DEMO-036", "DEFEND", None, review=web.review_mark("DEMO-036"), ai_signed=SIGNED,
+                                 ai_kind=PAYPAL_KIND)
         assert (code, text) == (409, "Not in this version: on a PayPal dispute, a person sends every answer.")
         assert "except the kinds" not in web.today_page("demo", "marta")       # not one it answers on its own
 
@@ -609,10 +618,10 @@ def test_a_review_replaced_after_it_read_it_is_never_sent():
         real, cids = autopilot.signature, []
         real_after = web.autopilot_after
 
-        def a_person_reviews_again(k):          # between its checks and its approval
+        def a_person_reviews_again(k, **kw):    # between its checks and its approval
             judge.INQUIRY_BACKENDS["claude"] = says("MESSAGE", confidence=0.40, draft="A draft it never checked.")
             web.run_review(cids[0])
-            return real(k)
+            return real(k, **kw)
         autopilot.signature = a_person_reviews_again
         web.autopilot_after = lambda src, c: (cids.append(c["id"]), real_after(src, c))[1]
         try:
@@ -644,7 +653,7 @@ def test_a_person_s_send_while_it_looks_is_never_counted_as_its_own():
         assert not rec["cases"][cid]["handled"] and rec["kinds"][KIND]["today"]["n"] == 0
         assert web.autopilot_handled("demo", web.today_view("demo")["today"]) == []
         # asked to approve an answered case, it sends nothing and says so (never "200, already sent")
-        assert web.approve(cid, "MESSAGE", None, ai_signed=SIGNED)[0] == 409
+        assert web.approve(cid, "MESSAGE", None, ai_signed=SIGNED, ai_kind=KIND)[0] == 409
 
 
 def test_hidden_instructions_in_the_customer_s_words_step_back_whatever_its_answer():
@@ -701,13 +710,16 @@ def test_its_look_failing_leaves_a_trace_on_the_case_and_never_fails_the_request
             cid = marco()                                           # at once: the request is still filed
             assert stepped_back(cid) == ("its look failed (disk full)",
                                          "Second Look's AI stepped back: its look failed (disk full). A person decides.")
-            waiting = []
+            waiting, [o] = [], quiet_orders(1)
             web.AUTOPILOT_RUN = waiting.append
             try:
-                cid2 = marco("Hello, where is my order DEMOTX02077? Any news? Marco", sid="test:marco2")
+                code, out = web.receive("demo", {"channel": "email", "from": {"name": o["name"], "email": o["email"]},
+                                                 "text": f"Hello, where is my order {o['transaction_id']}?"})
             finally:
                 web.AUTOPILOT_RUN = None
-            waiting[0]()                                            # in the background: the same trace
+            cid2 = out["case_id"]
+            assert code == 201 and cid2 != cid and cid2 not in web.autopilot_store("demo").view()["cases"]
+            waiting[0]()                                            # in the background: the same trace, on its case
             assert stepped_back(cid2)[0] == "its look failed (disk full)"
         finally:
             web._autopilot_case = kept
@@ -789,6 +801,72 @@ def test_the_morning_screen_reads_its_record_once_whatever_the_number_of_rows():
             assert len(built) == first <= 2, (first, len(built))
         finally:
             web.autopilot_store = kept
+
+
+def test_a_failing_record_never_makes_what_it_sent_look_unsent():
+    real = autopilot.Record.handled
+
+    def disk_full(self, *a, **kw):
+        raise OSError("disk full")
+    with morning(ai_key=True, claude=says("MESSAGE")):
+        no_record(on())
+        autopilot.Record.handled = disk_full
+        try:
+            cid = marco()
+        finally:
+            autopilot.Record.handled = real
+        outs = lambda: [x["by"] for x in web.case_store("demo").get(cid)["timeline"] if x["direction"] == "out"]
+        assert outs() == [SIGNED] and web._saved(cid)[1].startswith("Reply sent by email. Sent by Second Look's AI")
+        assert web.autopilot_store("demo").view()["kinds"][KIND]["today"]["n"] == 1         # its slot stays used
+        assert not [x for x in web.case_store("demo").get(cid)["timeline"] if x["direction"] == "note"]
+        assert web.approve(cid, "MESSAGE", None, by="marta")[0] == 200 and outs() == [SIGNED]   # nothing sent twice
+
+
+def test_a_refund_paypal_didn_t_confirm_keeps_its_slot_and_is_listed_for_a_person_to_check():
+    import secondlook.__main__ as main_mod
+    kept, kept_team = main_mod.execute, web.team_for
+
+    def unconfirmed(*a):
+        raise web.RefundNotConfirmed("PayPal timed out", attempted=True, amount=20.0, currency="EUR")
+    with morning(ai_key=True, claude=refunds) as b:
+        no_record(on(REFUND_KIND))
+        web.team_for = lambda did: team_mod.of({**kept_team(did), "autopilot": {"refund_up_to": 30}})
+        main_mod.execute = unconfirmed
+        try:
+            cid = karim(b)
+        finally:
+            main_mod.execute, web.team_for = kept, kept_team
+        rec = web.autopilot_store("demo").view()
+        assert rec["kinds"][REFUND_KIND]["today"]["n"] == 1                 # the money may have moved
+        assert rec["cases"][cid]["handled"] and rec["cases"][cid]["later"]["why"] == \
+            "PayPal didn't confirm its refund: check the payment in PayPal"
+        [h] = web.autopilot_handled("demo", web.today_view("demo")["today"])
+        assert h["id"] == cid and h["what"] == "Refund not confirmed by PayPal: check the payment in PayPal"
+        assert web.case_store("demo").get(cid)["unconfirmed"][0]["by"] == SIGNED
+
+
+def test_a_paypal_kind_stored_on_never_reads_on_on_the_rules_page():
+    with morning():
+        no_record(on(PAYPAL_KIND))
+        page = web.rules_page(demo=True, me="giulia")
+        row = page[page.index("PayPal dispute or claim · Says it never arrived · Defend with evidence"):]
+        row = row[:row.index("</li>")]
+        assert "Not in this version: on a PayPal dispute, a person sends every answer." in row and "On, switched" not in row
+
+
+def test_a_seller_on_their_own_reads_under_your_setting():
+    assert autopilot.signature(on()[KIND], solo=True) == "Second Look's AI, under your setting (since 15 Oct)"
+    assert autopilot.signature(on()[KIND]) == SIGNED
+    kept = web.team_for
+    with morning(ai_key=True, claude=says("MESSAGE")):
+        no_record(on())
+        web.team_for = lambda did: team_mod.of(None)
+        try:
+            cid = marco()
+        finally:
+            web.team_for = kept
+        out = web.case_store("demo").get(cid)["timeline"][-1]
+        assert (out["direction"], out["by"]) == ("out", "Second Look's AI, under your setting (since 15 Oct)")
 
 
 if __name__ == "__main__":

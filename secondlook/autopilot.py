@@ -112,11 +112,13 @@ def _day(at: str | None) -> str:
     return f"{d.day} {d:%b}"
 
 
-def signature(k: dict) -> str:
-    """How everything it sends is signed: "Second Look's AI, under Giulia's setting (since 15 Oct)"."""
+def signature(k: dict, solo: bool = False) -> str:
+    """How everything it sends is signed: "Second Look's AI, under Giulia's setting (since 15 Oct)"; for a seller on
+    their own, "Second Look's AI, under your setting (since 15 Oct)"."""
     sw = (k or {}).get("switched") or {}
-    return f"{AI_NAME}, under {sw.get('by') or 'your'}'s setting (since {_day(sw.get('at'))})" if sw.get("by") \
-        else f"{AI_NAME}, under your setting"
+    since = f" (since {_day(sw.get('at'))})" if sw.get("at") else ""
+    return f"{AI_NAME}, under {sw['by']}'s setting{since}" if sw.get("by") and not solo \
+        else f"{AI_NAME}, under your setting{since}"
 
 
 def streak(k: dict) -> int:
