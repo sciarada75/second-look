@@ -394,6 +394,121 @@ def test_what_it_sends_on_its_own_takes_nobody_s_minutes():
         assert (costs["contacts"], costs["replies"], costs["minutes"]) == (2, 0, 0)
 
 
+@contextmanager
+def served():
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        def post(path, fields, origin=None):
+            con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+            headers = {"Content-Type": "application/x-www-form-urlencoded", **({"Origin": origin} if origin else {})}
+            con.request("POST", path, body=urlencode(fields), headers=headers)
+            r = con.getresponse()
+            return r.status, r.read().decode()
+        yield post
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_the_rules_page_shows_each_kind_its_record_the_numbers_and_the_switch_for_the_head_only():
+    with morning():
+        no_record(on())
+        page = web.rules_page(demo=True, me="giulia")
+        for words in ("Second Look's AI on its own", "Shop inquiry · Says it never arrived · Reply only",
+                      "10 of the last 10 approved as advised · On, switched on by Giulia on 15 Oct, 09:00",
+                      'action="/autopilot/switch"', "Switch off", "at least 90% sure (a person&#x27;s approval needs 75%)",
+                      "At most 20 cases of one kind a day.", "up to 0.00 EUR. Over that it passes the case to a person"):
+            assert words in page, words
+        marta = web.rules_page(demo=True, me="marta")
+        assert 'action="/autopilot/switch"' not in marta
+        assert "Only Giulia, head of customer care switches a kind on or off." in marta
+
+
+def test_only_the_head_switches_over_http_and_only_from_second_look_s_own_pages():
+    with morning():
+        no_record(on())
+        with served() as post:
+            assert post("/autopilot/switch", {"kind": KIND, "on": "off", "by": "marta", "shop": "demo"})[0] == 403
+            assert post("/autopilot/switch", {"kind": KIND, "on": "off", "by": "giulia", "shop": "demo"},
+                        origin="http://elsewhere.example")[0] == 403
+            assert web.autopilot_store("demo").kinds_on("inquiry", "not_received") == [KIND]
+            assert post("/autopilot/switch", {"kind": KIND, "on": "off", "by": "giulia", "shop": "demo"})[0] == 303
+            assert web.autopilot_store("demo").kinds_on("inquiry", "not_received") == []
+            assert post("/autopilot/switch", {"kind": KIND, "on": "on", "by": "giulia", "shop": "demo"})[0] == 303
+            assert web.autopilot_store("demo").kinds_on("inquiry", "not_received") == [KIND]
+            code, text = post("/autopilot/switch", {"kind": "inquiry · wrong_size · REPLACE", "on": "on", "by": "giulia",
+                                                    "shop": "demo"})
+            assert (code, text) == (409, "Not ready: 0 of the last 10 approved as advised.")
+
+
+def test_the_morning_screen_says_what_it_handled_and_why_it_stepped_back():
+    with morning(ai_key=True, claude=says("MESSAGE")):
+        no_record(on())
+        cid = marco()
+        assert web.review_line(cid) == {"by": None, "text": "Handled by Second Look's AI · reply sent by email"}
+        page = web.today_page("demo", "marta")
+        assert "Handled by Second Look's AI: 1 — check them" in page and "I'd have done it differently" in page
+        assert "except the kinds Second Look&#x27;s AI answers on its own under your setting" in page
+        web.take("DEMO-C002", "luca")
+        web.autopilot_case("demo", "DEMO-C002")                 # Lena's: a wrong size, not a kind that's on
+        assert web.review_line("DEMO-C002")["text"] == "Exchange or replace"
+        web.assignments_for(cid).assign(cid, None)
+    with morning():
+        no_record(on())
+        cid = marco()
+        assert web.review_line(cid)["text"] == ("Refund in full · Second Look's AI stepped back: the review came from the "
+                                                "rules baseline (no AI key, or the model failed)")
+
+
+def test_i_d_have_done_it_differently_switches_the_kind_off_and_restarts_its_count():
+    with morning(ai_key=True, claude=says("MESSAGE")):
+        no_record(on())
+        cid = marco()
+        with served() as post:
+            assert post("/autopilot/differently", {"case": cid, "by": "nobody", "shop": "demo"})[0] == 400
+            code, _ = post("/autopilot/differently", {"case": cid, "by": "marta", "shop": "demo",
+                                                      "why": "I'd have given him the tracking link."})
+            assert code == 303
+            assert post("/autopilot/differently", {"case": cid, "by": "luca", "shop": "demo"}) == (
+                409, "Already noted by Marta.")
+        k = web.autopilot_store("demo").view()["kinds"][KIND]
+        assert not k["on"] and autopilot.streak(k) == 0
+        assert k["off"]["why"] == f"Marta would have done {cid} differently: I'd have given him the tracking link."
+        note = web.case_store("demo").get(cid)["timeline"][-1]
+        assert note["direction"] == "note" and note["text"].startswith(
+            "Marta would have done it differently: I'd have given him the tracking link. Second Look's AI no longer "
+            "answers these on its own (Shop inquiry · Says it never arrived · Reply only)")
+        page = web.today_page("demo", "marta")
+        assert "Handled by Second Look's AI: 0 — check them" in page and "Marta would have done it differently" in page
+        assert web._saved(cid)[1].startswith("Reply sent by email. Sent by Second Look's AI")   # what it sent stays sent
+
+
+def quiet_orders(n):
+    """n customers of the demo shop with one 20 EUR order each, paid through PayPal, no dispute: who writes to ask."""
+    raw = demo_mod.DemoPayPal().raw
+    disputed = {d["disputed_transactions"][0]["seller_transaction_id"] for d in raw["disputes"]}
+    count = {}
+    for o in raw["orders"]:
+        count[o["email"]] = count.get(o["email"], 0) + 1
+    return [o for o in raw["orders"] if o["amount"] == 20.0 and o["date"] >= "2026-10-05" and count[o["email"]] == 1
+            and o["transaction_id"] not in disputed][:n]
+
+
+def test_the_window_through_the_one_approval_path_nine_is_not_ready_the_tenth_is():
+    with morning(ai_key=True, claude=says("MESSAGE")):
+        no_record()
+        for n, o in enumerate(quiet_orders(10), 1):
+            code, out = web.receive("demo", {"channel": "email", "from": {"name": o["name"], "email": o["email"]},
+                                             "text": f"Hello, where is my order {o['transaction_id']}?", "source_id": f"w:{n}"})
+            web.run_review(out["case_id"])
+            assert web.approve(out["case_id"], "MESSAGE", None, by="luca")[0] == 200
+            if n == 9:
+                assert web.autopilot_switch("demo", KIND, True, "giulia") == (409, "Not ready: 9 of the last 10 approved as advised.")
+        assert web.autopilot_switch("demo", KIND, True, "marta")[0] == 403
+        assert web.autopilot_switch("demo", KIND, True, "giulia") == (200, "On: Second Look's AI answers these on its own.")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

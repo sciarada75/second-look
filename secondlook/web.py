@@ -1222,8 +1222,116 @@ def rules_page(flash: str = "", demo: bool = False, me: str | None = None) -> st
             'aria-label="New rule"><button>Add rule</button></form>'
             '<h2>Your limits</h2><p class="who">Numbers, enforced by code after the AI has answered. '
             'They can make an answer more careful, never more generous.</p>'
-            f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in limits)}</ul></section>')
+            f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in limits)}</ul></section>'
+            + autopilot_block("demo" if demo else "live", me))
     return page("Your rules | Second Look", "", body, demo, me=me, here="rules")
+
+
+# A kind of case in plain words: "Shop inquiry · Says it never arrived · Reply only".
+STAGE_SAYS = {"inquiry": "Shop inquiry", "paypal": "PayPal dispute or claim"}
+
+
+def kind_words(kind: str) -> str:
+    stage, problem, action = autopilot_mod.split_kind(kind)
+    what = cases_mod.KIND_LABEL.get(problem) if stage == "inquiry" else REASON.get(problem)
+    act = (INQUIRY_ACTION if stage == "inquiry" else ACTION).get(action, action)
+    return f"{STAGE_SAYS.get(stage, stage)} · {what or problem} · {act}"
+
+
+def _named(people: list) -> str:
+    return " or ".join(f"{p['name']}, {p['role'].lower()}" if p.get("role") else p["name"] for p in people) or "nobody here"
+
+
+def autopilot_block(src: str, me: str | None) -> str:
+    """The Rules page's "Second Look's AI on its own": each kind with its record, ready / on / off, the switch (the head
+    of customer care only), and the shop's four numbers in plain words."""
+    t = team_for_src(src)
+    s, rec = autopilot_mod.settings(t), autopilot_store(src).view()
+    cur = _shop_currency(t, src == "demo") or _policy().get("currency", "")
+    heads = _named(autopilot_mod.heads(t))
+    can = autopilot_mod.may_switch(t, me)
+    numbers = [f"A kind of case is ready once people approved its advice unchanged on the last {s['window']} cases of "
+               f"that kind. Ready is not on: {heads} switches it on, and off.",
+               f"It answers on its own only when it is at least {s['min_confidence']:.0%} sure (a person's approval "
+               f"needs {_policy()['min_confidence']:.0%}), and steps back to a person whenever your limits raise anything.",
+               f"At most {s['per_day']} cases of one kind a day.",
+               f"It gives back money on its own up to {s['refund_up_to']:.2f} {cur}. Over that it passes the case to a "
+               "person, as a colleague over their limit does, and sends nothing."]
+    by = (f'<input type="hidden" name="by" value="{e(me)}">' if me else "") + \
+        f'<input type="hidden" name="shop" value="{e(src)}">'
+    rows = []
+    for kind, k in sorted(rec["kinds"].items()):
+        n, sw, off = autopilot_mod.streak(k), k.get("switched") or {}, k.get("off") or {}
+        ready = n >= s["window"]
+        record = (f"{s['window']} of the last {s['window']} approved as advised" if ready
+                  else f"{n} approved as advised in a row: it needs {s['window']}")
+        state = (f"On, switched on by {sw.get('by')} on {_when(sw.get('at') or '')}" if k.get("on")
+                 else "Ready: off until it is switched on" if ready
+                 else "Off" + (f": {off['why']}" if off.get("why") else ""))
+        switch = (f'<form method="post" action="/autopilot/switch"><input type="hidden" name="kind" value="{e(kind)}">'
+                  f'<input type="hidden" name="on" value="{"off" if k.get("on") else "on"}">{by}'
+                  f'<button{" class=quiet" if k.get("on") else ""}>{"Switch off" if k.get("on") else "Switch on"}</button></form>'
+                  if can and (k.get("on") or ready) else "")
+        rows.append(f'<li><span><b>{e(kind_words(kind))}</b><span class="t-sub">{e(record)} · {e(state)}</span></span>'
+                    f'{switch}</li>')
+    restarted = rec.get("restarted") or {}
+    return ('<section class="rules"><h2>Second Look\'s AI on its own</h2>'
+            '<p class="who">In this shop. Second Look\'s AI may answer a kind of case on its own (the stage, the problem '
+            'and its answer) once your people trusted it there. Everything it sends is signed. Only your people\'s '
+            'decisions count, never its own.</p>'
+            + (f'<p class="check-sender">{e(restarted["why"])}</p>' if restarted.get("why") else "")
+            + f'<ul class="rulelist">{"".join(rows) or "<li><span>No decisions on its advice yet.</span></li>"}</ul>'
+            + ("" if can else f'<p class="who">Only {e(heads)} switches a kind on or off.</p>')
+            + f'<ul class="limits">{"".join(f"<li>{e(x)}</li>" for x in numbers)}</ul></section>')
+
+
+def autopilot_switch(src: str, kind: str, on: bool, by: str | None) -> tuple:
+    """The head of customer care switches a ready kind on, or a kind off (the Rules page). Nobody else can."""
+    t = team_for_src(src)
+    who = team_mod.person(t, by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+    if not autopilot_mod.may_switch(t, who["id"]):
+        return 403, f"Only {_named(autopilot_mod.heads(t))} switches Second Look's AI on or off."
+    stage, problem, action = autopilot_mod.split_kind(kind or "")
+    if stage not in STAGE_SAYS or not problem or action not in ACTION or action == "ASK_SELLER":
+        return 400, "No such kind of case."
+    return autopilot_store(src).switch(kind, on, who["name"], cases_mod.minute(None), autopilot_mod.settings(t)["window"])
+
+
+def autopilot_differently(src: str, did: str, by: str | None, why: str = "") -> tuple:
+    """A person would have done differently what Second Look's AI sent on its own: that kind goes off at once and its
+    count restarts, with who and why. What was sent stays sent: the person follows up."""
+    t = team_for_src(src)
+    who = team_mod.person(t, by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+    code, out = autopilot_store(src).differently(did, who["name"], why, cases_mod.minute(None),
+                                                 autopilot_mod.settings(t)["window"])
+    if code != 200:
+        return code, out
+    note = " ".join((why or "").split())[:300].rstrip(".")
+    text = (f"{who['name']} would have done it differently" + (f": {note}" if note else "") + ". Second Look's AI no "
+            f"longer answers these on its own ({kind_words(out)}), and its count starts again. What it sent stays sent: "
+            f"{who['name']} follows up.")
+    c = case_store(src).get(did) if cases_mod.is_case_id(did) else find_case_of_dispute(did)
+    if c:
+        case_store(src).add(c["id"], cases_mod.entry(None, reply_channel(c), "note", text, who["name"]))
+    return 200, text
+
+
+def autopilot_handled(src: str, today) -> list:
+    """I manage: what Second Look's AI answered on its own since yesterday, for a person to check."""
+    start = today_mod.since(today)
+    out = []
+    for did, x in autopilot_store(src).view()["cases"].items():
+        if not x.get("handled") or (x.get("at") or "") < start:
+            continue
+        c = case_store(src).get(did) if cases_mod.is_case_id(did) else find_case_of_dispute(did)
+        out.append({"id": did, "link": f"/c/{c['id']}" if c else f"/d/{did}", "at": x["at"], "kind": x["kind"],
+                    "kind_words": kind_words(x["kind"]), "who": ((c or {}).get("customer") or {}).get("name"),
+                    "what": str(x.get("what") or "").split(". Sent by ")[0].rstrip("."), "checked": x.get("checked")})
+    return sorted(out, key=lambda h: h["at"])
 
 # What a review was based on. If any of it changes, the review is out of date and Approve is withdrawn:
 # the seller must never approve an answer to a situation that no longer exists.
@@ -2300,19 +2408,25 @@ def shop_cases(src: str) -> list:
 
 def review_line(did: str) -> dict:
     """What Second Look recommends on a case, in one line, and who said it: "ai" (Second Look's AI: Claude, here or
-    ahead of time), "rules" (the rules baseline, no AI key), or None (not reviewed yet, or already answered)."""
+    ahead of time), "rules" (the rules baseline, no AI key), or None (not reviewed yet, or already answered). An
+    answer Second Look's AI sent on its own says so; a step back says why."""
     saved = _saved(did)
+    ap = autopilot_store(shop_of_case(did)).view()["cases"].get(did) or {}
+    back = f" · Second Look's AI stepped back: {ap['why']}" if ap.get("why") and not ap.get("handled") else ""
     if not saved:
-        return {"by": None, "text": "Not reviewed yet"}
+        return {"by": None, "text": "Not reviewed yet" + back}
     dec, sent = saved
     w = _words(did)
     if sent:
-        return {"by": None, "text": "Answered: " + sent.split(". ")[0].rstrip(".")}
+        first = sent.split(". ")[0].rstrip(".")
+        if str(_saved_by(did).get("by") or "").startswith(autopilot_mod.AI_NAME):
+            return {"by": None, "text": "Handled by Second Look's AI · " + first[:1].lower() + first[1:]}
+        return {"by": None, "text": "Answered: " + first}
     text = w["action"].get(dec.action, dec.action)
     j = dec.judgment
     if dec.overridden and j.action != dec.action and j.action in w["action"]:
         text += f' (your limits held back: {w["action"][j.action].lower()})'
-    return {"by": "rules" if judge_of(did) == "rules" else "ai", "text": text}
+    return {"by": "rules" if judge_of(did) == "rules" else "ai", "text": text + back}
 
 
 def sent_answers(src: str) -> list:
@@ -2355,7 +2469,9 @@ def today_view(src: str) -> dict:
             "calls_failed": failed,
             "see": today_mod.came_in(cases, disputes, orders, today, review_of=review_line),
             "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
-            "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src))}
+            "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src)),
+            "autopilot": {"handled": autopilot_handled(src, today),
+                          "on": [kind_words(k) for k, x in autopilot_store(src).view()["kinds"].items() if x.get("on")]}}
 
 
 def _hours(minutes: float) -> str:
@@ -2455,10 +2571,34 @@ def see_block(s: dict, q: str, phone: bool = False, pending: int = 0, failed: li
             f'nearest PayPal deadline first</p><p class="chips">{"".join(chips)}</p>{listing}')
 
 
-def manage_block(mg: dict, q: str) -> str:
+def handled_block(ap: dict, q: str, me: str | None, src: str) -> str:
+    """I manage: what Second Look's AI answered on its own since yesterday, each for a person to check: "I'd have done
+    it differently" (anyone) switches that kind off at once and restarts its count."""
+    hs = (ap or {}).get("handled") or []
+    if not hs:
+        return ""
+    todo = [h for h in hs if not h.get("checked")]
+    by = (f'<input type="hidden" name="by" value="{e(me)}">' if me else "") + \
+        f'<input type="hidden" name="shop" value="{e(src)}">'
+    rows = "".join(
+        f'<li><a href="{e(h["link"])}{q}"><b>{e(h["who"] or "")}</b>, <i>customer</i> · {e(h["kind_words"])}: '
+        f'{e(h["what"])}</a>'
+        + (f'<span class="t-sub">{e(h["checked"]["by"])} would have done it differently</span>' if h.get("checked") else
+           f'<form method="post" action="/autopilot/differently" class="addrule"><input type="hidden" name="case" '
+           f'value="{e(h["id"])}">{by}<input name="why" maxlength="300" aria-label="What you would have done" '
+           'placeholder="What you would have done (optional)"><button class="quiet">I\'d have done it differently</button></form>')
+        + '</li>' for h in hs)
+    return (f'<dl class="know"><div class="know-row"><dt><b><a href="#handled">Handled by Second Look\'s AI: {len(todo)} '
+            f'— check them</a></b></dt><dd><span class="t-sub">answered on its own since yesterday, signed, under your '
+            f'setting</span></dd></div></dl><h3 class="bl-h" id="handled">Handled by Second Look\'s AI</h3>'
+            f'<ul class="see">{rows}</ul>')
+
+
+def manage_block(mg: dict, q: str, ap: dict | None = None, me: str | None = None, src: str = "demo") -> str:
+    handled = handled_block(ap, q, me, src)
     if mg["solo"]:
         return (f'<h2>I manage</h2><p class="t-sub">Who has what</p><p>A team of one: all {mg["total"]} open '
-                f'case{"s" if mg["total"] != 1 else ""} are yours.</p>')
+                f'case{"s" if mg["total"] != 1 else ""} are yours.</p>{handled}')
     rows = []
     for p in mg["people"]:
         n = len(p["items"])
@@ -2474,8 +2614,12 @@ def manage_block(mg: dict, q: str) -> str:
                     + f', to {e(h["to_name"])}, <i>{e(h["to_role"])}</i></a></li>' for h in mg["handoffs"])
     waits = (f'<h3 class="bl-h">Waiting after a handoff</h3><ul class="see">{hands}</ul>' if hands else
              '<p class="t-sub">No handoff is waiting.</p>')
+    ours = ((ap or {}).get("on") or [])
+    rule = ("Nothing goes out until a person approves it, each within their own limit." if not ours else
+            "Nothing goes out until a person approves it, each within their own limit, except the kinds Second Look's AI "
+            f"answers on its own under your setting: {'; '.join(ours)} (Your rules).")
     return (f'<h2>I manage</h2><p class="t-sub">Who has what, and what waits for whom</p><dl class="know">{"".join(rows)}</dl>'
-            f'{waits}<p class="t-sub">Nothing goes out until a person approves it, each within their own limit.</p>')
+            f'{handled}{waits}<p class="t-sub">{e(rule)}</p>')
 
 
 def today_page(src: str, me: str | None = None) -> str:
@@ -2488,7 +2632,7 @@ def today_page(src: str, me: str | None = None) -> str:
             f'<p class="who">I see, I manage, I know: every channel, one place. The lists stay where they were: '
             f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
             f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"], v["calls_pending"], v["calls_failed"])}</section>'
-            f'<section class="block">{manage_block(v["manage"], q)}</section>'
+            f'<section class="block">{manage_block(v["manage"], q, v["autopilot"], me, src)}</section>'
             f'<section class="block">{month_block(v["know"], v["today"], q)}'
             f'{claim_line_box(v["know"]["high_volume"], v["today"])}</section></div>')
     return page(f"Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
@@ -3732,6 +3876,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/today":
                 v = today_view("live" if src == "live" else "demo")
                 return self._json({"today": v["today"], "see": v["see"], "manage": v["manage"], "know": v["know"],
+                                   "autopilot": v["autopilot"],
                                    "calls": {"being_transcribed": v["calls_pending"], "not_transcribed": v["calls_failed"]}})
             if u.path == "/overview":
                 return self._send(overview_page(src, me=me))
@@ -3857,6 +4002,16 @@ class Handler(BaseHTTPRequestHandler):
                 ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
                 if not ok:
                     return self._send("Choose who you are at the top of the page.", 400)
+            if parts in (["autopilot", "switch"], ["autopilot", "differently"]):
+                src = "live" if form.get("shop", [""])[0] == "live" else "demo"
+                by = form.get("by", [""])[0]
+                if parts[1] == "switch":
+                    code, text = autopilot_switch(src, form.get("kind", [""])[0], form.get("on", [""])[0] == "on", by)
+                    to = f"/rules?shop={src}"
+                else:
+                    code, text = autopilot_differently(src, form.get("case", [""])[0], by, form.get("why", [""])[0])
+                    to = f"/today?shop={src}"
+                return self._redirect(to) if code == 200 else self._send(e(text), code)
             if parts == ["rules", "add"]:
                 add_rule(form.get("rule", [""])[0])
                 return self._redirect("/rules")
