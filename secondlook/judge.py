@@ -110,6 +110,15 @@ SCHEMA = {
 USAGE = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
 
 
+# The model every call runs on, unless SECONDLOOK_MODEL names another: part of the setup Second Look's AI's record
+# was earned under (autopilot.fingerprint), so a change of model restarts it.
+DEFAULT_MODEL = "claude-opus-5-5"
+
+
+def model_name() -> str:
+    return os.getenv("SECONDLOOK_MODEL", DEFAULT_MODEL)
+
+
 def _ask_seller(why: str) -> Judgment:
     return Judgment("ASK_SELLER", 0.0, why)
 
@@ -125,7 +134,7 @@ def ask_claude(system: str, schema: dict, content: str, model: str = None, effor
     # Learned 2026-10-16: thinking is on by default on current models and counts against
     # max_tokens. With max_tokens=800 the model spent it all thinking and returned no text.
     msg = client.beta.messages.create(
-        model=model or os.getenv("SECONDLOOK_MODEL", "claude-opus-5-5"),
+        model=model or model_name(),
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": content}],

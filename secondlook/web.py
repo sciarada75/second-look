@@ -142,7 +142,19 @@ def _saved(dispute_id: str):
 def review_mark(dispute_id: str) -> str:
     """A short fingerprint of the review a page or a system was shown: what was recommended, what the AI said,
     its amount and draft, and the case it saw. An approval that carries one is refused if the review changed."""
-    raw = _raw(dispute_id)
+    return _mark(_raw(dispute_id))
+
+
+def _saved_marked(dispute_id: str) -> tuple:
+    """(decision, what was sent, its review_mark), from one reading of the review: Second Look's AI approves with the
+    mark of the very review it checked, so one replaced since is refused, never sent unchecked."""
+    raw = _raw(dispute_id) or {}
+    dec = Decision(action=raw["action"], reasons=raw["reasons"], judgment=Judgment(**raw["judgment"]),
+                   overridden=raw["overridden"], stops=raw.get("stops", []))
+    return dec, raw.get("sent"), _mark(raw)
+
+
+def _mark(raw: dict | None) -> str:
     if raw is None:
         return ""
     j = raw.get("judgment") or {}
@@ -1265,13 +1277,15 @@ def autopilot_block(src: str, me: str | None) -> str:
         ready = n >= s["window"]
         record = (f"{s['window']} of the last {s['window']} approved as advised" if ready
                   else f"{n} approved as advised in a row: it needs {s['window']}")
+        later = autopilot_mod.split_kind(kind)[0] not in autopilot_mod.SWITCHABLE
         state = (f"On, switched on by {sw.get('by')} on {_when(sw.get('at') or '')}" if k.get("on")
+                 else autopilot_mod.NOT_YET if later
                  else "Ready: off until it is switched on" if ready
                  else "Off" + (f": {off['why']}" if off.get("why") else ""))
         switch = (f'<form method="post" action="/autopilot/switch"><input type="hidden" name="kind" value="{e(kind)}">'
                   f'<input type="hidden" name="on" value="{"off" if k.get("on") else "on"}">{by}'
                   f'<button{" class=quiet" if k.get("on") else ""}>{"Switch off" if k.get("on") else "Switch on"}</button></form>'
-                  if can and (k.get("on") or ready) else "")
+                  if can and (k.get("on") or (ready and not later)) else "")
         rows.append(f'<li><span><b>{e(kind_words(kind))}</b><span class="t-sub">{e(record)} · {e(state)}</span></span>'
                     f'{switch}</li>')
     restarted = rec.get("restarted") or {}
@@ -1320,14 +1334,15 @@ def autopilot_differently(src: str, did: str, by: str | None, why: str = "") -> 
     return 200, text
 
 
-def autopilot_handled(src: str, today) -> list:
-    """I manage: what Second Look's AI answered on its own since yesterday, for a person to check."""
+def autopilot_handled(src: str, today, rec: dict | None = None) -> list:
+    """I manage: what Second Look's AI answered on its own since yesterday, for a person to check. `rec`: its record,
+    read once by the page."""
     start = today_mod.since(today)
-    out = []
-    for did, x in autopilot_store(src).view()["cases"].items():
+    out, store = [], case_store(src)
+    for did, x in (rec or autopilot_store(src).view())["cases"].items():
         if not x.get("handled") or (x.get("at") or "") < start:
             continue
-        c = case_store(src).get(did) if cases_mod.is_case_id(did) else find_case_of_dispute(did)
+        c = store.get(did) if cases_mod.is_case_id(did) else find_case_of_dispute(did)
         out.append({"id": did, "link": f"/c/{c['id']}" if c else f"/d/{did}", "at": x["at"], "kind": x["kind"],
                     "kind_words": kind_words(x["kind"]), "who": ((c or {}).get("customer") or {}).get("name"),
                     "what": str(x.get("what") or "").split(". Sent by ")[0].rstrip("."), "checked": x.get("checked")})
@@ -2406,12 +2421,15 @@ def shop_cases(src: str) -> list:
     return cases + (DemoPayPal().history() if src == "demo" else [])
 
 
-def review_line(did: str) -> dict:
+def review_line(did: str, ap_cases: dict | None = None) -> dict:
     """What Second Look recommends on a case, in one line, and who said it: "ai" (Second Look's AI: Claude, here or
     ahead of time), "rules" (the rules baseline, no AI key), or None (not reviewed yet, or already answered). An
-    answer Second Look's AI sent on its own says so; a step back says why."""
+    answer Second Look's AI sent on its own says so; a step back says why. `ap_cases`: its record's cases, read once
+    by a page that shows many rows."""
     saved = _saved(did)
-    ap = autopilot_store(shop_of_case(did)).view()["cases"].get(did) or {}
+    if ap_cases is None:
+        ap_cases = autopilot_store(shop_of_case(did)).view()["cases"]
+    ap = ap_cases.get(did) or {}
     back = f" · Second Look's AI stepped back: {ap['why']}" if ap.get("why") and not ap.get("handled") else ""
     if not saved:
         return {"by": None, "text": "Not reviewed yet" + back}
@@ -2420,7 +2438,8 @@ def review_line(did: str) -> dict:
     if sent:
         first = sent.split(". ")[0].rstrip(".")
         if str(_saved_by(did).get("by") or "").startswith(autopilot_mod.AI_NAME):
-            return {"by": None, "text": "Handled by Second Look's AI · " + first[:1].lower() + first[1:]}
+            later = f" · then it stepped back: {ap['later']['why']}" if (ap.get("later") or {}).get("why") else ""
+            return {"by": None, "text": "Handled by Second Look's AI · " + first[:1].lower() + first[1:] + later}
         return {"by": None, "text": "Answered: " + first}
     text = w["action"].get(dec.action, dec.action)
     j = dec.judgment
@@ -2465,13 +2484,15 @@ def today_view(src: str) -> dict:
     cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
     t = team_for_src(src)
     assigned = {} if t.get("solo") else assignments_for("DEMO-" if demo else None).all()
+    rec = autopilot_store(src).view()           # Second Look's AI's record, read once for every row
     return {"today": today, "team": t, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
             "calls_failed": failed,
-            "see": today_mod.came_in(cases, disputes, orders, today, review_of=review_line),
+            "see": today_mod.came_in(cases, disputes, orders, today, review_of=lambda did: review_line(did, rec["cases"])),
             "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
             "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src)),
-            "autopilot": {"handled": autopilot_handled(src, today),
-                          "on": [kind_words(k) for k, x in autopilot_store(src).view()["kinds"].items() if x.get("on")]}}
+            "autopilot": {"handled": autopilot_handled(src, today, rec),
+                          "on": [kind_words(k) for k, x in rec["kinds"].items()
+                                 if x.get("on") and autopilot_mod.split_kind(k)[0] in autopilot_mod.SWITCHABLE]}}
 
 
 def _hours(minutes: float) -> str:
@@ -3387,45 +3408,81 @@ _WORDS_NEEDED = ("MESSAGE", "REFUND", "PARTIAL_REFUND", "REPLACE")
 
 
 def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None,
-            review: str | None = None, *, ai_signed: str | None = None) -> tuple[int, str]:
+            review: str | None = None, *, ai_signed: str | None = None, ai_kind: str | None = None,
+            report: dict | None = None) -> tuple[int, str]:
     """Send the answer a person chose. Returns (HTTP status, what happened).
     200 sent · 202 passed to a colleague (nothing sent) · 400 nobody named or no words · 409 changed or not allowed.
     `review`: the review_mark of the review they were shown; when given, a different review is refused.
     `ai_signed`: Second Look's AI approves, on a kind the shop switched on (autopilot_case only: a page or the API
-    always names a person, and "second-look-ai" is nobody in the team), signed so, within its own limit."""
+    always names a person, and "second-look-ai" is nobody in the team), signed so, within its own limit. Under the
+    case's lock it checks again that the case is nobody's and, with `ai_kind`, that the kind is still on: a review
+    takes seconds, and a person may take the case or switch the kind off meanwhile. `report` gets what happened as
+    data: report["code"] ("sent", "pass", "over", "person", "off", "paypal", "already_sent", "review_changed",
+    "case_changed", "refused"), so its look never reads approve's sentences."""
     from .__main__ import execute
     if chosen == "ASK_SELLER":
         # "your call" is what the review says when a person must choose; approving it would mark the review sent
         # with nothing done (found in review, 25/10)
         return 400, "\"Your call\" is not an answer: choose what to send (a reply, a refund, your evidence)."
     t = team_for(did)
+    ai = None
     if ai_signed:
-        t, who = autopilot_mod.as_ai(t, ai_signed)
+        ai = {"kind": ai_kind, "solo": bool(t.get("solo")), "src": shop_of_case(did),
+              "report": report if report is not None else {}}
+        ai["report"]["code"] = "refused"
+        shop_t, (t, who) = t, autopilot_mod.as_ai(t, ai_signed)
     else:
         who = team_mod.person(t, by)
     if not who:
         return 400, "Say who is approving: a person in this shop's team."
     with _case_lock(did):  # from reading the review to saving what was sent, or the handoff
-        return _approve(did, chosen, message, rule, t, who, execute, review)
+        if ai:
+            no = _ai_may_not(did, shop_t, ai)
+            if no:
+                return 409, no
+        return _approve(did, chosen, message, rule, t, who, execute, review, ai)
 
 
-def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[int, str]:
+def _ai_may_not(did: str, t: dict, ai: dict) -> str | None:
+    """Why Second Look's AI may not send on this case now (under the case's lock, as `take` and every approval are),
+    or None. `t`: the shop's own team. Sets ai["report"]."""
+    rep = ai["report"]
+    if not cases_mod.is_case_id(did):
+        rep["code"] = "paypal"
+        return autopilot_mod.NOT_YET
+    why = _a_person_s(did, t, case_store(ai["src"]).get(did), None)
+    if why:
+        rep["code"], rep["why"] = "person", why
+        return why[:1].upper() + why[1:] + "."
+    if ai["kind"] and not (autopilot_store(ai["src"]).view()["kinds"].get(ai["kind"]) or {}).get("on"):
+        rep["code"] = "off"
+        return "This kind was switched off while it looked."
+    return None
+
+
+def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) -> tuple[int, str]:
+    rep = ai["report"] if ai else {}      # Second Look's AI's approval: what happened, as a code (approve)
     saved = _saved(did)
     if cases_mod.is_case_id(did) and not (saved and saved[1]):
         no = _inquiry_refusal(did)      # unsorted, or PayPal has it now: never answered as an inquiry
         if no:
             return 409, no
     if saved and saved[1]:
+        if ai:      # never "200": what was sent then is not its own
+            rep["code"] = "already_sent"
+            return 409, "Already answered on this case: Second Look's AI sends nothing more."
         return 200, saved[1]  # already sent: a second approval sends nothing
     if not saved:
         return 409, _refused(None, chosen)
     if review and review != review_mark(did):
+        rep["code"] = "review_changed"
         return 409, "This answer changed since you saw it. Look again."
     if chosen in _WORDS_NEEDED and message is not None and not message.strip():
         return 400, "Write a message first."
     dec = saved[0]
     case = _case(did)
     if _changes(did, case):
+        rep["code"] = "case_changed"
         return 409, "Something changed since this review. Take a fresh look."
     kind, to = outcome(dec, chosen, case["dispute"], t, who)
     if kind == "refused":
@@ -3434,6 +3491,11 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
     amount = money_out(chosen, dec.judgment, case["dispute"])
     need = required(chosen, dec, case["dispute"])
     now = datetime.now()
+    if kind == "pass" and ai and ai["solo"]:
+        # A team of one: over its own limit, the seller decides; no handoff (nobody would ever clear one).
+        cap = team_mod.limit(t, who["id"]) or 0.0
+        rep.update(code="over", what=f"{ACTION.get(chosen, chosen).lower()} of {amount:.2f} {cur}", limit=f"{cap:.2f} {cur}")
+        return 409, f"{rep['what'][:1].upper()}{rep['what'][1:]} is over its own {rep['limit']} limit: you decide."
     if kind == "pass":
         # Over this person's limit: nothing goes to PayPal. The case passes to a colleague who may send it.
         handoff = {"from": who["id"], "from_name": who["name"], "action": chosen, "amount": need,
@@ -3444,6 +3506,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         cap = team_mod.limit(t, who["id"]) or 0.0
         what = (f"{ACTION.get(chosen, chosen).lower()} of {amount:.2f} {cur}" if amount >= need
                 else f"{ACTION.get(chosen, chosen).lower()} on a {need:.2f} {cur} dispute")
+        rep.update(code="pass", what=what, limit=f"{cap:.2f} {cur}", to=to["name"])
         return 202, f"Passed to {to['name']}: {what} is over your {cap:.2f} {cur} limit. Nothing was sent."
     if message is None and not t.get("solo"):
         # No message given (the API): the colleague who passed this case on edited the reply; send theirs.
@@ -3504,6 +3567,11 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None) -> tuple[
         sent += " (Demo shop: logged, not sent to PayPal.)"
     elif isinstance(_client(did), MockPayPal):
         sent += " (Practice case: logged, not sent to PayPal.)"
+    if ai and ai["kind"]:
+        # Second Look's AI sent it: on its record at once (its slot is taken already), so nothing that fails after
+        # can lose it from its record, its count or the list a person checks.
+        autopilot_store(ai["src"]).handled(did, ai["kind"], cases_mod.minute(None), sent)
+        rep["code"] = "sent"
     if suggest_rule(rule or "", did):
         sent += " Your rule suggestion waits on Your rules for review."
     dec.action = recommended  # the page keeps showing what was recommended
@@ -3568,15 +3636,24 @@ def autopilot_soon(src: str, stage: str, problem: str | None, did: str):
     if src not in CASE_FILES or not autopilot_store(src).kinds_on(stage, problem):
         return None
     if AUTOPILOT_RUN is None:
-        autopilot_case(src, did)
+        _look(src, did)
         return None
+    return AUTOPILOT_RUN(lambda: _look(src, did))
 
-    def run():
+
+def _look(src: str, did: str) -> dict | None:
+    """autopilot_case, which never fails the request that filed the case, nor the server: a look that fails leaves
+    its trace on the case, and the case waits for a person."""
+    try:
+        return autopilot_case(src, did)
+    except Exception as err:  # noqa: BLE001 - see above
+        print(f"Second Look's AI ({did}): {err}", file=sys.stderr)
         try:
-            autopilot_case(src, did)
-        except Exception as err:  # noqa: BLE001 - its look never stops the server; the case waits for a person
-            print(f"Second Look's AI ({did}): {err}", file=sys.stderr)
-    return AUTOPILOT_RUN(run)
+            c = case_store(src).get(did) if cases_mod.is_case_id(did) else find_case_of_dispute(did)
+            return _ai_steps_back(src, did, c, None, f"its look failed ({err})")
+        except Exception as err2:  # noqa: BLE001 - nowhere left to write it: the log has it
+            print(f"Second Look's AI ({did}): {err2}", file=sys.stderr)
+            return None
 
 
 def autopilot_after(src: str, c: dict | None):
@@ -3589,6 +3666,12 @@ def autopilot_after(src: str, c: dict | None):
     return autopilot_soon(src, "inquiry", c["problem"]["kind"], c["id"])
 
 
+# What approve() refused Second Look's AI for (its report's code), in the words a step back gives; any other
+# refusal is given in approve's own words.
+AI_REFUSED = {"off": "this kind was switched off while it looked",
+              "review_changed": "its review was replaced while it looked",
+              "case_changed": "the case changed since the review",
+              "already_sent": "the case was answered while it looked"}
 # The guard's two size stops, in the words a step back gives (STOP_SAYS has every other one).
 SIZE_SAYS = {"cap": "a refund over your auto-refund cap", "always_ask": "a case over your always-ask line"}
 
@@ -3604,6 +3687,26 @@ def _ai_steps_back(src: str, did: str, c: dict | None, kind: str | None, why: st
                                                      ai=True, autopilot=True))
         case_store(src).update(c["id"], note)
     return {"did": did, "kind": kind, "handled": False, "why": why}
+
+
+def _a_person_s(did: str, t: dict, c: dict | None, d: dict | None) -> str | None:
+    """Why this case is a person's already, or None: someone has it, a handoff waits, or someone answered on it.
+    Second Look's AI never takes a person's case, nor talks over them. `t`: the shop's own team."""
+    a = None if t.get("solo") else assignments_for(did).get(did)
+    if a and a.get("to"):
+        p = team_mod.person(t, a["to"])
+        name = p["name"] if p else a["to"]
+        return f"a handoff to {name} waits" if isinstance(a.get("handoff"), dict) else f"{name} has this case"
+    if _a_person_answered(did, c, d):
+        return "a person has already answered on this case: it stays theirs"
+    return None
+
+
+def _hidden_instructions(c: dict | None) -> bool:
+    """The customer's own words carry one of your injection markers (policy.json). Whatever the answer, it steps
+    back: the guard stops such a case only when money moves, and a reply drafted from them would go out unseen."""
+    said = " ".join(x.get("text") or "" for x in (c or {}).get("timeline", []) if x.get("direction") == "in").lower()
+    return any(m.lower() in said for m in _policy().get("injection_markers", []))
 
 
 def _a_person_answered(did: str, c: dict | None, d: dict | None) -> bool:
@@ -3637,17 +3740,23 @@ def _autopilot_case(src: str, did: str) -> dict:
     def back(why: str, kind: str | None = None) -> dict:
         return _ai_steps_back(src, did, c, kind, why)
     # A person's case already: no review is paid for, nothing is sent over a colleague. (On a PayPal dispute, any
-    # seller message counts as a person's, its own included: it never answers a dispute twice.)
+    # seller message counts as a person's, its own included: it never answers a dispute twice.) approve() checks
+    # these again under the case's lock, once its review is done.
     if inquiry and not c["sorted"]["by"]:
         return back("the request isn't matched to an order yet")
     t = team_for(did)
-    a = None if t.get("solo") else assignments_for(did).get(did)
-    if a and a.get("to"):
-        p = team_mod.person(t, a["to"])
-        name = p["name"] if p else a["to"]
-        return back(f"a handoff to {name} waits" if isinstance(a.get("handoff"), dict) else f"{name} has this case")
-    if _a_person_answered(did, c, d):
-        return back("a person has already answered on this case: it stays theirs")
+    held = _a_person_s(did, t, c, d)
+    if held:
+        return back(held)
+    if stage not in autopilot_mod.SWITCHABLE:     # a record that says on anyway: it never answers a PayPal dispute
+        return back(autopilot_mod.NOT_YET[:1].lower() + autopilot_mod.NOT_YET[1:].rstrip("."))
+    ours = [i for i, x in enumerate(c["timeline"]) if x["direction"] == "out" and x.get("autopilot")]
+    if ours:      # it answered once: what the customer says next is a person's to answer
+        if any(x["direction"] == "in" for x in c["timeline"][ours[-1] + 1:]):
+            return back("the customer wrote again after Second Look's AI answered")
+        return nothing
+    if _hidden_instructions(c):
+        return back("your limits held it back: " + STOP_SAYS["injection"])
     saved = _saved(did)
     changed = bool(saved) and bool(_changes(did, _case(did)))
     if saved and saved[1] and not changed:
@@ -3657,7 +3766,7 @@ def _autopilot_case(src: str, did: str) -> dict:
             run_review(did)                       # Second Look's AI with a key; the rules baseline without one
         except Exception as err:  # noqa: BLE001 - a review that fails sends nothing
             return back(f"its review failed ({err})")
-    dec = _saved(did)[0]
+    dec, _, mark = _saved_marked(did)      # the review it checks, and the mark it approves with
     j, s = dec.judgment, autopilot_mod.settings(t)
     kind = autopilot_mod.kind_key(stage, problem, dec.action)
     if judge_of(did) != "claude":
@@ -3672,19 +3781,22 @@ def _autopilot_case(src: str, did: str) -> dict:
     if kind not in on:
         return back(f"its answer ({_words(did)['action'].get(dec.action, dec.action).lower()}) is not one it sends on its own", kind)
     day = datetime.utcnow().strftime("%Y-%m-%d")
-    if store.sent_today(kind, day) >= s["per_day"]:
+    if not store.reserve(kind, day, s["per_day"]):       # today's slot, taken before it sends
         return back(f"today's {s['per_day']} for this kind are used", kind)
-    signed = autopilot_mod.signature(store.view()["kinds"][kind])
-    code, text = approve(did, dec.action, None, review=review_mark(did), ai_signed=signed)
-    if code == 200:
-        store.handled(did, kind, cases_mod.minute(None), day, text)
+    rep = {}
+    try:
+        signed = autopilot_mod.signature(store.view()["kinds"][kind])
+        code, text = approve(did, dec.action, None, review=mark, ai_signed=signed, ai_kind=kind, report=rep)
+    finally:
+        if rep.get("code") != "sent":
+            store.release(kind, day)                        # nothing went: the slot is free again
+    code = rep.get("code")
+    if code == "sent":
         return {"did": did, "kind": kind, "handled": True, "why": None}
-    over = re.fullmatch(r"Passed to (.+?): (.+) is over your (.+) limit\. Nothing was sent\.", text)
-    if code == 202 and over:
-        return back(f"{over.group(2)} is over its own {over.group(3)} limit: passed to {over.group(1)}", kind)
-    if "changed" in text:
-        return back("the case changed since the review", kind)
-    return back(text.rstrip("."), kind)
+    if code in ("pass", "over"):
+        return back(f"{rep['what']} is over its own {rep['limit']} limit: "
+                    + (f"passed to {rep['to']}" if code == "pass" else "you decide"), kind)
+    return back(rep["why"] if code == "person" else AI_REFUSED.get(code) or text.rstrip("."), kind)
 
 
 def api_case(did: str, as_person: str | None = None) -> dict:

@@ -8,7 +8,11 @@ Ready is not ON: the head of customer care (a role with no refund limit) switche
 
 Only people's decisions count, and only on reviews Second Look's AI made (never the rules baseline); its own sends
 never count: it can't grade itself. The record holds only for the setup it was earned under: a fingerprint of the
-AI's instructions and the shop's rules. Another fingerprint empties the record and switches every kind off.
+AI's instructions, the model it runs on and the shop's rules. Another fingerprint empties the record and switches
+every kind off.
+
+In this version only a shop inquiry's kinds can be switched on: on a PayPal dispute a person sends every answer (its
+sends there would not be signed on the case, nor kept out of staff time). Their record still counts.
 
 Nothing here calls a model or PayPal: web.py runs the review and the one approval path. This module keeps the
 record (one JSON file per shop, team.JsonFile) and the shop's numbers.
@@ -32,6 +36,9 @@ DEFAULTS = {"refund_up_to": 0.0, "window": 10, "min_confidence": 0.90, "per_day"
 # the guard's own rules: defending a parcel delivered to PayPal's address, the injection markers).
 LIMITS = ("min_confidence", "max_auto_refund", "always_ask_above", "repeat_buyer",
           "defend_if_delivered_to_paypal_address", "injection_markers")
+# The stages whose kinds may be switched on in this version.
+SWITCHABLE = ("inquiry",)
+NOT_YET = "Not in this version: on a PayPal dispute, a person sends every answer."
 
 
 def settings(t: dict) -> dict:
@@ -60,9 +67,11 @@ def _hash(x) -> str:
 
 
 def fingerprint(policy: dict) -> dict:
-    """What the record was earned under: the judge's instructions (both of them), and the shop's rules (policy.json:
-    the preferences the judge follows, the limits and the rules the guard enforces). Not staff_time: no rule."""
+    """What the record was earned under: the judge's instructions (both of them), the model they run on (the judge's
+    own reading of it), and the shop's rules (policy.json: the preferences the judge follows, the limits and the rules
+    the guard enforces). Not staff_time: no rule."""
     return {"instructions": _hash([judge.SYSTEM, judge.SYSTEM_INQUIRY]),
+            "model": _hash(judge.model_name()),
             "rules": _hash({"seller_preferences": policy.get("seller_preferences", []),
                             **{k: policy.get(k) for k in LIMITS}})}
 
@@ -159,7 +168,8 @@ class Record(team_mod.JsonFile):
         was = data.get("fingerprint")
         if was and self.fp and was != self.fp:
             what = ("Your rules" if was.get("rules") != self.fp.get("rules")
-                    else "Second Look's AI's instructions")
+                    else "Second Look's AI's instructions" if was.get("instructions") != self.fp.get("instructions")
+                    else "Second Look's AI's model")
             data["kinds"] = {}
             data["restarted"] = {"on": self.today, "why": f"{what} changed on {_day(self.today)}: the record starts again."}
         if self.fp:
@@ -190,14 +200,18 @@ class Record(team_mod.JsonFile):
         return self.change(do)
 
     def switch(self, kind: str, on: bool, by: str, at: str, window: int) -> tuple:
-        """The head of customer care switches a kind on (only when ready) or off. Who may is checked by the caller
-        (may_switch). Returns (status, what happened)."""
+        """The head of customer care switches a kind on (only when ready, and only a stage SWITCHABLE) or off. Who
+        may is checked by the caller (may_switch). Returns (status, what happened). A kind with no record yet gets
+        none from a switch."""
         def do(data):
-            k = _kind(data, kind)
-            if on and not ready(k, window):
-                return 409, f"Not ready: {streak(k)} of the last {window} approved as advised."
-            if on == k["on"]:
+            seen = data["kinds"].get(kind) or {}
+            if on and split_kind(kind)[0] not in SWITCHABLE:
+                return 409, NOT_YET
+            if on and not ready(seen, window):
+                return 409, f"Not ready: {streak(seen)} of the last {window} approved as advised."
+            if on == bool(seen.get("on")):
                 return 200, "Already on." if on else "Already off."
+            k = _kind(data, kind)
             k["on"] = on
             if on:
                 k["switched"], k["off"] = {"by": by, "at": at}, None
@@ -211,18 +225,42 @@ class Record(team_mod.JsonFile):
         t = (self.view()["kinds"].get(kind) or {}).get("today") or {}
         return int(t.get("n") or 0) if t.get("day") == day else 0
 
-    def handled(self, did: str, kind: str, at: str, day: str, what: str) -> None:
+    def reserve(self, kind: str, day: str, per_day: int) -> bool:
+        """Takes one of today's `per_day` slots for this kind before it sends, in one step: two looks at once can't
+        both take the last one. False when they are used. A look that sends nothing gives its slot back (release)."""
         def do(data):
             k = _kind(data, kind)
-            k["today"] = {"day": day, "n": (k["today"]["n"] if k["today"].get("day") == day else 0) + 1}
-            data["cases"][did] = {"kind": kind, "at": at, "handled": True, "what": what, "checked": None}
+            n = k["today"]["n"] if k["today"].get("day") == day else 0
+            if n >= per_day:
+                return False
+            k["today"] = {"day": day, "n": n + 1}
+            return True
+        return self.change(do)
+
+    def release(self, kind: str, day: str) -> None:
+        def do(data):
+            k = _kind(data, kind)
+            if k["today"].get("day") == day and k["today"].get("n"):
+                k["today"]["n"] -= 1
         self.change(do)
+
+    def handled(self, did: str, kind: str, at: str, what: str) -> bool:
+        """It answered this case on its own (its slot taken already: reserve). Once per case: a second time changes
+        nothing (and keeps a person's check). False then."""
+        def do(data):
+            if (data["cases"].get(did) or {}).get("handled"):
+                return False
+            data["cases"][did] = {"kind": kind, "at": at, "handled": True, "what": what, "checked": None}
+            return True
+        return self.change(do)
 
     def stepped_back(self, did: str, kind: str | None, at: str, why: str) -> None:
         def do(data):
             was = data["cases"].get(did) or {}
             if was.get("handled"):
-                return                         # an answer it already sent stays on record; the step back is noted
+                # the answer it already sent stays on record, with what came after it
+                was["later"] = {"at": at, "why": why}
+                return
             data["cases"][did] = {"kind": kind, "at": at, "handled": False, "why": why}
         self.change(do)
 
