@@ -247,7 +247,8 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
     solved = [c for c in cases if c.get("status") != "open" and not c.get("dispute_id") and _closed_at(c) >= m]
     st = staff_time(policy)
     entries = [x for c in cases for x in c.get("timeline", []) if (x.get("at") or "") >= m]
-    written = sum(1 for x in entries if x.get("direction") == "out" and x.get("channel") != "call")
+    # a reply Second Look's AI sent on its own took nobody's minutes: it is not staff time
+    written = sum(1 for x in entries if x.get("direction") == "out" and x.get("channel") != "call" and not x.get("autopilot"))
     written += sum(1 for a in answers if (a or "") >= m)
     call_min = sum(_num(x.get("minutes")) for x in entries if x.get("channel") == "call" and x.get("direction") in ("in", "out"))
     minutes = written * st["reply_minutes"] + call_min

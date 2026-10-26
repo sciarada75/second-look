@@ -129,7 +129,8 @@ def costs_so_far(case: dict, dispute: dict | None, policy: dict | None) -> dict:
     st = staff_time(policy)
     tl = timeline(case, dispute)
     contacts = [x for x in tl if x["direction"] in ("in", "out")]
-    replies = [x for x in contacts if x["direction"] == "out" and x["channel"] != "call"]
+    # a reply Second Look's AI sent on its own is a contact, but nobody's minutes
+    replies = [x for x in contacts if x["direction"] == "out" and x["channel"] != "call" and not x.get("autopilot")]
     calls = [x for x in contacts if x["channel"] == "call"]
     minutes = len(replies) * st["reply_minutes"] + sum(float(x.get("minutes") or 0) for x in calls)
     money = case.get("money", [])

@@ -383,6 +383,17 @@ def test_in_the_server_its_look_runs_in_the_background():
     assert ran == [1]
 
 
+def test_what_it_sends_on_its_own_takes_nobody_s_minutes():
+    with morning(ai_key=True, claude=says("MESSAGE")):
+        no_record(on())
+        before = web.today_view("demo")["know"]
+        cid = marco()
+        after = web.today_view("demo")["know"]
+        assert (after["answers"], after["minutes"]) == (before["answers"], before["minutes"])
+        costs = web.case_view(cid)["costs"]
+        assert (costs["contacts"], costs["replies"], costs["minutes"]) == (2, 0, 0)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
