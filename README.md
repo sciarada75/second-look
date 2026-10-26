@@ -14,8 +14,10 @@ a calm morning doesn't help if you don't know PayPal's rules: that's when people
 or fight a case they will lose. **Second Look** gives every dispute,
 routine or strange, the same ten checks a specialist would run. It pulls the evidence straight from
 PayPal, checks the dates, the address, the tracking and the seller's own promises, and hands you one
-recommendation with its reasons and a reply ready in the buyer's language. It never moves your
-money on its own: your limits are enforced in code, and you approve every action.
+recommendation with its reasons and a reply ready in the buyer's language. Your limits are enforced
+in code, and a person approves every action, until your shop lets Second Look's AI answer a
+routine kind of shop inquiry on its own, once your people have trusted it there (*Earned autonomy*,
+below). Even then it moves no money beyond its own limit, which starts at 0.
 
 ### The cheap moment is the first one
 
@@ -149,7 +151,7 @@ as the screen.
 | `GET /api/orders/<order no>` | one order as the shop's order system holds it: customer, items, amount, how it was paid (`paid_with`: `paypal`, `card` or `bank`), delivery address. In the demo shop, a made-up stand-in for the shop's own order system, labelled so (`source`) |
 | `GET /books.csv?month=YYYY-MM` | the month's money events for the shop's accounting, one row each: date, what (refund, partial refund, replacement, PayPal refund, PayPal fee), order and invoice number, amount, fees (a PayPal dispute's fee estimated from PayPal's fee table, as on the Overview), whether the item came back or was lost, who approved it, the channel, the case or PayPal dispute, and its status (logged, sent to PayPal, paid, cancelled, or PayPal's outcome). The facts only, never a credit note: that is the accountant's. The *I know* block links it as *Export for accounting* |
 | `GET /api/tracking/<order no>` | the courier's record of that order: the parcel (`tracking`: status, where it was left) and any return (`return`). In the demo shop, a made-up stand-in for the courier, labelled so; on the live shop, PayPal's tracking of a PayPal order |
-| `GET /api/today` | the morning screen as data: `see` (what came in since yesterday, one row per problem, with `counts` by channel and the new `orders`), `manage` (who has which open case, with roles; unassigned; handoffs) and `know` (this month: requests, solved before any dispute, staff time and its estimate's inputs, money given back, fees, what open cases could still cost, PayPal's claim line) |
+| `GET /api/today` | the morning screen as data: `see` (what came in since yesterday, one row per problem, with `counts` by channel and the new `orders`), `manage` (who has which open case, with roles; unassigned; handoffs), `know` (this month: requests, solved before any dispute, staff time and its estimate's inputs, money given back, fees, what open cases could still cost, PayPal's claim line) and `autopilot` (what Second Look's AI answered on its own since yesterday, and the kinds that are on) |
 | `POST /api/requests` | `{"channel": "email" or "form", "from": {"name", "email"}, "text", "subject", "time", "order", "source_id"}`: one request from your helpdesk or web form. Second Look sorts it (rules first, its AI only for what they can't settle) and files it on its case: `201` with `case_id`, `filed` (`opened` or `joined`), `stage`, `sorted` and `dispute_id`; `200` with `"filed": "already_received"` when that `source_id` came before. JSON only (`415` otherwise), at most 1 MB (`413`) |
 | `GET /api/cases/<case id>?as=<person id>` | one case as its page shows it: the customer (with their role), the order, the stage, the channels (`channels`, and `channel_labels` as people say them: "web form", "PayPal"), who has it, every contact on every channel (each with its `role`), `costs_so_far` (estimated), and its `decision_id` (its PayPal dispute, or the case itself for a shop inquiry) with that decision's `review` and, with `?as=`, `for_person` |
 | `POST /api/cases/<case id>/review`, `/approve` | review or approve the case's decision, exactly as `POST /api/disputes/<id>/review` and `/approve` do (same body, same limits, sent once). `GET /api/disputes/<id>` and its approve also take a case id: a shop inquiry is a decision of its own |
@@ -314,6 +316,72 @@ runs on your own machine. The person picker is not authentication: anyone at the
 any name. Each form carries the person it was shown to, so an approval acts as the person whose
 page it was, and a form with no known person is refused. Real accounts with passwords come before
 any shared or hosted use.
+
+## Earned autonomy: Second Look's AI on its own
+
+A routine answer ("where is my order", "it was left with a neighbour") still costs a person minutes
+when they approve it. Second Look's AI can answer a **kind** of case on its own once your people have
+trusted it there. A kind is the stage, the problem and the answer: *Shop inquiry · Says it never
+arrived · Reply only*. Whether it does is your shop's choice.
+
+- **It earns it from your people, one kind at a time.** A kind is *ready* when the last 10 decisions
+  your people made on it approved its advice as it was: the answer it recommended (after your limits),
+  the same amount, the reply not edited. Any other decision restarts the count. Only your people's
+  approvals of its own reviews count, never the rules baseline's, never its own sends. A person who
+  closes a case, or answers outside Second Look, is no decision on its advice: it doesn't count, for
+  or against. Not a score we measured: our cases aren't your shop's. Not a value line either:
+  "anything under 20 EUR" would pay small-claim fraud automatically.
+- **Ready is not on.** Your head of customer care (a role with no refund limit) switches a ready kind
+  on, and off, on *Your rules*. Nobody else can.
+- **Shop inquiries only, in this version.** On a PayPal dispute a person sends every answer: those
+  kinds keep their record (your people's decisions still count, and *Your rules* shows it), but they
+  can't be switched on.
+- **It goes through the same approval as a person**, as *Second Look's AI*, with its own money limit:
+  your limits, the unconfirmed-refund holds and the same channel back all apply unchanged. Replies,
+  and money only within its own limit, which starts at 0. There is no screen to raise it yet: it is
+  set in the team file, as the roles' limits are (`policy.json` → `team` → `autopilot` →
+  `refund_up_to`). Over it, it does what a colleague over their limit does: passes the case to a
+  person, and sends nothing. It is never one of the team's people: it is never given a case or a
+  handoff.
+- **Everything it sends is signed** "Sent by Second Look's AI, under Giulia's setting (since 17 Oct)"
+  (a seller on their own reads "under your setting"): on the case, in the action log, in `answer.sent`
+  to your helpdesk and in the books. It counts no staff time.
+- **It steps back to a person**, nothing sent, the reason on the case and on the morning screen,
+  when:
+  - the request isn't matched to an order yet;
+  - a person has the case, a handoff waits, or a person already answered on it;
+  - the customer's words carry hidden instructions (your injection markers), whatever its answer;
+  - the customer wrote again after it answered: what they say next is a person's to answer;
+  - its review failed, or came from the rules baseline (no AI key, or the model failed);
+  - your limits raised anything (a repeat buyer, evidence that doesn't add up, already refunded or
+    replaced, a refund PayPal hasn't confirmed);
+  - it is less than 90% sure (a person's approval needs 75%), or its own answer is *your call*;
+  - its answer isn't a kind that's on, or today's 20 of that kind are used;
+  - the money is over its own limit (passed to a person);
+  - while it looked: a person took the case, the kind was switched off, the case changed, or the
+    review was replaced (it checks again, under the same lock as every approval, before it sends);
+  - its look failed; or PayPal didn't confirm a refund it asked for (that one is also listed for a
+    person to check: the money may have moved).
+- **You check it.** The morning screen's *I manage* says "Handled by Second Look's AI: 1 — check
+  them". On each, *I'd have done it differently* (anyone) switches that kind off at once and restarts
+  its count, with who and why. What it sent stays sent: the person follows up.
+- **The record holds only for the setup it was earned under.** Change what Second Look's AI is told
+  (its instructions), the model it runs on, or your rules (your preferences, your limits, and the
+  guard's rules: defending a parcel delivered to PayPal's address, the injection markers), and every
+  kind's record starts again, every kind off, with the reason on *Your rules* ("Your rules changed on
+  22 Oct: the record starts again").
+- **When it runs:** a request comes in (email, web form, call) and your shop has a kind on for it:
+  one review by Second Look's AI, in the background. A shop with nothing on pays for nothing. The
+  live shop starts with nothing on.
+
+The numbers are your shop's, in its team block: `"autopilot": {"refund_up_to": 0, "window": 10,
+"min_confidence": 0.90, "per_day": 20}`, shown on *Your rules* in plain words. In the demo shop,
+*Shop inquiry · Says it never arrived · Reply only* is on: 10 of the last 10 approved as advised by
+Marta, Luca and Sara, switched on by Giulia on 17 Oct. This morning's new request, Margot asking where
+her napkins are (on their way, on time), is answered by Second Look's AI when the demo first loads,
+from the review Claude made of it (shipped in `demo/reviews/`). Sophie's case is Marta's, so it steps
+back from hers. Post a new "where is my order" with no AI key and you see it step back: the rules
+baseline reviewed it.
 
 ## How it works
 
@@ -528,7 +596,14 @@ EUR 10 of a EUR 42 dispute.
   same request sent again returned the same refund, not a second one, and Second Look read the 1.00
   back from PayPal as already refunded. The whole path from Approve on a case page to the refund has
   run against a fake PayPal only: it makes that same call.
-- Not escrow, not arbitration, not legal advice. The assistant recommends; a human decides.
+- Earned autonomy is built and tested with a fake AI judge (no paid call in any test); the one
+  request the demo shows handled carries a review Claude made. Its record only counts approvals: it
+  never changes what Second Look's AI is told. **Not built:** money on its own by default, a screen to
+  raise its money limit, switching on a PayPal dispute's kinds, learning anything from the record
+  beyond the count, a held-out measure per shop, undoing a sent answer.
+- Not escrow, not arbitration, not legal advice. The assistant recommends; a person decides, except on
+  a kind of shop inquiry your head of customer care switched on after ten approvals unchanged, where
+  Second Look's AI answers on its own, signed, within its own money limit (0 by default).
 
 ## Licence
 
