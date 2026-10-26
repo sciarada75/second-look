@@ -552,7 +552,9 @@ answer was to defend (a dispute) or only to reply (an inquiry).
 | `claude` (Opus 5.5, effort high) | **9/9** | **0** | **0** | 0 |
 
 Measured 2026-10-26, both judges on the same run of the code, after the guard. The two tables measure
-different things, so their columns are never added together.
+different things, so their columns are never added together. Since that run, one case file moved: adding the demo's
+Margot shifted the earlier case IQ-006 names (DEMO-C009 became DEMO-C010). IQ-006 was run again alone the
+same day: still the right answer (a reply, 94% sure). The other 24 files are as they were measured.
 
 Two costly mistakes are counted separately. In a dispute: an **unjustified refund** (money or goods given
 when the right answer was to defend) and a **losing fight** (defending a case the buyer is right about).

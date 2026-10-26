@@ -54,11 +54,12 @@ in code,* have the last word) → **A person approves** (within their own limit)
 - Marta, a customer care assistant, can give back up to thirty euros. Giulia, head of customer care, decides above that.
 
 ## 5. What came in this morning? (≈ 22 s) — I see, I manage, and the routine ones
-[**Second Look › Today**, signed in as Giulia. Light **I see**: the channel counts (1 call, 2 emails, 1 web form,
+[**Second Look › Today**, signed in as Giulia. Light **I see**: the channel counts (1 call, 3 emails, 1 web form,
 3 PayPal disputes) beside 141 new orders, then the list with its *Second Look's AI* lines. Then **I manage**:
-who has which cases, and the line **Handled by Second Look's AI: 1 — check them**; cursor opens it: the
-reply "Sent by Second Look's AI, under Giulia's setting (since 15 Oct)", its record "10 of the last 10 approved as
-advised", the button *I'd have done it differently*.]
+who has which cases, and the line **Handled by Second Look's AI: 1 — check them**, with Margot (customer) and
+the button *I'd have done it differently*. Cursor opens her case: the reply "Email out · Second Look's AI, under
+Giulia's setting (since 17 Oct)". Then **Your rules**: "10 of the last 10 approved as advised · On, switched on
+by Giulia on 17 Oct, 09:00".]
 - Giulia's morning starts here: everything that came in, every channel, beside the day's orders.
 - Each request already matched to its order and checked by Second Look's AI. And who has what.
 - And the routine ones? After ten approved unchanged, Giulia let Second Look's AI answer them alone. It signs what it sends, and steps back when it isn't sure.
@@ -125,7 +126,7 @@ claudiaonclaude.com · github.com/sciarada75/second-look]
 | everything that came in, every channel, beside the day's orders | `/today` I see: counts by channel + 141 orders (19–20 Oct) |
 | matched to its order and checked by Second Look's AI | each row's order and its review line: the shipped reviews (demo/reviews/, DEMO-C001/C002 since 26/10; disputes since 23/10) |
 | who has what | `/today` I manage |
-| after ten approved unchanged, Giulia let Second Look's AI answer them alone | earned autonomy (spec 2026-10-26): a kind is ready after its last 10 decisions by people were approved as advised; only the head of customer care switches it on. Demo: `inquiry · not_received · reply only`, seeded record, switched on by Giulia 15 Oct. **Backed only once the feature is built and merged** |
+| after ten approved unchanged, Giulia let Second Look's AI answer them alone | earned autonomy (spec 2026-10-26): a kind is ready after its last 10 decisions by people were approved as advised; only the head of customer care switches it on. Demo: `inquiry · not_received · reply only`, seeded record, switched on by Giulia 17 Oct, 09:00; Margot's request (DEMO-C004, LP-90003) answered by it at the demo's first load (`demo/reviews/DEMO-C004.json`, Claude, 26/10). Built on branch autopilot (394 tests) |
 | it signs what it sends, and steps back when it isn't sure | every send signed "Sent by Second Look's AI, under Giulia's setting"; steps back on confidence < 0.90, any guard stop, a rules-baseline review, a changed or assigned case (spec §3, one test each) |
 | the call is transcribed on the shop's own computer | local whisper (`transcribe_calls`), when installed; otherwise the transcript shipped beside the recording, labelled. **Capture on Claudia's Mac shows whisper's words**; a judge's clone shows "transcript shipped with the demo" |
 | her email joins it, one case | DEMO-C001: call 08:31 + email 08:52 |
