@@ -271,10 +271,11 @@ class CaseStore(JsonFile):
             return dict(c)
         return self.transact(do)
 
-    def link_disputes(self, disputes: list, orders: dict) -> int:
+    def link_disputes(self, disputes: list, orders: dict, joined: list | None = None) -> int:
         """Open cases whose order now has an open PayPal dispute join it; linked cases follow PayPal's stage.
         `orders`: order number -> order (as sort.order_view gives it). Returns how many cases changed; the file
-        is written only when one did (every page view calls this)."""
+        is written only when one did (every page view calls this). `joined`, when given, gets (case id, dispute)
+        for each dispute that joined a case just now (Second Look's AI may then take its look)."""
         by_tx = {_tx(d): d for d in disputes if d.get("status") != "RESOLVED" and _tx(d)}
         by_id = {d["dispute_id"]: d for d in disputes}
 
@@ -303,6 +304,8 @@ class CaseStore(JsonFile):
             todo = changes(data)
             for cid, d in todo:
                 c = data["cases"][cid]
+                if joined is not None and not c.get("dispute_id"):
+                    joined.append((cid, d))
                 c["dispute_id"], c["stage"] = d["dispute_id"], stage_for(d)
                 if d.get("status") == "RESOLVED":
                     key = paypal_outcome(d)

@@ -335,9 +335,11 @@ def _tx_of(d: dict) -> str | None:
     return ((d.get("disputed_transactions") or [{}])[0]).get("seller_transaction_id")
 
 
-def _file_request(store, src: str, req: dict, ai) -> tuple:
+def _file_request(store, src: str, req: dict, ai, later: list | None = None) -> tuple:
     """Sort one request and put it on its case. A request already filed (same source id) is not sorted again,
-    so a system that sends it twice never pays for a second look by the AI."""
+    so a system that sends it twice never pays for a second look by the AI. A request filed now: Second Look's AI
+    takes its look (autopilot_after), or, with `later` (the demo's first morning, filed in one go), it is added there
+    for a look once everything is filed."""
     sid = req.get("source_id")
     if sid and store.by_source(sid):
         return store.get(store.by_source(sid)), "already_received"
@@ -350,7 +352,13 @@ def _file_request(store, src: str, req: dict, ai) -> tuple:
         o = next((x for x in orders if sort_mod.order_no(x) == s["order_no"]), None)
         tx = o.get("transaction_id") if o else None
         dispute = next((d for d in open_d if tx and _tx_of(d) == tx), None)
-    return store.file(req, s, dispute=dispute)
+    c, how = store.file(req, s, dispute=dispute)
+    if how != "already_received":
+        if later is not None:
+            later.append(c["id"])
+        else:
+            autopilot_after(src, c)
+    return c, how
 
 
 def transcriber_on() -> bool:
@@ -398,7 +406,7 @@ def transcribe_calls(src: str) -> int:
     return n
 
 
-def file_calls(store, src: str) -> int:
+def file_calls(store, src: str, later: list | None = None) -> int:
     """Every recording in the shop's call box not filed yet becomes a request on the channel "call", sorted by the
     caller's number like an email by its address (rules only: no AI call). It never runs a model: it files the
     words local whisper already made in the background (transcribe_calls), else the transcript shipped beside the
@@ -418,7 +426,7 @@ def file_calls(store, src: str) -> int:
             continue
         req = calls_mod.as_request(rec, lambda wav, t=heard: t)
         if req:
-            _file_request(store, src, req, ai=None)
+            _file_request(store, src, req, ai=None, later=later)
             n += 1
     return n
 
@@ -460,12 +468,19 @@ def case_store(src: str) -> cases_mod.CaseStore:
     path = CASE_FILES[src]
     store = cases_mod.CaseStore(path, prefix="DEMO-" if src == "demo" else "")
     if src == "demo":
+        filed = []
         with _SEEDING:
             if not path.exists():
                 # the morning in the order it happened: Sophie's call (08:31) before her email (08:52) joins it
-                file_calls(store, "demo")
+                file_calls(store, "demo", later=filed)
                 for r in DemoPayPal().requests():   # they sort by rules alone (tests/test_demo_shop.py): no AI call
-                    _file_request(store, "demo", r, ai=None)
+                    _file_request(store, "demo", r, ai=None, later=filed)
+        # Second Look's AI looks at the morning once it is all filed (one look per case, after the lock: its approval
+        # reads this store again). The first load waits for it, at most 10 s: the demo's review of the one request it
+        # handles ships with the demo, so no model is called, and the first page already shows it handled.
+        for th in [autopilot_after("demo", store.get(cid)) for cid in dict.fromkeys(filed)]:
+            if th is not None:
+                th.join(10)
     return store
 
 
@@ -710,7 +725,11 @@ def case_view(cid: str) -> dict | None:
         return None
     orders, disputes = shop_orders(src), shop_disputes(src)
     by_no = {sort_mod.order_no(o): sort_mod.order_view(o) for o in orders}
-    store.link_disputes(disputes, by_no)          # a PayPal dispute opened since on this order joins the case
+    joined = []
+    store.link_disputes(disputes, by_no, joined)  # a PayPal dispute opened since on this order joins the case
+    for _, d_ in joined:
+        if d_.get("status") != "RESOLVED":
+            autopilot_soon(src, "paypal", d_.get("reason"), d_["dispute_id"])
     c = store.get(cid)
     d = next((x for x in disputes if x["dispute_id"] == c.get("dispute_id")), None)
     order = by_no.get(c.get("order_no"))
@@ -3386,6 +3405,144 @@ def _record_decision(did: str, case: dict, recommended: str, chosen: str, messag
                                 autopilot_mod.settings(team_for(did))["window"])
 
 
+# ---------- earned autonomy: Second Look's AI answers a kind the shop switched on (secondlook/autopilot.py) ----------
+# How its look runs: None = at once, in the caller's thread (the tests, the CLI); serve() sets a thread of its own,
+# like whisper's and the books' posts, so no page or API request waits on a review. A test that forgets a setting
+# never leaves a thread running past its bench.
+AUTOPILOT_RUN = None
+
+
+def _in_a_thread(fn) -> threading.Thread:
+    th = threading.Thread(target=fn, daemon=True)
+    th.start()
+    return th
+
+
+def autopilot_soon(src: str, stage: str, problem: str | None, did: str):
+    """Second Look's AI takes its look at one case (autopilot_case) when this shop has a kind on for this stage and
+    problem. A shop with nothing on pays for nothing: no review runs. Returns the thread, when one was started."""
+    if src not in CASE_FILES or not autopilot_store(src).kinds_on(stage, problem):
+        return None
+    if AUTOPILOT_RUN is None:
+        autopilot_case(src, did)
+        return None
+
+    def run():
+        try:
+            autopilot_case(src, did)
+        except Exception as err:  # noqa: BLE001 - its look never stops the server; the case waits for a person
+            print(f"Second Look's AI ({did}): {err}", file=sys.stderr)
+    return AUTOPILOT_RUN(run)
+
+
+def autopilot_after(src: str, c: dict | None):
+    """A request was filed on this case: its decision is its PayPal dispute when it has one, else the inquiry."""
+    if not c or not any(k.get("on") for k in autopilot_store(src).view()["kinds"].values()):
+        return None
+    if c.get("dispute_id"):
+        d = next((x for x in shop_disputes(src) if x["dispute_id"] == c["dispute_id"]), None)
+        return autopilot_soon(src, "paypal", d.get("reason"), c["dispute_id"]) if d and d.get("status") != "RESOLVED" else None
+    return autopilot_soon(src, "inquiry", c["problem"]["kind"], c["id"])
+
+
+# The guard's two size stops, in the words a step back gives (STOP_SAYS has every other one).
+SIZE_SAYS = {"cap": "a refund over your auto-refund cap", "always_ask": "a case over your always-ask line"}
+
+
+def _ai_steps_back(src: str, did: str, c: dict | None, kind: str | None, why: str) -> dict:
+    """Nothing sent: the case stays a person's, with the reason on its record and on the case."""
+    autopilot_store(src).stepped_back(did, kind, cases_mod.minute(None), why)
+    text = f"Second Look's AI stepped back: {why}. A person decides."
+    if c:
+        def note(x):
+            if not any(y.get("text") == text for y in x["timeline"] if y.get("direction") == "note"):
+                x["timeline"].append(cases_mod.entry(None, reply_channel(x), "note", text, autopilot_mod.AI_NAME,
+                                                     ai=True, autopilot=True))
+        case_store(src).update(c["id"], note)
+    return {"did": did, "kind": kind, "handled": False, "why": why}
+
+
+def _a_person_answered(did: str, c: dict | None, d: dict | None) -> bool:
+    """Someone of the shop already answered on this case: it stays theirs (Second Look's AI never talks over them)."""
+    if cases_mod.is_case_id(did):
+        return any(x["direction"] == "out" and not x.get("autopilot") for x in (c or {}).get("timeline", []))
+    return any(m.get("posted_by") == "SELLER" for m in (d or {}).get("messages", [])) or \
+        any(ev.get("source") == "SUBMITTED_BY_SELLER" for ev in (d or {}).get("evidences", []))
+
+
+def autopilot_case(src: str, did: str) -> dict:
+    """Second Look's AI's look at one case of a kind the shop switched on: one review by Second Look's AI (the current
+    one when there is one), then, when its answer is a kind that's on and nothing says a person should decide, it
+    approves it as itself through approve(), within its own limit. Otherwise it steps back: nothing sent, the reason
+    on the case. Returns {"did", "kind", "handled", "why"}; why None = nothing to do here."""
+    with _case_lock(f"autopilot|{did}"):    # one look at a time per case: two requests never pay for two reviews
+        return _autopilot_case(src, did)
+
+
+def _autopilot_case(src: str, did: str) -> dict:
+    nothing = {"did": did, "kind": None, "handled": False, "why": None}
+    store = autopilot_store(src)
+    inquiry = cases_mod.is_case_id(did)
+    c = case_store(src).get(did) if inquiry else find_case_of_dispute(did)
+    d = None if inquiry else _client(did).get_dispute(did)
+    stage, problem = ("inquiry", (c or {}).get("problem", {}).get("kind")) if inquiry else ("paypal", d.get("reason"))
+    on = store.kinds_on(stage, problem)
+    if not on or (inquiry and (not c or c["status"] != "open" or c.get("dispute_id"))):
+        return nothing                            # nothing on here; or closed, or answered on its PayPal dispute
+
+    def back(why: str, kind: str | None = None) -> dict:
+        return _ai_steps_back(src, did, c, kind, why)
+    # A person's case already: no review is paid for, nothing is sent over a colleague. (On a PayPal dispute, any
+    # seller message counts as a person's, its own included: it never answers a dispute twice.)
+    if inquiry and not c["sorted"]["by"]:
+        return back("the request isn't matched to an order yet")
+    t = team_for(did)
+    a = None if t.get("solo") else assignments_for(did).get(did)
+    if a and a.get("to"):
+        p = team_mod.person(t, a["to"])
+        name = p["name"] if p else a["to"]
+        return back(f"a handoff to {name} waits" if isinstance(a.get("handoff"), dict) else f"{name} has this case")
+    if _a_person_answered(did, c, d):
+        return back("a person has already answered on this case: it stays theirs")
+    saved = _saved(did)
+    changed = bool(saved) and bool(_changes(did, _case(did)))
+    if saved and saved[1] and not changed:
+        return nothing                            # answered, and nothing new since
+    if not (saved and not saved[1] and judge_of(did) == "claude" and not changed):
+        try:
+            run_review(did)                       # Second Look's AI with a key; the rules baseline without one
+        except Exception as err:  # noqa: BLE001 - a review that fails sends nothing
+            return back(f"its review failed ({err})")
+    dec = _saved(did)[0]
+    j, s = dec.judgment, autopilot_mod.settings(t)
+    kind = autopilot_mod.kind_key(stage, problem, dec.action)
+    if judge_of(did) != "claude":
+        return back("the review came from the rules baseline (no AI key, or the model failed)", kind)
+    if dec.stops or dec.reasons:
+        held = [SIZE_SAYS.get(x) or STOP_SAYS.get(x, x) for x in dec.stops]
+        return back("your limits held it back: " + (", ".join(held) if held else dec.reasons[0].rstrip(".")), kind)
+    if j.action == "ASK_SELLER":
+        return back("its own answer was: your call", kind)
+    if j.confidence < s["min_confidence"]:
+        return back(f"it is {j.confidence:.0%} sure, and it answers on its own only from {s['min_confidence']:.0%}", kind)
+    if kind not in on:
+        return back(f"its answer ({_words(did)['action'].get(dec.action, dec.action).lower()}) is not one it sends on its own", kind)
+    day = datetime.utcnow().strftime("%Y-%m-%d")
+    if store.sent_today(kind, day) >= s["per_day"]:
+        return back(f"today's {s['per_day']} for this kind are used", kind)
+    signed = autopilot_mod.signature(store.view()["kinds"][kind])
+    code, text = approve(did, dec.action, None, review=review_mark(did), ai_signed=signed)
+    if code == 200:
+        store.handled(did, kind, cases_mod.minute(None), day, text)
+        return {"did": did, "kind": kind, "handled": True, "why": None}
+    over = re.fullmatch(r"Passed to (.+?): (.+) is over your (.+) limit\. Nothing was sent\.", text)
+    if code == 202 and over:
+        return back(f"{over.group(2)} is over its own {over.group(3)} limit: passed to {over.group(1)}", kind)
+    if "changed" in text:
+        return back("the case changed since the review", kind)
+    return back(text.rstrip("."), kind)
+
+
 def api_case(did: str, as_person: str | None = None) -> dict:
     """Other systems -> Second Look: one case as data, what the page shows."""
     case = _case(did)
@@ -3781,6 +3938,8 @@ def _transcribe_in_the_background(every: float = 30.0) -> None:
 
 
 def serve(port: int = 8765) -> None:
+    global AUTOPILOT_RUN
     print(f"Second Look: http://127.0.0.1:{port}")
+    AUTOPILOT_RUN = _in_a_thread          # Second Look's AI's looks: in the background, never inside a request
     threading.Thread(target=_transcribe_in_the_background, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
