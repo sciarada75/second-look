@@ -502,8 +502,11 @@ EUR 10 of a EUR 42 dispute.
 - The demo shop's orders, buyers and outcomes are made up (labelled on every page); the outcome
   codes and reasons are PayPal's own. Dispute fees on the overview are estimated from PayPal's fee
   table: the dispute object doesn't carry them.
-- PayPal's refund API (`POST /v2/payments/captures/{id}/refund`) is built and tested against a fake
-  PayPal; it has not yet refunded a live sandbox capture.
+- PayPal's refund API (`POST /v2/payments/captures/{id}/refund`) refunded a live sandbox payment on
+  26/10/2026: 1.00 of a 12.00 EUR checkout with no dispute, through Second Look's own refund call. The
+  same request sent again returned the same refund, not a second one, and Second Look read the 1.00
+  back from PayPal as already refunded. The whole path from Approve on a case page to the refund has
+  run against a fake PayPal only: it makes that same call.
 - Not escrow, not arbitration, not legal advice. The assistant recommends; a human decides.
 
 ## Licence
