@@ -40,17 +40,18 @@ KIND_WORDS = [
                          r"|\bcame off\b|\bfell off\b|\bfalling apart\b|\bripped\b|\bmissing (a |the |one )?button"
                          r"|\bbuttons? (is |was |are )?missing\b|\bstaccat|\bstrappat|\bscucit", None),
     ("not_received", r"\bnever (arrived|came|got)\b|(\bnot|n't) (yet )?(arrived|received|come)\b|\bnot here\b"
-                     r"|\bwhere is (my|the)\b|\bnon (è )?(ancora )?(mai )?arrivat|\bmai arrivat"
-                     # an order that never left the shop: "it still hasn't shipped", "non è ancora stato spedito"
-                     r"|(\bnot|n't) (yet )?(been )?(shipped|sent|dispatched)\b|\bnon (è )?(ancora )?(stat[oa] )?spedit",
-                     r"\btracking\b|\blost\b"),
+                     r"|\bwhere is (my|the)\b|\bnon (è )?(ancora )?(mai )?arrivat|\bmai arrivat",
+     # outside a question only: an order that never left the shop ("it still hasn't shipped", "it hasn't been
+     # sent", "non è ancora stato spedito"), never the customer's own sending ("I haven't sent it back yet")
+     r"\btracking\b|\blost\b|(\bnot|n't) (yet )?(been )?(shipped|dispatched)\b|\bbeen sent\b|\bwas(n't| not) sent\b"
+     r"|\bnon (è|e') (ancora )?(stat[oa] )?spedit"),
 ]
 # Words in an item's name that say nothing about which item it is.
 _PLAIN = {"linen", "set", "with", "pack", "and", "the"}
 
 
 def problem_kind(text: str) -> str:
-    t = (text or "").lower()
+    t = (text or "").lower().replace("\u2019", "'")     # a phone's or Mail's curly apostrophe: "hasn’t"
     statements = [x for x in re.split(r"(?<=[.!?])\s+|\n+", t) if x.strip() and not x.strip().endswith("?")]
     return next((kind for kind, words, outside_questions in KIND_WORDS
                  if re.search(words, t) or (outside_questions and any(re.search(outside_questions, x) for x in statements))),

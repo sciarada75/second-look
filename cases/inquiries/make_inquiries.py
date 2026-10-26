@@ -7,7 +7,8 @@ Second Look's AI (web.inquiry_case). All in the tests' temporary bench: nothing 
 Ground truth follows the demo shop's published terms (ships within 2 business days; returns within 14 days,
 refunded within 5 days of receiving the return) and the evidence; no PayPal rule applies to an inquiry. Made up:
 names, orders, parcels. Amounts stay under the demo's 50 EUR limit, so a right answer is never routed to a person
-by the limit alone. IQ-001 and IQ-003 are close to the demo's own Sophie and Lena: a development set, not held out.
+by the limit alone. IQ-001, IQ-002 and IQ-003 are close to the demo's own Sophie, Pablo and Lena: a development
+set, not held out.
 """
 import json
 import sys

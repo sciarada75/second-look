@@ -46,6 +46,15 @@ def test_the_problem_is_read_from_the_words():
     assert sort.problem_kind("I ordered a tote bag last Wednesday and it still hasn't shipped.") == "not_received"
     assert sort.problem_kind("Il mio ordine non è ancora stato spedito") == "not_received"
     assert sort.problem_kind("Have you shipped it yet?") == "question"            # a question, not a complaint
+    assert sort.problem_kind("It still hasn\u2019t shipped.") == "not_received"          # a phone's apostrophe
+    assert sort.problem_kind("Where\u2019s my refund?") == "refund_missing"
+    # never a parcel not received (review 26/10): the customer's own sending, a question, a "spedite"
+    assert sort.problem_kind("Can I return the napkins? I haven't sent them yet.") != "not_received"
+    assert sort.problem_kind("Sorry, I haven't sent the photo yet.") != "not_received"
+    assert sort.problem_kind("If it's not shipped yet, can I change the address?") == "question"
+    assert sort.problem_kind("Se non è ancora stato spedito, posso cambiare indirizzo?") == "question"
+    assert sort.problem_kind("Non spedite in Norvegia?") == "question"
+    assert sort.problem_kind("It hasn't been sent yet, and I need it.") == "not_received"
 
 
 def test_the_rules_sort_by_sender_then_order_number_open_case_item_or_only_order():

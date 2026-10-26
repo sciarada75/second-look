@@ -482,13 +482,13 @@ answer was to defend (a dispute) or only to reply (an inquiry).
 Measured 2026-10-26, both judges on the same run of the code, after the guard. The two tables measure
 different things, so their columns are never added together.
 
-Two costly mistakes are counted separately: an **unjustified refund** (money given back when the
-seller should have defended, or only replied) and a **losing fight** (defending a case the buyer is right
-about); for an inquiry, its twin is **refusing what is owed** (only a reply when the shop's terms owe money
-or goods).
+Two costly mistakes are counted separately. In a dispute: an **unjustified refund** (money or goods given
+when the right answer was to defend) and a **losing fight** (defending a case the buyer is right about).
+In an inquiry: an **unjustified refund** (money or goods given when the right answer was a reply) and
+**refusing what is owed** (only a reply when the shop's terms owe money or goods).
 
-These are cases we wrote ourselves, and the prompts were developed on cases like them (two inquiries are
-close to the demo's own Sophie and Lena): read the score as a development score, not a guarantee. Runs
+These are cases we wrote ourselves, and the prompts were developed on cases like them (three inquiries
+are close to the demo's own Sophie, Lena and Pablo): read the score as a development score, not a guarantee. Runs
 vary on borderline cases: on 2026-10-17 the short-shipment dispute went to the seller (safe direction),
 on 2026-10-26 it didn't. A held-out set of new cases is the honest next measure. One right answer (case 006,
 a shirt that "doesn't fit") was decided by a human who hadn't written the case, after the model and the
