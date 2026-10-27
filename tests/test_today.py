@@ -199,26 +199,30 @@ def test_a_buyer_s_new_message_on_an_older_dispute_came_in_too():
     assert c5["channels"] == ["paypal"] and c5["first"] == "2026-10-20T08:00"
 
 
-def test_the_morning_screen_says_whose_names_and_roles_and_labels_every_estimate():
+def test_the_morning_screen_answers_what_needs_me():
     with morning():
+        v = web.today_view("demo", "giulia")
         html_ = web.today_page("demo", "giulia")
-        for words in ("I see", "I manage", "I know", "🛒 141 new orders", "✉️ 3 emails", "📝 1 web form",
-                      "PayPal 3 PayPal disputes", "📞 1 call", "<b>Pablo Martin</b>, <i>customer</i>",
-                      "<b>Marta</b>, <i>Customer care assistant</i>", "<b>Giulia</b>, <i>Head of customer care</i>",
-                      "Second Look's AI", "19 days left", "no PayPal deadline", "This month (October 2026)",
-                      "estimated: 23 written answers", "estimated from PayPal&#x27;s fee table", "at most 1,109.00 EUR",
-                      "PayPal's high-volume line", 'href="/?shop=demo">Disputes and requests',
-                      "Handled by Second Look's AI: 1 — check them", "Margot Lefèvre</b>, <i>customer</i>"):
+        free = len(v["manage"]["unassigned"])
+        for words in ("Good morning, Giulia.", "Tue 20 Oct · 6 new since yesterday · 141 new orders", "Needs you · 1",
+                      "Second Look's AI answered 1 on its own: check it",
+                      "Answered · closes on 23 Oct if Margot doesn&#x27;t write", "Looks right",
+                      "I&#x27;d have done it differently", "New since yesterday · 6", "✉️ 3 emails", "📝 1 web form",
+                      "📞 1 call", "<b>Pablo Martin</b>, <i>customer</i>", "Margot Lefèvre</b>, <i>customer</i>",
+                      "19 days left", "no PayPal deadline", "Marta has it", "Your team is on it",
+                      "<b>Marta</b>, <i>Customer care assistant</i> · 4", f"not taken yet {free}"):
             assert words in html_, words
-        assert 'href="/books.csv?month=2026-10&shop=demo">Export for accounting (CSV, October 2026)' in html_
+        for gone in ("I know", "I manage", "This month (October 2026)", "Export for accounting", "PayPal's high-volume line"):
+            assert gone not in html_, gone                                   # the figures live on Numbers now
         nav = html_.split("<nav>")[1].split("</nav>")[0]
-        assert '<a href="/today?shop=demo" aria-current="page">Today</a>' in nav
-        overview = web.overview_page("demo", "giulia")
-        assert "This month (October 2026)" in overview and 'href="/today?shop=demo">the morning screen' in overview
-        assert overview.count("PayPal's high-volume line") == 1
+        assert '<a href="/today?shop=demo" aria-current="page">Today</a>' in nav and '<a href="/numbers?shop=demo">Numbers</a>' in nav
+        marta = web.today_page("demo", "marta")
+        assert "Needs you · 4" in marta and f"Not taken yet · {free}" in marta
+        assert "Second Look's AI answered" not in marta and "Your team is on it" not in marta
+        assert "Nothing needs you" in web.today_page("demo", "sara")
         assert web.approve("DEMO-034", "REFUND", "You're right: here is your refund.", by="marta")[0] == 202
-        assert "passed by Marta, <i>Customer care assistant</i>, to Giulia, <i>Head of customer care</i>" in \
-            web.today_page("demo", "giulia")
+        giulia = web.today_page("demo", "giulia")
+        assert "Needs you · 2" in giulia and "passed to you by Marta, <i>Customer care assistant</i>" in giulia
 
 
 def test_the_morning_screen_over_http_and_as_data():
@@ -229,7 +233,7 @@ def test_the_morning_screen_over_http_and_as_data():
             con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
             con.request("GET", "/today?shop=demo&as=marta")
             r = con.getresponse()
-            assert r.status == 200 and "Today at Linen &amp; Paper" in r.read().decode()
+            assert r.status == 200 and "Good morning, Marta." in r.read().decode()
             con.request("GET", "/api/today?shop=demo")
             r = con.getresponse()
             data = json.loads(r.read())
@@ -304,9 +308,9 @@ def test_an_order_given_back_on_both_sides_is_flagged_not_silently_added():
                         outcome=("RESOLVED_BUYER_FAVOUR", "ITEM_NOT_RECEIVED"), refunded="40.00")]
     k = today.month(cases, disputes, [{"date": "2026-10-01", "transaction_id": "TX9", "amount": 40.0}], TODAY, None)
     assert k["back"] == 80.0 and k["both_sides"] == ["TX9"]
-    assert "1 order counted on both sides: check it was paid once" in web.month_block(k, TODAY)
+    assert "1 order counted on both sides: check it was paid once" in web.both_sides_note(k)
     k = today.month(cases, [], [{"date": "2026-10-01", "transaction_id": "TX9", "amount": 40.0}], TODAY, None)
-    assert k["both_sides"] == [] and "both sides" not in web.month_block(k, TODAY)
+    assert k["both_sides"] == [] and "both sides" not in web.both_sides_note(k)
     cases[0]["money"][0]["status"] = "cancelled"                         # a refund a person cancelled never went out
     k = today.month(cases, disputes, [{"date": "2026-10-01", "transaction_id": "TX9", "amount": 40.0}], TODAY, None)
     assert k["both_sides"] == [] and k["back"] == 40.0

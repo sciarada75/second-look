@@ -456,9 +456,9 @@ def test_the_morning_screen_says_what_it_handled_and_why_it_stepped_back():
         no_record(on())
         cid = marco()
         assert web.review_line(cid) == {"by": None, "text": "Handled by Second Look's AI · reply sent by email"}
-        page = web.today_page("demo", "marta")
-        assert "Handled by Second Look's AI: 1 — check them" in page and "I'd have done it differently" in page
-        assert "except the kinds Second Look&#x27;s AI answers on its own under your setting" in page
+        page = web.today_page("demo", "giulia")
+        assert "Second Look's AI answered 1 on its own: check it" in page and "I&#x27;d have done it differently" in page
+        assert "except the kinds Second Look&#x27;s AI answers on its own under your setting" in web.today_page("demo", "marta")
         web.take("DEMO-C002", "luca")
         web.autopilot_case("demo", "DEMO-C002")                 # Lena's: a wrong size, not a kind that's on
         assert web.review_line("DEMO-C002")["text"] == "Exchange or replace"
@@ -488,8 +488,8 @@ def test_i_d_have_done_it_differently_switches_the_kind_off_and_restarts_its_cou
         assert note["direction"] == "note" and note["text"].startswith(
             "Marta would have done it differently: I'd have given him the tracking link. Second Look's AI no longer "
             "answers these on its own (Shop inquiry · Says it never arrived · Reply only)")
-        page = web.today_page("demo", "marta")
-        assert "Handled by Second Look's AI: 0 — check them" in page and "Marta would have done it differently" in page
+        assert "Second Look's AI answered" not in web.today_page("demo", "giulia")       # checked: off the list
+        assert "Marta would have done it differently" in web.case_file_page(cid, me="giulia")
         assert web._saved(cid)[1].startswith("Reply sent by email. Sent by Second Look's AI")   # what it sent stays sent
 
 
@@ -887,7 +887,7 @@ def test_the_demo_s_first_load_has_second_look_s_ai_answer_margot_and_step_back_
         rec = web.autopilot_store("demo").view()
         assert [k for k, x in rec["kinds"].items() if x["on"]] == [KIND] and autopilot.ready(rec["kinds"][KIND], 10)
         assert sorted(rec["cases"]) == ["DEMO-C001", "DEMO-C004"]          # Lena's and Pablo's: nothing on there
-        assert "Handled by Second Look's AI: 1 — check them" in web.today_page("demo", "giulia")
+        assert "Second Look's AI answered 1 on its own: check it" in web.today_page("demo", "giulia")
         assert ("10 of the last 10 approved as advised · On, switched on by Giulia on 17 Oct, 09:00"
                 in web.rules_page(demo=True, me="giulia"))
         # a judge with no key who posts a new request of that kind sees the step back, honest

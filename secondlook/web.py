@@ -1872,6 +1872,18 @@ ol.see,ul.see{{list-style:none;padding:0;margin:0}} .see li a{{display:grid;grid
 .see .rec{{display:block;color:var(--soft)}} .due{{color:var(--incon);font-weight:700;white-space:nowrap}} .due.soft{{color:var(--soft);font-weight:400}}
 .ai-tag.rules{{border-color:var(--unclear);color:var(--soft)}}
 dl.know{{margin:0}} .know-row{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:12px;padding:8px 0;border-top:1px solid var(--rule)}}
+.morning{{max-width:880px}} .morning h1.page{{margin-bottom:4px}} .rule-line{{margin-top:18px}}
+section.needs,section.new,section.team{{background:#fff;border:1px solid var(--rule);padding:18px 20px;margin-top:20px}}
+section.needs{{border-left:4px solid var(--incon)}} section.needs.calm{{border-left-color:var(--pass)}}
+.needs-list{{list-style:none;padding:0;margin:0}} .needs-list li{{border-top:1px solid var(--rule);padding:10px 0}}
+.needs-list li:first-child{{border-top:0}} .needs-list li a{{display:grid;grid-template-columns:1fr auto;gap:10px;text-decoration:none;color:inherit}}
+.needs-list .ai-head{{font-weight:700;padding-top:14px}} .needs-list .what .t-sub{{display:block}}
+.ai-check-actions{{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-top:8px}}
+.ai-check-actions details{{flex:1 1 260px}} .ai-check-actions summary{{display:inline-block;cursor:pointer;list-style:none}}
+.ai-check-actions summary.quiet{{color:var(--soft);border:1px solid var(--rule);padding:6px 12px;font-size:14px;background:#fff}}
+.ai-check-actions summary::-webkit-details-marker{{display:none}}
+.ai-check-actions details form{{margin-top:8px}}
+.see .has{{display:block;font-size:14px}} .see .has.none{{color:var(--incon)}}
 .know-row dt{{color:var(--ink)}} .know-row dd{{margin:0}} .know-row dd b{{display:block}}
 @media (max-width:1100px){{.blocks{{grid-template-columns:1fr}}}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
@@ -1968,7 +1980,7 @@ def _shop_currency(t: dict, demo: bool) -> str:
 
 
 def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = None, here: str = "disputes") -> str:
-    """`here`: the section the page belongs to ("today", "disputes", "overview" or "rules"), said by the page itself.
+    """`here`: the section the page belongs to ("today", "disputes", "numbers" or "rules"), said by the page itself.
     It used to be guessed from the title and the body's first characters, and a list page whose intro says
     "customer care" was marked Overview."""
     q = "?shop=demo" if demo else ""
@@ -1977,7 +1989,7 @@ def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = 
     context = "demo" if demo else "practice" if mode.startswith("Practice") else "live"
     cur = lambda k: ' aria-current="page"' if here == k else ""  # noqa: E731
     nav = (f'<nav><a href="/today{q}"{cur("today")}>Today</a><a href="/{q}"{cur("disputes")}>Disputes</a>'
-           f'<a href="/overview"{cur("overview")}>Overview</a>'
+           f'<a href="/numbers{q}"{cur("numbers")}>Numbers</a>'
            f'<a href="/rules"{cur("rules")}>{rules}</a>'
            f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
     t = team_for("DEMO-" if demo else None) if context != "practice" else team_mod.of(None)
@@ -2732,15 +2744,19 @@ def month_block(k: dict, today, q: str = "") -> str:
              f'refunded in full ({m(k["open_inquiries_most"])})')]
     trs = "".join(f'<div class="know-row"><dt>{e(a)}</dt><dd><b>{e(b)}</b><span class="t-sub">{e(x)}</span></dd></div>'
                   for a, b, x in rows)
-    both = k.get("both_sides") or []
-    flag = (f'<p class="check-sender">{len(both)} order{"s" if len(both) != 1 else ""} counted on both sides: check '
-            f'{"it was" if len(both) == 1 else "they were"} paid once ({e(", ".join(both))}): a refund logged on a case, '
-            'and PayPal\'s.</p>' if both else "")
+    flag = both_sides_note(k)
     # the facts for the accountant, this month: every money event, with order, invoice, item, who and channel
     export = (f'<p class="cardlink"><a class="export" href="/books.csv?month={today:%Y-%m}{"&" + q[1:] if q else ""}">'
               f'Export for accounting (CSV, {today:%B %Y})</a> <span class="t-sub">the facts, never a credit note</span></p>')
     return (f'<h2>I know</h2><p class="t-sub">This month ({today:%B %Y}), every channel</p>'
             f'<dl class="know">{trs}</dl>{flag}{export}')
+
+
+def both_sides_note(k: dict) -> str:
+    both = k.get("both_sides") or []
+    return (f'<p class="check-sender">{len(both)} order{"s" if len(both) != 1 else ""} counted on both sides: check '
+            f'{"it was" if len(both) == 1 else "they were"} paid once ({e(", ".join(both))}): a refund logged on a case, '
+            'and PayPal\'s.</p>' if both else "")
 
 
 def _rec(r: dict | None) -> str:
@@ -2751,11 +2767,10 @@ def _rec(r: dict | None) -> str:
     return f'<span class="rec">{tag} {e(r["text"])}</span>'
 
 
-def see_block(s: dict, q: str, phone: bool = False, pending: int = 0, failed: list = ()) -> str:
-    chips = [f'<span class="chip ord">🛒 {s["orders"]:,} new order{"s" if s["orders"] != 1 else ""}</span>']
-    if failed:       # whisper couldn't hear them and nothing was shipped beside them: a person listens
-        chips.append(f'<span class="chip off">📞 {len(failed)} call{"s" if len(failed) != 1 else ""} couldn\'t be '
-                     f'transcribed: listen to {"it" if len(failed) == 1 else "them"} ({e(", ".join(failed))})</span>')
+def see_block(s: dict, q: str, phone: bool = False, pending: int = 0) -> str:
+    """New since yesterday: one line per problem, every channel, nearest PayPal deadline first, each saying who has it
+    (in a team) and what Second Look recommends."""
+    chips = []
     if pending:      # recordings local whisper is still on: they come in once it has their words
         chips.append(f'<span class="chip off">📞 {pending} call{"s" if pending != 1 else ""} being transcribed</span>')
     for ch, word, n in today_mod.channel_words(s["counts"]):
@@ -2773,6 +2788,8 @@ def see_block(s: dict, q: str, phone: bool = False, pending: int = 0, failed: li
                 else f"{left} day{'s' if left != 1 else ''} left")
         due = f'<span class="due{" soft" if left is None else ""}">{e(when)}</span>'
         order = f' · order {e(r["order_no"])}' if r["order_no"] else " · no order"
+        has = ("" if "has" not in r else f'<span class="has">{e(r["has"])} has it</span>' if r["has"]
+               else '<span class="has none">not taken yet</span>')
         rows.append(f'<li><a href="{e(r["link"])}{q}"><span class="chan">{e(icons)}</span>'
                     f'<span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · '
                     # the customer's own words, or Second Look's AI's reading of them: never one for the other
@@ -2780,80 +2797,89 @@ def see_block(s: dict, q: str, phone: bool = False, pending: int = 0, failed: li
                        else e(r["summary"]) if r.get("summary_by") == "call"
                        else f'they wrote: “{e(r["summary"])}”')
                     + f' · {r["amount"]:.2f} {e(r.get("currency") or "EUR")}{order}{" · closed" if r["status"] != "open" else ""}'
-                    f'{_rec(r["review"])}</span>{due}</a></li>')
+                    f'{has}{_rec(r["review"])}</span>{due}</a></li>')
     listing = (f'<ol class="see">{"".join(rows)}</ol>' if rows else
                '<p class="empty">Nothing new since yesterday.</p>')
-    return (f'<h2>I see</h2><p class="t-sub">Everything that came in since yesterday '
-            f'({s["since"][8:10]} {datetime.strptime(s["since"][:10], "%Y-%m-%d"):%b}), from every channel, '
-            f'nearest PayPal deadline first</p><p class="chips">{"".join(chips)}</p>{listing}')
+    return (f'<h2>New since yesterday · {len(s["rows"])}</h2><p class="t-sub">From every channel, nearest PayPal '
+            f'deadline first</p><p class="chips">{"".join(chips)}</p>{listing}')
 
 
-def handled_block(ap: dict, q: str, me: str | None, src: str) -> str:
-    """I manage: what Second Look's AI answered on its own since yesterday, each for a person to check: "I'd have done
-    it differently" (anyone) switches that kind off at once and restarts its count."""
-    hs = (ap or {}).get("handled") or []
-    if not hs:
-        return ""
-    todo = [h for h in hs if not h.get("checked")]
-    by = (f'<input type="hidden" name="by" value="{e(me)}">' if me else "") + \
-        f'<input type="hidden" name="shop" value="{e(src)}">'
-    rows = "".join(
-        f'<li><a href="{e(h["link"])}{q}"><b>{e(h["who"] or "")}</b>, <i>customer</i> · {e(h["kind_words"])}: '
-        f'{e(h["what"])}</a>'
-        + (f'<span class="t-sub">{e(h["checked"]["by"])} would have done it differently</span>' if h.get("checked") else
-           f'<form method="post" action="/autopilot/differently" class="addrule"><input type="hidden" name="case" '
-           f'value="{e(h["id"])}">{by}<input name="why" maxlength="300" aria-label="What you would have done" '
-           'placeholder="What you would have done (optional)"><button class="quiet">I\'d have done it differently</button></form>')
-        + '</li>' for h in hs)
-    return (f'<dl class="know"><div class="know-row"><dt><b><a href="#handled">Handled by Second Look\'s AI: {len(todo)} '
-            f'— check them</a></b></dt><dd><span class="t-sub">answered on its own since yesterday, signed, under your '
-            f'setting</span></dd></div></dl><h3 class="bl-h" id="handled">Handled by Second Look\'s AI</h3>'
-            f'<ul class="see">{rows}</ul>')
+def needs_block(needs: list, q: str, me: str | None, src: str) -> str:
+    """The morning screen's first block: what needs this person (today.needs_you), or that nothing does."""
+    if not needs:
+        return ('<section class="needs calm"><h2>Nothing needs you</h2>'
+                '<p class="t-sub">Your team has the rest.</p></section>')
+    rows, ai = [], [n for n in needs if n["kind"] == "ai"]
+    for n in needs:
+        if n["kind"] == "case":
+            left = n.get("days_left")
+            when = ("no PayPal deadline" if left is None else "overdue" if left < 0 else "today" if left == 0
+                    else f"{left} day{'s' if left != 1 else ''} left")
+            why = (f'passed to you by {e(n["from_name"])}' + (f', <i>{e(n["from_role"])}</i>' if n.get("from_role") else "")
+                   if n.get("from_name") else "yours")
+            rows.append(f'<li><a href="{e(n["link"])}{q}"><span class="what"><b>{e(n["who"] or "")}</b>, <i>customer</i>'
+                        f' · {e(n["summary"])} · {n["amount"]:.2f} {e(n.get("currency") or "EUR")}'
+                        f'<span class="t-sub">{why}</span></span>'
+                        f'<span class="due{" soft" if left is None else ""}">{e(when)}</span></a></li>')
+        elif n["kind"] == "calls":
+            w = n["wavs"]
+            rows.append(f'<li><span class="what">📞 {len(w)} call{"s" if len(w) != 1 else ""} couldn\'t be transcribed: '
+                        f'listen to {"it" if len(w) == 1 else "them"} ({e(", ".join(w))})</span></li>')
+        elif n["kind"] == "ai":
+            if n is ai[0]:
+                rows.append(f'<li class="ai-head">Second Look\'s AI answered {len(ai)} on its own: '
+                            f'check {"it" if len(ai) == 1 else "them"}</li>')
+            rows.append(f'<li class="ai-check"><a href="{e(n["link"])}{q}"><span class="what"><b>{e(n["who"] or "")}</b>, '
+                        f'<i>customer</i> · {e(n["kind_words"])}<span class="t-sub">{e(n["what"])}'
+                        + (f' · {e(n["closes"])}' if n.get("closes") else "") + '</span></span></a>'
+                        f'{ai_check_form(src, n["id"], me, "/today")}</li>')
+        elif n["kind"] == "line":
+            rows.append(f'<li><span class="what"><b>PayPal\'s high-volume line</b> · {n["claims"]} claims in '
+                        f'{n["sales"]:,} sales: {n["ratio"]:.2%}. '
+                        + ("Above the line: every claim costs 28 EUR, even the ones you win." if n["high_volume"]
+                           else f'{n["claims_to_threshold"]} more claims this quarter and you cross it.')
+                        + f' <a href="/numbers{q}">Numbers</a></span></li>')
+    return f'<section class="needs"><h2>Needs you · {len(needs)}</h2><ul class="needs-list">{"".join(rows)}</ul></section>'
 
 
-def manage_block(mg: dict, q: str, ap: dict | None = None, me: str | None = None, src: str = "demo") -> str:
-    handled = handled_block(ap, q, me, src)
+def team_block(mg: dict, head: bool, q: str) -> str:
+    """For the head of customer care: one line, each person with their role and open cases, and what nobody has yet.
+    For a colleague: what nobody has yet. A team of one: nothing (every open case is in Needs you)."""
     if mg["solo"]:
-        return (f'<h2>I manage</h2><p class="t-sub">Who has what</p><p>A team of one: all {mg["total"]} open '
-                f'case{"s" if mg["total"] != 1 else ""} are yours.</p>{handled}')
-    rows = []
-    for p in mg["people"]:
-        n = len(p["items"])
-        extra = (f' · {p["passed_on"]} passed on' if p["passed_on"] else "") + \
-                (f' · {len(p["waiting"])} waiting for them' if p["waiting"] else "")
-        rows.append(f'<div class="know-row"><dt><b>{e(p["name"])}</b>, <i>{e(p["role"])}</i></dt>'
-                    f'<dd><b>{n} open case{"s" if n != 1 else ""}</b><span class="t-sub">{e(extra.lstrip(" ·"))}</span></dd></div>')
-    rows.append(f'<div class="know-row"><dt><b>Unassigned</b></dt><dd><b>{len(mg["unassigned"])}</b>'
-                f'<span class="t-sub">nobody has these yet: open one and take it</span></dd></div>')
-    hands = "".join(f'<li><a href="{e(h["link"])}{q}"><b>{e(h["who"] or "")}</b>, <i>customer</i> · '
-                    f'{h["amount"]:.2f} {e(h.get("currency") or "EUR")}: '
-                    f'passed by {e(h["from_name"])}' + (f', <i>{e(h["from_role"])}</i>' if h["from_role"] else "")
-                    + f', to {e(h["to_name"])}, <i>{e(h["to_role"])}</i></a></li>' for h in mg["handoffs"])
-    waits = (f'<h3 class="bl-h">Waiting after a handoff</h3><ul class="see">{hands}</ul>' if hands else
-             '<p class="t-sub">No handoff is waiting.</p>')
-    ours = ((ap or {}).get("on") or [])
-    rule = ("Nothing goes out until a person approves it, each within their own limit." if not ours else
-            "Nothing goes out until a person approves it, each within their own limit, except the kinds Second Look's AI "
-            f"answers on its own under your setting: {'; '.join(ours)} (Your rules).")
-    return (f'<h2>I manage</h2><p class="t-sub">Who has what, and what waits for whom</p><dl class="know">{"".join(rows)}</dl>'
-            f'{handled}{waits}<p class="t-sub">{e(rule)}</p>')
+        return ""
+    free = len(mg["unassigned"])
+    link = f'/?view=unassigned{"&" + q[1:] if q else ""}'
+    if not head:
+        return (f'<section class="team"><h2>Not taken yet · {free}</h2><p class="t-sub">Nobody has these yet: '
+                f'<a href="{e(link)}">open one and take it</a>.</p></section>')
+    people = " · ".join(f'<b>{e(p["name"])}</b>, <i>{e(p["role"])}</i> · {len(p["items"])}' for p in mg["people"])
+    return (f'<section class="team"><h2>Your team is on it</h2><p>{people} · '
+            f'<a href="{e(link)}">not taken yet {free}</a></p></section>')
 
 
 def today_page(src: str, me: str | None = None) -> str:
+    """The morning screen: what needs this person first, then what came in since yesterday, then who has the rest.
+    The figures are on Numbers. "I see, I manage, I know" is the idea behind it, not its layout (Claudia, 27/10)."""
     demo = src == "demo"
     v = today_view(src, me)
-    k = numbers_view(src)["month"]
     q = "?shop=demo" if demo else ""
-    name = DemoPayPal().shop["name"] if demo else _live_shop().get("name") or "Your shop"
-    about = f'<p class="demo-note">{e(DemoPayPal().shop["about"])}</p>' if demo else ""
-    body = (f'<h1 class="page">Today at {e(name)}</h1>{about}'
-            f'<p class="who">I see, I manage, I know: every channel, one place. The lists stay where they were: '
-            f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
-            f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"], v["calls_pending"], v["calls_failed"])}</section>'
-            f'<section class="block">{manage_block(v["manage"], q, v["autopilot"], me, src)}</section>'
-            f'<section class="block">{month_block(k, v["today"], q)}'
-            f'{claim_line_box(k["high_volume"], v["today"])}</section></div>')
-    return page(f"Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
+    t = v["team"]
+    person = None if t.get("solo") else team_mod.person(t, me)
+    hour = 9 if demo else datetime.now().hour          # the demo's clock is a morning
+    hello = ("Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening") + \
+        (f", {person.get('name') or person['id']}" if person else "")
+    d, s = v["today"], v["see"]
+    line = (f'{d:%a} {d.day} {d:%b} · {len(s["rows"])} new since yesterday · '
+            f'{s["orders"]:,} new order{"s" if s["orders"] != 1 else ""}')
+    ours = v["autopilot"]["on"]
+    rule = ("Nothing goes out until a person approves it, each within their own limit." if not ours else
+            "Nothing goes out until a person approves it, each within their own limit, except the kinds Second Look's AI "
+            f"answers on its own under your setting: {'; '.join(ours)} (Your rules).")
+    body = (f'<div class="morning"><h1 class="page">{e(hello)}.</h1><p class="who">{e(line)}</p>'
+            f'{needs_block(v["needs"], q, me, src)}'
+            f'<section class="new">{see_block(s, q, v["phone"], v["calls_pending"])}</section>'
+            f'{team_block(v["manage"], v["head"], q)}<p class="t-sub rule-line">{e(rule)}</p></div>')
+    return page("Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
 
 
 # ---------- the case page: one customer, one order, one problem, every channel ----------
