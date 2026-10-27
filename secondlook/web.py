@@ -1884,6 +1884,19 @@ section.needs{{border-left:4px solid var(--incon)}} section.needs.calm{{border-l
 .ai-check-actions summary::-webkit-details-marker{{display:none}}
 .ai-check-actions details form{{margin-top:8px}}
 .see .has{{display:block;font-size:14px}} .see .has.none{{color:var(--incon)}}
+table.compare{{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--rule)}}
+table.compare th,table.compare td{{text-align:right;padding:10px 14px;border-top:1px solid var(--rule)}} table.compare td{{font-variant-numeric:tabular-nums}}
+table.compare th[scope=row]{{text-align:left;font-weight:500}} table.compare th[scope=row] .t-sub{{display:block;font-weight:400}}
+table.compare tr.sub th,table.compare tr.sub td{{border-top:0;padding-top:0;color:var(--soft);font-size:14px}}
+.weeks,.right-now,.paypal90{{margin-top:36px}} .right-now p .t-sub{{display:block}}
+.wchart{{list-style:none;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;height:180px;padding:0;margin:12px 0 0}}
+.wchart li{{display:grid;grid-template-rows:1fr auto;min-width:0}} .w-col{{display:flex;align-items:flex-end;border-bottom:1px solid var(--soft)}}
+.w-bar{{display:block;width:100%;background:var(--pass);border-radius:4px 4px 0 0}} .wchart li:hover .w-bar{{opacity:.8}}
+.wchart .so-far .w-bar{{background:repeating-linear-gradient(45deg,var(--pass) 0 3px,#E8F0EA 3px 6px)}}
+.w-label{{font-size:13px;color:var(--soft);text-align:center;padding-top:6px}} .w-label b{{display:block;color:var(--ink);font-size:15px}}
+@media (max-width:700px){{table.compare th,table.compare td{{padding:8px 6px;font-size:14px}}
+  .xchart li{{grid-template-columns:1fr auto}} .xchart .x-label{{grid-column:1;grid-row:1}} .xchart b{{grid-column:2;grid-row:1}}
+  .xchart .x-track{{grid-column:1/3;grid-row:2}} .xchart .t-sub{{grid-column:1/3;grid-row:3}}}}
 .know-row dt{{color:var(--ink)}} .know-row dd{{margin:0}} .know-row dd b{{display:block}}
 @media (max-width:1100px){{.blocks{{grid-template-columns:1fr}}}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
@@ -2141,26 +2154,30 @@ def bar_list(rows: list, total: int) -> str:
     return f'<ul class="barlist">{"".join(out)}</ul>'
 
 
-def overview_whatnow(ov: dict) -> str:
-    mine = [w for w in ov["waiting"] if w["on"] == "you"]
-    if not mine:
-        return ('<p class="whatnow calm"><b>What now</b><span>Nothing waits on you. Below: how cases ended, and what the '
-                'open ones could still cost.</span></p>')
-    w = mine[0]
-    left = f', {w["days_left"]} days left' if w["days_left"] is not None else ""
-    return (f'<p class="whatnow"><b>What now</b><span>{len(mine)} open case{"s" if len(mine) != 1 else ""} wait on you. '
-            f'The most urgent: <a href="/d/{e(w["dispute_id"])}">{e(w["reason"])}'
-            f'{e(" from " + w["buyer"] if w.get("buyer") else "")}</a>{e(left)}.</span></p>')
-
-
-def overview_page(src: str, me: str | None = None) -> str:
-    demo = src == "demo"
-    pp, disputes, orders, today = _shop(src)
-    cur = "EUR"
-    ov = ledger.overview(disputes, orders, today, cur)
+def exposure_box(ex: dict, high_volume: bool, cur: str = "EUR") -> str:
+    """What the open PayPal disputes could cost: all won, ended like the last ones, all lost."""
     m = lambda v: f"{v:,.0f} {cur}"  # noqa: E731
-    c, hv = ov["counts"], ov["high_volume"]
-    q = "?shop=demo" if demo else ""
+    top = max(ex["all_lost"], 1)
+    bars = [("If you win them all", ex["all_won"], "pass",
+             "Nothing leaves your account." if not ex["all_won"] else "High-volume fee on every claim, even won."),
+            (f"If they end like your last {ex['closed']} cases", ex["like_before"], "incon",
+             f"{ex['share']:.0%} of the money disputed actually left your account." if ex["share"] is not None else "No closed cases yet to compare with."),
+            ("If you lose them all", ex["all_lost"], "fail",
+             f"Every refund, plus a {m(28 if high_volume else 14)} PayPal fee on each.")]
+    chart = "".join(
+        f'<li class="{cls}"><span class="x-label">{e(a)}</span><span class="x-track"><span class="x-bar" '
+        f'style="width:{0 if v is None else max(0.4, 100 * v / top):.1f}%"></span></span>'
+        f'<b>{"—" if v is None else e(m(v))}</b><span class="t-sub">{e(note)}</span></li>' for a, v, cls, note in bars)
+    return (f'<section class="exposure"><h3>What the {ex["open"]} open PayPal disputes could cost</h3>'
+            f'<p class="who">{m(ex["at_stake"])} in dispute. Money that would leave your account: refunds and '
+            'PayPal dispute fees. When you refund, the goods and the postage are lost on top.</p>'
+            f'<ul class="xchart">{chart}</ul></section>')
+
+
+def paypal_block(ov: dict, cur: str = "EUR") -> str:
+    """PayPal's own last 90 days, from its outcome codes: how the disputes ended."""
+    m = lambda v: f"{v:,.0f} {cur}"  # noqa: E731
+    c = ov["counts"]
     tiles = [("Handled", f'{ov["handled"]}', f'closed in the last {ov["window_days"]} days'),
              ("Settled before a claim", f'{ov["settled_before_claim"]} of {ov["handled"]}', "no PayPal dispute fee"),
              ("Money kept", m(ov["kept"]), "won, withdrawn, or closed with no claim"),
@@ -2170,63 +2187,12 @@ def overview_page(src: str, me: str | None = None) -> str:
                    for a, b, x in tiles)
     stayed = [(ledger.OUTCOME_LABEL[k], c[k]) for k in ("won", "withdrew", "closed") if c[k]]
     back = [(ledger.OUTCOME_LABEL[k], c[k]) for k in ("settled_offer", "refunded", "covered", "lost_claim", "lost_no_reply") if c[k]]
-    meter = claim_line_box(hv, today, cur)      # the same box as the morning screen's
-    # every channel this month, as the morning screen counts it: one function, one set of numbers, two places
-    month = month_block(today_mod.month(shop_cases(src), disputes, shop_orders(src), today, _policy(),
-                                        sent_answers(src), cur), today, q)
-    ex = ledger.exposure(disputes, today, hv["high_volume"], cur)
-    top = max(ex["all_lost"], 1)
-    bars = [("If you win them all", ex["all_won"], "pass",
-             "Nothing leaves your account." if not ex["all_won"] else "High-volume fee on every claim, even won."),
-            (f"If they end like your last {ex['closed']} cases", ex["like_before"], "incon",
-             f"{ex['share']:.0%} of the money disputed actually left your account." if ex["share"] is not None else "No closed cases yet to compare with."),
-            ("If you lose them all", ex["all_lost"], "fail",
-             f"Every refund, plus a {m(28 if hv['high_volume'] else 14)} PayPal fee on each.")]
-    chart = "".join(
-        f'<li class="{cls}"><span class="x-label">{e(a)}</span><span class="x-track"><span class="x-bar" '
-        f'style="width:{0 if v is None else max(0.4, 100 * v / top):.1f}%"></span></span>'
-        f'<b>{"—" if v is None else e(m(v))}</b><span class="t-sub">{e(note)}</span></li>' for a, v, cls, note in bars)
-    exposure_box = (f'<section class="exposure"><h2>What the {ex["open"]} open cases could cost</h2>'
-                    f'<p class="who">{m(ex["at_stake"])} in dispute. Money that would leave your account: refunds and '
-                    'PayPal dispute fees. When you refund, the goods and the postage are lost on top.</p>'
-                    f'<ul class="xchart">{chart}</ul></section>')
-    reasons = sorted({w["reason"] for w in ov["waiting"]})
-    filters = ('<div class="filters" role="search"><input id="q" type="search" placeholder="Search buyer, reason, case" '
-               'aria-label="Search open cases"><select id="on" aria-label="Waiting on"><option value="">Waiting on anyone</option>'
-               '<option value="you">Waiting on you</option><option value="the buyer">Waiting on the buyer</option>'
-               '<option value="PayPal">Waiting on PayPal</option></select><select id="why" aria-label="Reason">'
-               '<option value="">Any reason</option>' + "".join(f'<option>{e(r)}</option>' for r in reasons) + '</select>'
-               '<span id="shown" class="t-sub"></span></div>'
-               '<script>addEventListener("DOMContentLoaded",()=>{const q=document.getElementById("q"),on=document.getElementById("on"),why=document.getElementById("why"),'
-               'n=document.getElementById("shown"),rows=[...document.querySelectorAll("table.waiting tbody tr")];'
-               'const f=()=>{let k=0;rows.forEach(r=>{const ok=(!q.value||r.textContent.toLowerCase().includes(q.value.toLowerCase()))'
-               '&&(!on.value||r.dataset.on===on.value)&&(!why.value||r.dataset.why===why.value);r.hidden=!ok;k+=ok});'
-               'n.textContent=k+" of "+rows.length+" shown"};[q,on,why].forEach(x=>x.addEventListener("input",f));f()});</script>')
-    waits = "".join(
-        f'<tr data-on="{e(w["on"])}" data-why="{e(w["reason"])}"><td><a href="/d/{e(w["dispute_id"])}{q}">{e(w["reason"])}</a>'
-        f'<span class="t-sub">{e(" · " + w["buyer"] if w.get("buyer") else "")}{e(" · PayPal claim" if w["stage"] != "INQUIRY" else "")}</span></td>'
-        f'<td>{w["amount"]:.2f}</td>'
-        f'<td>{pill_for_on(w["on"], w["stage"])}</td><td>{"" if w["days_left"] is None else e(str(w["days_left"]))}</td><td>{e(w["next"])}</td></tr>'
-        for w in ov["waiting"])
-    body = (f'<h1 class="page">Overview</h1>'
-            + (f'<p class="demo-note">{e(pp.shop["about"])}</p>' if demo else "")
-            + f'<p class="who">Last {ov["window_days"]} days: {ov["disputes"]} disputes in {ov["orders"]:,} orders. '
-              f'From PayPal\'s own records: each case\'s stage and outcome.</p>'
-            + ('' if ov["handled"] else '<p class="demo-note">No closed cases in this shop yet: the history fills in as cases '
-                 'close. To see an overview with a history, <a href="/overview?shop=demo">open the demo shop</a>.</p>')
-            + overview_whatnow(ov)
-            + f'<section class="block wide">{month}<p class="cost-note">The figures above are every channel, this month; '
-              f'<a href="/today{q}">the morning screen</a> shows them with what came in since yesterday. Below: PayPal '
-              f'disputes only, over the last {ov["window_days"]} days.</p></section>'
-            + f'<div class="kpis">{kpis}</div>'
-            f'<div class="ov-grid"><section><h2>How they ended</h2>'
+    return (f'<section class="paypal90"><h2>PayPal disputes, last {ov["window_days"]} days</h2>'
+            f'<p class="who">{ov["disputes"]} disputes in {ov["orders"]:,} orders. From PayPal\'s own records: each '
+            f'case\'s stage and outcome.</p><div class="kpis">{kpis}</div>'
             f'<h3 class="bl-h">The money stayed with you</h3>{bar_list(stayed, ov["handled"])}'
             f'<h3 class="bl-h">Money went back</h3>{bar_list(back, ov["handled"])}'
-            f'<p class="cost-note">{ov["escalated"]} of {ov["handled"]} went past the inquiry to a PayPal claim.</p></section>{meter}</div>'
-            f'<h2 style="margin-top:40px">Open now: {ov["open"]}</h2>{exposure_box}{filters}'
-            f'<table class="waiting"><thead><tr><th>Case</th><th>Amount</th><th>Waiting on</th><th>Days left</th>'
-            f'<th>If nobody answers</th></tr></thead><tbody>{waits}</tbody></table>')
-    return page("Overview | Second Look", "PayPal sandbox", body, demo, me=me, here="overview")
+            f'<p class="cost-note">{ov["escalated"]} of {ov["handled"]} went past the inquiry to a PayPal claim.</p></section>')
 
 
 def customer_page(key: str, src: str, me: str | None = None) -> str:
@@ -2237,7 +2203,7 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
     q = "?shop=demo" if demo else ""
     if not cu:
         return page("Customer | Second Look", "PayPal sandbox", '<h1 class="page">No customer with that id or email.</h1>', demo,
-                    me=me, here="overview")
+                    me=me, here="numbers")
     rate = (f'{len(cu["disputes"])} disputes in {cu["orders"]} orders ({cu["dispute_rate"]:.0%}). '
             f'Your shop: {cu["shop_dispute_rate"]:.1%}.' if cu["dispute_rate"] is not None else "")
     if cu["times_shop_rate"]:
@@ -2247,7 +2213,7 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
                    f'<td>{e(x["outcome"])}{(" · " + e(handled[x["dispute_id"]])) if x["dispute_id"] in handled else ""}</td></tr>'
                    for x in cu["disputes"])
     api = f'/api/customers/{cu["email"] or cu["payer_id"]}{q}'
-    body = (f'<a class="back" href="/overview{q}">Overview</a><h1 class="page">{e(cu["name"] or cu["payer_id"])}</h1>'
+    body = (f'<a class="back" href="/numbers{q}">Numbers</a><h1 class="page">{e(cu["name"] or cu["payer_id"])}</h1>'
             f'<p class="who">{e(cu["email"] or "")} · '
             + (f'PayPal payer {e(cu["payer_id"])}' if cu["payer_id"] else f'paid by {e(", ".join(cu.get("paid_with") or []))}')
             + '</p>'
@@ -2260,7 +2226,7 @@ def customer_page(key: str, src: str, me: str | None = None) -> str:
             f'<tbody>{rows or "<tr><td colspan=5>No disputes.</td></tr>"}</tbody></table>'
             f'<section class="api"><h2>In your customer database</h2><p class="who">Your CRM or helpdesk can ask for this card '
             f'when this customer orders or calls, by email or PayPal payer id:</p><code>GET {e(api)}</code></section>')
-    return page(f"{cu['name'] or 'Customer'} | Second Look", "PayPal sandbox", body, demo, me=me, here="overview")
+    return page(f"{cu['name'] or 'Customer'} | Second Look", "PayPal sandbox", body, demo, me=me, here="numbers")
 
 
 def customer_json(key: str, src: str) -> dict | None:
@@ -2708,6 +2674,101 @@ def numbers_view(src: str, by: str = "month") -> dict:
             "paypal": ov, "exposure": ledger.exposure(disputes, today, ov["high_volume"]["high_volume"], cur)}
 
 
+# Numbers: each flow, its kind of figure, and what it counts.
+NUMBERS = [("Orders", "orders", "n", "the shop's sales, for scale"),
+           ("Requests, every channel", "requests", "n", "emails, web forms, calls and PayPal disputes, each problem once"),
+           ("Solved before any PayPal dispute", "solved_before_dispute", "n", "shop requests closed"),
+           ("Answered by Second Look's AI on its own", "ai_answered", "n", "under your setting, signed"),
+           ("Staff time", "minutes", "min", "estimated: each written answer at your minutes, a call its own length"),
+           ("Money given back", "back", "money", "refunds logged on your cases, and PayPal's"),
+           ("PayPal dispute fees", "fees", "money", "estimated from PayPal's fee table")]
+
+
+def _fmt(v, kind: str, cur: str) -> str:
+    return f"{v:,.2f} {cur}" if kind == "money" else _hours(v) if kind == "min" else f"{v:,}"
+
+
+def _change(a, b, kind: str, cur: str) -> str:
+    """This period against the one before: "+2", "−19.50 EUR", "+30 min", or "same"."""
+    d = a - b
+    if abs(d) < 0.005:
+        return "same"
+    sign = "+" if d > 0 else "−"
+    return sign + (f"{abs(d):,.2f} {cur}" if kind == "money" else _hours(abs(d)) if kind == "min" else f"{abs(d):,.0f}")
+
+
+def _span(a, b) -> str:
+    """Days, inclusive: "1–20 Oct", "28 Sep–4 Oct"."""
+    return f"{a.day}–{b.day} {b:%b}" if (a.year, a.month) == (b.year, b.month) else f"{a.day} {a:%b}–{b.day} {b:%b}"
+
+
+def export_link(today, q: str = "") -> str:
+    """The facts for the accountant, this month: every money event, with order, invoice, item, who and channel."""
+    return (f'<p class="cardlink"><a class="export" href="/books.csv?month={today:%Y-%m}{"&" + q[1:] if q else ""}">'
+            f'Export for accounting (CSV, {today:%B %Y})</a> <span class="t-sub">the facts, never a credit note</span></p>')
+
+
+def weeks_chart(weeks: list) -> str:
+    """Requests, week by week, from the first week on record: one bar each, this week so far striped."""
+    if not weeks:
+        return ""
+    top = max(w["requests"] for w in weeks) or 1
+    bars = "".join(
+        f'<li class="{"so-far" if w["so_far"] else ""}" title="Week of {w["first"].day} {w["first"]:%b}: '
+        f'{w["requests"]} requests in {w["orders"]:,} orders{" (so far)" if w["so_far"] else ""}">'
+        f'<span class="w-col"><span class="w-bar" style="height:{max(1.5, 100 * w["requests"] / top):.1f}%"></span></span>'
+        f'<span class="w-label">{w["first"].day} {w["first"]:%b}<b>{w["requests"]}</b></span></li>' for w in weeks)
+    first = weeks[0]["first"]
+    return (f'<section class="weeks"><h2>Requests, week by week</h2><p class="t-sub">Monday to Sunday, the weeks on '
+            f'record (from {first.day} {first:%b}). This week so far is striped.</p><ol class="wchart">{bars}</ol></section>')
+
+
+def numbers_page(src: str, me: str | None = None, by: str = "month") -> str:
+    """Numbers: every figure beside the same days of the period before (like for like), the weeks on record, what holds
+    right now (no comparison: a snapshot), and PayPal's own last 90 days. Replaces the Overview (Claudia, 27/10:
+    "benchmark weeks on weeks or months on months: better a dedicated space")."""
+    demo = src == "demo"
+    v = numbers_view(src, by)
+    q, amp = ("?shop=demo", "&shop=demo") if demo else ("", "")
+    k, a, b = v["month"], v["this"], v["before"]
+    cur = k["currency"]
+    if v["by"] == "week":
+        now_words = f"This week so far ({_span(a['first'], a['last'])})"
+        then_words = f"the same days last week ({_span(b['first'], b['last'])})" if b else "last week"
+    else:
+        now_words = f"{a['first']:%B} so far ({_span(a['first'], a['last'])})"
+        then_words = (f"the same days of {b['first']:%B} ({_span(b['first'], b['last'])})" if b
+                      else "the month before")
+    here = ' aria-current="page"'
+    tabs = "".join(f'<a href="/numbers?by={key}{amp}"{here if v["by"] == key else ""}>{label}</a>'
+                   for key, label in (("week", "This week"), ("month", "This month")))
+    rows = []
+    for label, key, kind, note in NUMBERS:
+        before, change = ((_fmt(b[key], kind, cur), _change(a[key], b[key], kind, cur)) if b else ("no record yet", ""))
+        rows.append(f'<tr><th scope="row">{e(label)}<span class="t-sub">{e(note)}</span></th>'
+                    f'<td>{e(_fmt(a[key], kind, cur))}</td><td>{e(before)}</td><td>{e(change)}</td></tr>')
+        if key == "requests":
+            per = lambda x: f'{100 * x["requests"] / x["orders"]:.1f}' if x["orders"] else "—"  # noqa: E731
+            rows.append(f'<tr class="sub"><th scope="row">per 100 orders</th><td>{per(a)}</td>'
+                        f'<td>{per(b) if b else ""}</td><td></td></tr>')
+    then_head = _span(b["first"], b["last"]) if b else "Before"
+    table = (f'<table class="compare"><thead><tr><th scope="col"></th><th scope="col">{e(_span(a["first"], a["last"]))}</th>'
+             f'<th scope="col">{e(then_head)}</th><th scope="col">Change</th></tr></thead><tbody>{"".join(rows)}</tbody></table>')
+    right_now = (f'<section class="right-now"><h2>Right now</h2><p class="t-sub">A snapshot: what holds today, so '
+                 f'nothing to compare it with.</p><p><b>Open cases could still cost at most {k["could_still_cost"]:,.2f} '
+                 f'{e(cur)}</b><span class="t-sub">every open PayPal dispute lost at claim ({k["open_disputes_most"]:,.2f} '
+                 f'{e(cur)}) and every open request refunded in full ({k["open_inquiries_most"]:,.2f} {e(cur)})</span></p>'
+                 f'{exposure_box(v["exposure"], v["paypal"]["high_volume"]["high_volume"], cur)}'
+                 f'{claim_line_box(k["high_volume"], v["today"], cur)}</section>')
+    about = f'<p class="demo-note">{e(DemoPayPal().shop["about"])}</p>' if demo else ""
+    body = (f'<h1 class="page">Numbers</h1>{about}<p class="tabs">{tabs}</p>'
+            f'<h2>{e(now_words)} against {e(then_words)}</h2>{table}{both_sides_note(k)}'
+            f'{weeks_chart(v["weeks"])}{right_now}{paypal_block(v["paypal"], cur)}'
+            f'{export_link(v["today"], q)}<p class="cardlink">The open cases, one by one: '
+            f'<a href="/{q}">Disputes and requests</a> · <a href="/api/numbers{q}">these numbers as data (API)</a></p>')
+    return page("Numbers | Second Look", "PayPal sandbox", body, demo, me=me, here="numbers")
+
+
 def claim_line_box(hv: dict, today, cur: str = "EUR") -> str:
     """PayPal's high-volume line, as the Overview shows it: claims and card chargebacks against sales over PayPal's
     own window (the three previous full months), with the 1.5% line."""
@@ -2722,34 +2783,6 @@ def claim_line_box(hv: dict, today, cur: str = "EUR") -> str:
             f'<p><b>{hv["claims"]} claims in {hv["sales"]:,} sales: {hv["ratio"]:.2%}.</b> '
             + ("Above the line." if hv["high_volume"] else f'{hv["claims_to_threshold"]} more claims this quarter and you cross it.')
             + '</p></section>')
-
-
-def month_block(k: dict, today, q: str = "") -> str:
-    """I know: this month, every channel. The same block on the morning screen and on the Overview."""
-    cur = k["currency"]
-    m = lambda v: f"{v:,.2f} {cur}"  # noqa: E731
-    by = ", ".join(f"{n} {word}" for ch, word, n in today_mod.channel_words(k["requests_by_channel"]) if n)
-    rows = [("Requests", f'{k["requests"]}', f'in {k["orders"]:,} orders' + (f' · {by}' if by else "")),
-            ("Solved before any PayPal dispute", f'{k["solved_before_dispute"]}', "shop inquiries closed this month"),
-            ("Staff time", f'{_hours(k["minutes"])}, about {m(k["staff_cost"])}',
-             f'estimated: {k["answers"]} written answer{"s" if k["answers"] != 1 else ""} × {k["reply_minutes"]:g} min '
-             + (f'and {k["calls"]} call{"s" if k["calls"] != 1 else ""} ({_hours(k["call_minutes"])}, their own length) '
-                if k.get("calls") else "")
-             + f'at {k["hourly_cost"]:g} {cur} an hour (your rules)'),
-            ("Money given back", m(k["back"]), f'{m(k["back_cases"])} on your own cases (logged), '
-                                               f'{m(k["back_paypal"])} through PayPal'),
-            ("PayPal dispute fees", m(k["fees"]), "estimated from PayPal's fee table"),
-            ("Open cases could still cost", f'at most {m(k["could_still_cost"])}',
-             f'every open PayPal dispute lost at claim ({m(k["open_disputes_most"])}) and every open inquiry '
-             f'refunded in full ({m(k["open_inquiries_most"])})')]
-    trs = "".join(f'<div class="know-row"><dt>{e(a)}</dt><dd><b>{e(b)}</b><span class="t-sub">{e(x)}</span></dd></div>'
-                  for a, b, x in rows)
-    flag = both_sides_note(k)
-    # the facts for the accountant, this month: every money event, with order, invoice, item, who and channel
-    export = (f'<p class="cardlink"><a class="export" href="/books.csv?month={today:%Y-%m}{"&" + q[1:] if q else ""}">'
-              f'Export for accounting (CSV, {today:%B %Y})</a> <span class="t-sub">the facts, never a credit note</span></p>')
-    return (f'<h2>I know</h2><p class="t-sub">This month ({today:%B %Y}), every channel</p>'
-            f'<dl class="know">{trs}</dl>{flag}{export}')
 
 
 def both_sides_note(k: dict) -> str:
@@ -4251,8 +4284,12 @@ class Handler(BaseHTTPRequestHandler):
                                    "calls": {"being_transcribed": v["calls_pending"], "not_transcribed": v["calls_failed"]}})
             if u.path == "/api/numbers":
                 return self._json(numbers_view("live" if src == "live" else "demo", (qs.get("by") or ["month"])[0]))
-            if u.path == "/overview":
-                return self._send(overview_page(src, me=me))
+            if u.path in ("/overview", "/overview/"):
+                return self._redirect("/numbers" + (f"?{u.query}" if u.query else ""))   # an old link still works
+            if u.path == "/numbers":
+                if src == "practice":
+                    return self._redirect("/?practice=1")    # practice cases are a test bench, not a shop's numbers
+                return self._send(numbers_page(src, me=me, by=(qs.get("by") or ["month"])[0]))
             if u.path.startswith("/customer/"):
                 return self._send(customer_page(u.path[len("/customer/"):].strip("/"), src, me=me))
             if u.path.rstrip("/") == "/api/disputes":

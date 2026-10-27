@@ -699,7 +699,7 @@ def test_a_page_is_marked_with_the_section_it_says_not_one_guessed_from_its_text
         return [a.split(">")[-1] for a in nav.split("</a>") if 'aria-current="page"' in a]
     body = "<p>Demo shop, made-up data: four people in customer care.</p>"
     assert current(web.page("Second Look", "", body)) == ["Disputes"]
-    assert current(web.page("Overview | Second Look", "", body, here="overview")) == ["Overview"]
+    assert current(web.page("Numbers | Second Look", "", body, here="numbers")) == ["Numbers"]
     assert current(web.page("Your rules | Second Look", "", body, here="rules"))[0].startswith("Your rules")
     with demo_team({}):
         assert current(web.inbox_page("demo", "giulia", "mine")) == ["Disputes"]
