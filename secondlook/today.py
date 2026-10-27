@@ -9,7 +9,8 @@ cases, PayPal's disputes, its orders, who has which case). Nothing here calls Pa
 
 "Since yesterday" starts at 00:00 on the day before the shop's today and has no end: in the demo shop (today is
 20 Oct 2026) it is everything from 19 Oct on, including anything a person does now, whatever the clock says.
-"This month" starts at 00:00 on the 1st of the shop's today's month, with no end either. Times are compared
+"This month" starts at 00:00 on the 1st of the shop's today's month, with no end either. "A period" (Numbers) runs
+from 00:00 on its first day to 00:00 after its last; the current one, like this month, has no end. Times are compared
 as Second Look saves them ("2026-10-19T08:52"): the demo shop's are UTC, like PayPal's.
 """
 from __future__ import annotations
@@ -32,6 +33,29 @@ def since(today: date) -> str:
 
 def month_start(today: date) -> str:
     return today.replace(day=1).isoformat() + "T00:00"
+
+
+def windows(today: date, by: str = "month") -> tuple:
+    """Like for like: ((first, last) of this period so far, (first, last) of the same days of the one before), days
+    inclusive. By month: the 1st to today, and the 1st of the month before to the same day, cut at that month's last
+    day (31 Oct is compared with 1-30 Sep). By week, Monday first: Monday to today, and the same days a week before."""
+    if by == "week":
+        first = today - timedelta(days=today.weekday())
+        return (first, today), (first - timedelta(days=7), today - timedelta(days=7))
+    first = today.replace(day=1)
+    end_before = first - timedelta(days=1)
+    first_before = end_before.replace(day=1)
+    return (first, today), (first_before, min(first_before + timedelta(days=today.day - 1), end_before))
+
+
+def weeks(today: date, n: int = 8) -> list:
+    """The last `n` weeks, Monday to Sunday, oldest first; this one ends today."""
+    monday = today - timedelta(days=today.weekday())
+    return [(monday - timedelta(days=7 * i), min(monday - timedelta(days=7 * i - 6), today)) for i in range(n - 1, -1, -1)]
+
+
+def _within(at: str, start: str, end: str | None) -> bool:
+    return at >= start and (end is None or at < end)
 
 
 def _at(iso) -> str:
@@ -232,41 +256,58 @@ def _closed_at(c: dict) -> str:
     return c.get("closed_at") or max((x.get("at") or "" for x in c.get("timeline", [])), default="")
 
 
-def month(cases: list, disputes: list, orders: list, today: date, policy: dict | None, answers=(),
-          currency: str = "EUR") -> dict:
-    """I know: this month, every channel. `answers`: when each answer to a PayPal dispute was sent from Second Look
-    (an inquiry's answers are on its case already). Staff time is an estimate (cases.staff_time); dispute fees are
-    estimated from PayPal's fee table, as the Overview's."""
-    m = month_start(today)
-    held_by = links(cases, disputes, orders)
-    held = set(held_by)
-    linked = {id(c) for c in held_by.values()}
-    ordered = sum(1 for o in orders if (o.get("date") or "") >= m[:10])
-    new_cases = [c for c in cases if (c.get("opened") or "") >= m]
-    new_disputes = [d for d in disputes if _at(d.get("create_time")) >= m and d["dispute_id"] not in held]
-    solved = [c for c in cases if c.get("status") != "open" and not c.get("dispute_id") and _closed_at(c) >= m]
+def period(cases: list, disputes: list, orders: list, start: str, end: str | None, policy: dict | None, answers=(),
+           high_volume: bool = False, currency: str = "EUR") -> dict:
+    """What happened from `start` up to `end` (None: no end, as this month has none): the flows a period is compared on
+    (Numbers), every channel. `answers`: when each answer to a PayPal dispute was sent from Second Look (an inquiry's
+    answers are on its case already). Staff time is an estimate (cases.staff_time); dispute fees are estimated from
+    PayPal's fee table, at the fee `high_volume` says (PayPal's line as it stood at the period's end)."""
+    held = set(links(cases, disputes, orders))
+    inside = lambda at: _within(at or "", start, end)  # noqa: E731
+    ordered = sum(1 for o in orders if _within(o.get("date") or "", start[:10], end and end[:10]))
+    new_cases = [c for c in cases if inside(c.get("opened"))]
+    new_disputes = [d for d in disputes if inside(_at(d.get("create_time"))) and d["dispute_id"] not in held]
+    solved = [c for c in cases if c.get("status") != "open" and not c.get("dispute_id") and inside(_closed_at(c))]
     st = staff_time(policy)
-    entries = [x for c in cases for x in c.get("timeline", []) if (x.get("at") or "") >= m]
+    entries = [x for c in cases for x in c.get("timeline", []) if inside(x.get("at"))]
     # a reply Second Look's AI sent on its own took nobody's minutes: it is not staff time
     written = sum(1 for x in entries if x.get("direction") == "out" and x.get("channel") != "call" and not x.get("autopilot"))
-    written += sum(1 for a in answers if (a or "") >= m)
+    written += sum(1 for a in answers if inside(a))
     call_min = sum(_num(x.get("minutes")) for x in entries if x.get("channel") == "call" and x.get("direction") in ("in", "out"))
     minutes = written * st["reply_minutes"] + call_min
     # a refund a person cancelled moved no money
-    money = [x for c in cases for x in c.get("money", []) if (x.get("at") or "") >= m and x.get("status") != "cancelled"]
+    money = [x for c in cases for x in c.get("money", []) if inside(x.get("at")) and x.get("status") != "cancelled"]
     back_cases = round(sum(_num(x.get("amount")) for x in money if x.get("kind") in BACK), 2)
-    resolved = [d for d in disputes if d.get("status") == "RESOLVED" and _at(d.get("update_time") or d.get("create_time")) >= m]
+    resolved = [d for d in disputes if d.get("status") == "RESOLVED" and inside(_at(d.get("update_time") or d.get("create_time")))]
     back_paypal = round(sum(ledger.refunded(d) for d in resolved), 2)
     # the same order given back on both sides (a refund logged on a case, and PayPal's): flagged, not hidden in a sum
     on_cases = {c.get("order_no") for c in cases for x in c.get("money", [])
-                if c.get("order_no") and x.get("kind") in BACK and (x.get("at") or "") >= m
-                and x.get("status") != "cancelled"}
+                if c.get("order_no") and x.get("kind") in BACK and inside(x.get("at")) and x.get("status") != "cancelled"}
     both_sides = sorted(on_cases & {_tx(d) for d in resolved if ledger.refunded(d) > 0})
-    hv = ledger.overview(disputes, orders, today, currency)["high_volume"]
     standard, hv_fee = DISPUTE_FEE.get(currency, (0.0, 0.0))
-    fees = sum(hv_fee if hv["high_volume"] else standard if ledger.outcome(d) in ("lost_claim", "lost_no_reply") else 0
+    fees = sum(hv_fee if high_volume else standard if ledger.outcome(d) in ("lost_claim", "lost_no_reply") else 0
                for d in resolved if escalated(d))
     fees = round(fees + sum(_num(x.get("amount")) for x in money if x.get("kind") == "fee"), 2)
+    return {"from": start, "to": end, "orders": ordered, "requests": len(new_cases) + len(new_disputes),
+            "requests_by_channel": _first_channels(new_cases, len(new_disputes)),
+            "solved_before_dispute": len(solved),
+            "ai_answered": sum(1 for x in entries if x.get("direction") == "out" and x.get("autopilot")),
+            "answers": written, "minutes": minutes,
+            "calls": sum(1 for x in entries if x.get("channel") == "call" and x.get("direction") == "in"),
+            "call_minutes": round(call_min, 2),
+            "hourly_cost": st["hourly_cost"], "reply_minutes": st["reply_minutes"],
+            "staff_cost": round(minutes / 60 * st["hourly_cost"], 2),
+            "back_cases": back_cases, "back_paypal": back_paypal, "back": round(back_cases + back_paypal, 2),
+            "both_sides": both_sides, "fees": fees, "currency": currency}
+
+
+def month(cases: list, disputes: list, orders: list, today: date, policy: dict | None, answers=(),
+          currency: str = "EUR") -> dict:
+    """This month so far, every channel (period from the 1st, no end), and what holds right now: what the open cases
+    could still cost, and PayPal's high-volume line."""
+    hv = ledger.overview(disputes, orders, today, currency)["high_volume"]
+    out = period(cases, disputes, orders, month_start(today), None, policy, answers, hv["high_volume"], currency)
+    linked = {id(c) for c in links(cases, disputes, orders).values()}
     ex = ledger.exposure(disputes, today, hv["high_volume"], currency)
     amount_of = _amounts(orders)
     open_inq = [c for c in cases if c.get("status") == "open" and not c.get("dispute_id") and c.get("order_no")
@@ -279,17 +320,8 @@ def month(cases: list, disputes: list, orders: list, today: date, policy: dict |
                 given[c["order_no"]] = given.get(c["order_no"], 0.0) + _num(x.get("amount"))
     inq_stake = round(sum(max(0.0, amount_of.get(c["order_no"], 0.0) - given.get(c["order_no"], 0.0))
                           for c in open_inq), 2)
-    return {"from": m, "orders": ordered, "requests": len(new_cases) + len(new_disputes),
-            "requests_by_channel": _first_channels(new_cases, len(new_disputes)),
-            "solved_before_dispute": len(solved), "answers": written, "minutes": minutes,
-            "calls": sum(1 for x in entries if x.get("channel") == "call" and x.get("direction") == "in"),
-            "call_minutes": round(call_min, 2),
-            "hourly_cost": st["hourly_cost"], "reply_minutes": st["reply_minutes"],
-            "staff_cost": round(minutes / 60 * st["hourly_cost"], 2),
-            "back_cases": back_cases, "back_paypal": back_paypal, "back": round(back_cases + back_paypal, 2),
-            "both_sides": both_sides,
-            "fees": fees, "open_disputes_most": ex["all_lost"], "open_inquiries_most": inq_stake,
-            "could_still_cost": round(ex["all_lost"] + inq_stake, 2), "high_volume": hv, "currency": currency}
+    return {**out, "open_disputes_most": ex["all_lost"], "open_inquiries_most": inq_stake,
+            "could_still_cost": round(ex["all_lost"] + inq_stake, 2), "high_volume": hv}
 
 
 def _first_channels(new_cases: list, new_disputes: int) -> dict:

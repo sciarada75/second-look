@@ -351,6 +351,34 @@ def test_the_paypal_chip_says_when_it_counts_new_messages_too():
     assert s["paypal_messages"] == 0 and "1 PayPal dispute<" in web.see_block(s, "")
 
 
+def test_like_for_like_windows_and_the_last_eight_weeks():
+    assert today.windows(date(2026, 10, 20)) == ((date(2026, 10, 1), date(2026, 10, 20)), (date(2026, 9, 1), date(2026, 9, 20)))
+    assert today.windows(date(2026, 10, 31))[1] == (date(2026, 9, 1), date(2026, 9, 30))       # cut at 30 Sep
+    assert today.windows(date(2026, 3, 1))[1] == (date(2026, 2, 1), date(2026, 2, 1))
+    assert today.windows(date(2026, 10, 20), "week") == ((date(2026, 10, 19), date(2026, 10, 20)),
+                                                         (date(2026, 10, 12), date(2026, 10, 13)))
+    assert today.windows(date(2026, 10, 19), "week") == ((date(2026, 10, 19), date(2026, 10, 19)),
+                                                         (date(2026, 10, 12), date(2026, 10, 12)))
+    w = today.weeks(date(2026, 10, 20))
+    assert len(w) == 8 and w[0] == (date(2026, 8, 31), date(2026, 9, 6)) and w[-1] == (date(2026, 10, 19), date(2026, 10, 20))
+
+
+def test_a_period_counts_only_its_own_days_and_this_month_is_the_morning_screen_s_month():
+    cases = [case("C1", ("2026-09-05T09:00", "email", "in"), ("2026-09-05T10:00", "email", "out"), status="closed",
+                  closed_at="2026-09-06T09:00"),
+             case("C2", ("2026-10-02T09:00", "email", "in"), ("2026-10-02T10:00", "email", "out"))]
+    cases[1]["timeline"].append({"at": "2026-10-02T11:00", "channel": "email", "direction": "out", "text": "…",
+                                 "by": "Second Look's AI", "ai": True, "autopilot": True})
+    orders = [{"date": "2026-09-05"}, {"date": "2026-09-25"}, {"date": "2026-10-02"}, {"date": "2026-10-03"}]
+    sep = today.period(cases, [], orders, "2026-09-01T00:00", "2026-09-21T00:00", None)
+    octo = today.period(cases, [], orders, "2026-10-01T00:00", None, None)
+    assert (sep["requests"], sep["solved_before_dispute"], sep["answers"], sep["orders"], sep["ai_answered"]) == (1, 1, 1, 1, 0)
+    assert (octo["requests"], octo["solved_before_dispute"], octo["answers"], octo["orders"], octo["ai_answered"]) == (1, 0, 1, 2, 1)
+    assert (sep["from"], sep["to"], octo["to"]) == ("2026-09-01T00:00", "2026-09-21T00:00", None)
+    m = today.month(cases, [], orders, TODAY, None)
+    assert {k: m[k] for k in octo} == octo                     # the morning screen's month is this period, unchanged
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
