@@ -446,6 +446,14 @@ def test_a_seller_on_their_own_with_nothing_to_do_has_no_team_to_mention():
     assert "Your team has the rest." in web.needs_block([], "", "giulia", "demo")
 
 
+def test_a_row_second_look_s_ai_answered_on_its_own_raises_no_not_taken_yet_alarm():
+    with morning():
+        listing = web.today_page("demo", "giulia").split('<ol class="see">')[1].split("</ol>")[0]
+        row = lambda cid: next(li for li in listing.split("<li>") if f'href="/c/{cid}' in li)  # noqa: E731
+        assert "Handled by Second Look&#x27;s AI" in row("DEMO-C004") and 'class="has' not in row("DEMO-C004")
+        assert "not taken yet" in row("DEMO-C002")                            # Lena's: nobody has it, nobody answered
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

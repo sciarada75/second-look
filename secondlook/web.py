@@ -2837,7 +2837,9 @@ def see_block(s: dict, q: str, phone: bool = False, pending: int = 0) -> str:
                 else f"{left} day{'s' if left != 1 else ''} left")
         due = f'<span class="due{" soft" if left is None else ""}">{e(when)}</span>'
         order = f' · order {e(r["order_no"])}' if r["order_no"] else " · no order"
-        has = ("" if "has" not in r else f'<span class="has">{e(r["has"])} has it</span>' if r["has"]
+        # who has it; none on a row Second Look's AI answered on its own (its line says so): never a false alarm
+        handled = ((r.get("review") or {}).get("text") or "").startswith("Handled by Second Look's AI")
+        has = ("" if "has" not in r or handled else f'<span class="has">{e(r["has"])} has it</span>' if r["has"]
                else '<span class="has none">not taken yet</span>')
         rows.append(f'<li><a href="{e(r["link"])}{q}"><span class="chan">{e(icons)}</span>'
                     f'<span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · '
