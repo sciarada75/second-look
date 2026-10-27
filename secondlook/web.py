@@ -2598,6 +2598,48 @@ def _hours(minutes: float) -> str:
     return f"{h} h {mm} min" if h else f"{mm} min"
 
 
+def records_from(src: str):
+    """The first day this shop's own records cover: a period before it has no record, never a zero. The demo's history
+    begins on 1 Sep 2026 (demo/shop.json "records_from"); a live shop's on its first case's day; None: no case yet."""
+    if src == "demo":
+        return datetime.strptime(DemoPayPal().shop["records_from"], "%Y-%m-%d").date()
+    days = [c["opened"][:10] for c in case_store(src).all() if c.get("opened")] if src in CASE_FILES else []
+    return datetime.strptime(min(days), "%Y-%m-%d").date() if days else None
+
+
+def numbers_view(src: str, by: str = "month") -> dict:
+    """Numbers, as data: this week or month so far beside the same days of the one before (like for like; None before
+    the shop's records begin), the weeks on record, this month with what holds right now (today.month), and PayPal's
+    own last 90 days. One counting function for every period (today.period)."""
+    by = by if by in ("week", "month") else "month"
+    close_quiet(src)
+    today = shop_today(src)
+    cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
+    pol, answers, cur = _policy(), sent_answers(src), "EUR"
+    since = records_from(src)
+
+    def flows(first, last, current, fees=True):
+        # PayPal's line as it stood at the period's end sets its fee; the week bars count requests only
+        hv = fees and ledger.overview(disputes, orders, last, cur)["high_volume"]["high_volume"]
+        return today_mod.period(cases, disputes, orders, f"{first.isoformat()}T00:00",
+                                None if current else f"{(last + timedelta(days=1)).isoformat()}T00:00",
+                                pol, answers, bool(hv), cur)
+    (a0, a1), (b0, b1) = today_mod.windows(today, by)
+    weeks = []
+    for first, last in today_mod.weeks(today):
+        if since is None or first < since:
+            continue
+        f = flows(first, last, last == today, fees=False)
+        weeks.append({"first": first, "last": last, "so_far": (last - first).days < 6,
+                      "requests": f["requests"], "orders": f["orders"]})
+    ov = ledger.overview(disputes, orders, today, cur)
+    return {"by": by, "today": today, "records_from": since,
+            "this": {"first": a0, "last": a1, **flows(a0, a1, True)},
+            "before": {"first": b0, "last": b1, **flows(b0, b1, False)} if since and b0 >= since else None,
+            "weeks": weeks, "month": today_mod.month(cases, disputes, orders, today, pol, answers, cur),
+            "paypal": ov, "exposure": ledger.exposure(disputes, today, ov["high_volume"]["high_volume"], cur)}
+
+
 def claim_line_box(hv: dict, today, cur: str = "EUR") -> str:
     """PayPal's high-volume line, as the Overview shows it: claims and card chargebacks against sales over PayPal's
     own window (the three previous full months), with the 1.5% line."""
@@ -4123,6 +4165,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"today": v["today"], "see": v["see"], "manage": v["manage"], "know": v["know"],
                                    "autopilot": v["autopilot"],
                                    "calls": {"being_transcribed": v["calls_pending"], "not_transcribed": v["calls_failed"]}})
+            if u.path == "/api/numbers":
+                return self._json(numbers_view("live" if src == "live" else "demo", (qs.get("by") or ["month"])[0]))
             if u.path == "/overview":
                 return self._send(overview_page(src, me=me))
             if u.path.startswith("/customer/"):

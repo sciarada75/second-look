@@ -4,6 +4,7 @@
  "shop": {
   "name": "Linen & Paper",
   "about": "Demo shop, made-up data: handmade linen and art prints from Bologna, about 2,000 orders a month, four people in customer care.",
+  "records_from": "2026-09-01",
   "team": {
    "currency": "EUR",
    "roles": {

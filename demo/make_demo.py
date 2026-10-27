@@ -20,6 +20,7 @@ from secondlook import autopilot, ledger  # noqa: E402  (how a case ended, the s
 # A path given on the command line writes there instead (the tests check the generator without touching the shop).
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent / "shop.json"
 TODAY = date(2026, 10, 20)
+HISTORY_FROM = date(2026, 9, 1)  # the shop's own cases begin here: Numbers never compares a period before it
 START = date(2026, 6, 20)          # orders from here: covers PayPal's previous full quarter (Jul-Sep)
 rng = random.Random(20261020)
 
@@ -27,6 +28,7 @@ SHOP = {
     "name": "Linen & Paper",
     "about": "Demo shop, made-up data: handmade linen and art prints from Bologna, about 2,000 orders a month, "
              "four people in customer care.",
+    "records_from": HISTORY_FROM.isoformat(),
     "team": {
         "currency": "EUR",
         "roles": {"Head of customer care": {"refund_up_to": None},
@@ -478,7 +480,7 @@ def at(day, h, m):
     return datetime(day.year, day.month, day.day, h, m).strftime("%Y-%m-%dT%H:%M")
 
 
-history, used, k, day = [], set(), 0, date(2026, 9, 1)
+history, used, k, day = [], set(), 0, HISTORY_FROM
 while day <= date(2026, 10, 16):
     for _ in range(rng3.choice([0, 1, 1, 2, 2, 2, 3])):
         pool = [o for o in eligible if o["email"] not in used
