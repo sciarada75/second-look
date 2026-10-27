@@ -54,8 +54,8 @@ in code,* have the last word) → **A person approves** (within their own limit)
 - Marta, a customer care assistant, can give back up to thirty euros. Giulia, head of customer care, decides above that.
 
 ## 5. What came in this morning? (≈ 22 s) — I see, I manage, and the routine ones
-[**Second Look › Today**, signed in as Giulia. Light **I see**: the channel counts (1 call, 3 emails, 1 web form,
-3 PayPal disputes) beside 141 new orders, then the list with its *Second Look's AI* lines. Then **I manage**:
+[**Second Look › Today**, signed in as Giulia. Light **I see**: the channel counts (with Ticketbook running, as captured: 1 call,
+5 emails, 1 web form, 3 PayPal disputes; without it: 3 emails) beside 141 new orders, then the list with its *Second Look's AI* lines. Then **I manage**:
 who has which cases, and the line **Handled by Second Look's AI: 1 — check them**, with Margot (customer) and
 the button *I'd have done it differently*. Cursor opens her case: the reply "Email out · Second Look's AI, under
 Giulia's setting (since 17 Oct)". Then **Your rules**: "10 of the last 10 approved as advised · On, switched on
