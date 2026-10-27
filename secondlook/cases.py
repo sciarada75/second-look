@@ -98,6 +98,20 @@ def entry(at, channel: str, direction: str, text: str, by: str, ai: bool = False
     return {"at": minute(at), "channel": channel, "direction": direction, "text": text, "by": by, "ai": bool(ai), **extra}
 
 
+def closes_on(c: dict, days: int) -> date | None:
+    """The day an answered request closes itself if the customer stays quiet: `days` after the shop's last reply, when
+    that reply is the case's last word (notes are nobody's word). None when it never closes on its own: a PayPal
+    dispute (PayPal closes those), a closed case, no reply yet, the customer wrote after it, or money or goods logged
+    on it (a person closes those with what happened: refunded, replaced)."""
+    if c.get("status") != "open" or c.get("dispute_id") or c.get("money"):
+        return None
+    words = sorted((x for x in c.get("timeline", []) if x.get("direction") in ("in", "out") and x.get("at")),
+                   key=lambda x: x["at"])                    # stable: an answer in the same minute stays after the question
+    if not words or words[-1]["direction"] != "out":
+        return None
+    return date.fromisoformat(words[-1]["at"][:10]) + timedelta(days=days)
+
+
 def stage_for(dispute: dict) -> str:
     return "paypal_claim" if escalated(dispute) else "paypal_dispute"
 

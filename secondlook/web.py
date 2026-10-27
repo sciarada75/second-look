@@ -1162,6 +1162,53 @@ def _close(store, cid: str, outcome: str, who: dict) -> tuple:
     return 200, f"Closed: {CLOSE_OUTCOMES[outcome].lower()}."
 
 
+def shop_today(src: str):
+    """The shop's today: the demo's is fixed (20 Oct 2026); a live shop's is the computer's, in UTC."""
+    return DemoPayPal().today if src == "demo" else datetime.utcnow().date()
+
+
+def quiet_days() -> int:
+    """policy.json "close_answered_after_days": an answered request closes itself after this many days with no word
+    from the customer. 3 when it isn't a whole number of 1 or more."""
+    v = _policy().get("close_answered_after_days")
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 1 else 3
+
+
+def close_quiet(src: str) -> list:
+    """Every answered request whose customer stayed quiet for the shop's days closes itself, as solved before any
+    dispute, signed (cases.closes_on). Code, not AI. Run at each look at the shop's cases, against the shop's today:
+    no timer. Each case is checked again under its lock: a customer who just wrote keeps it open."""
+    if src not in CASE_FILES:
+        return []
+    days, today, store, done = quiet_days(), shop_today(src), case_store(src), []
+    for c in store.all():
+        on = cases_mod.closes_on(c, days)
+        if on is None or on > today:
+            continue
+        with _case_lock(c["id"]):
+            x = store.get(c["id"])
+            on = cases_mod.closes_on(x, days) if x else None
+            if on is None or on > today:
+                continue
+
+            def close(y):
+                y["status"], y["outcome"], y["closed_at"], y["closed_by"] = "closed", "solved", cases_mod.minute(None), "Second Look"
+                y["timeline"].append(cases_mod.entry(None, reply_channel(y), "note",
+                                                     f"Closed by Second Look: no reply in {days} days.", "Second Look"))
+            store.update(c["id"], close)
+            done.append(c["id"])
+    return done
+
+
+def _closes_words(c: dict | None) -> str:
+    """"Answered · closes on 23 Oct if Margot doesn't write", or "" when the case doesn't close itself."""
+    on = cases_mod.closes_on(c, quiet_days()) if c else None
+    if on is None:
+        return ""
+    first = ((c.get("customer") or {}).get("name") or "").split(" ")[0] or "the customer"
+    return f"Answered · closes on {on.day} {on:%b} if {first} doesn't write"
+
+
 # ---------- the seller's rules ----------
 # Preferences are plain sentences the judge follows in every review (policy.json "seller_preferences").
 # This is how Second Look learns: from rules the seller writes and can read, never silently from past cases.
@@ -1254,6 +1301,8 @@ def rules_page(flash: str = "", demo: bool = False, me: str | None = None) -> st
     st = cases_mod.staff_time(pol)
     limits.append(f'A case\'s staff time is estimated at {st["hourly_cost"]:g} {cur} an hour; each written answer counts '
                   f'{st["reply_minutes"]:g} minutes, a call its own length.')
+    limits.append(f'An answered request closes itself, as solved before any dispute, after {quiet_days()} days with no '
+                  'word from the customer. Not one with money or goods logged on it: a person closes those.')
     rows = "".join(f'<li><span>{e(r)}</span><form method="post" action="/rules/remove">'
                    f'<input type="hidden" name="i" value="{i}"><button class="quiet">Remove</button></form></li>'
                    for i, r in enumerate(pol.get("seller_preferences", [])))
@@ -1921,6 +1970,7 @@ def owner_tag(t: dict, a: dict) -> str:
 
 
 def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
+    close_quiet(src)
     practice, demo = src == "practice", src == "demo"
     pp = DemoPayPal() if demo else MockPayPal(ROOT / "cases", ROOT / ".tmp" / "actions.jsonl") if practice else client_from_env(ROOT)
     t = team_for_src(src)
@@ -2521,8 +2571,9 @@ def _utc_minute(at) -> str:
 
 def today_view(src: str) -> dict:
     """The three blocks of the morning screen, as data (the page and GET /api/today show the same)."""
+    close_quiet(src)
     demo = src == "demo"
-    today = DemoPayPal().today if demo else datetime.utcnow().date()
+    today = shop_today(src)
     waiting, failed = 0, []
     if CALL_BOXES.get(src):
         file_calls(case_store(src), src)              # a call left in the box since the last look comes in now
@@ -2834,6 +2885,7 @@ def _close_form(cid: str, me: str | None) -> str:
 
 
 def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
+    close_quiet(shop_of_case(cid)) if cases_mod.is_case_id(cid) else None
     v = case_view(cid)
     demo = v is not None and v["src"] == "demo"
     if v is None:
@@ -2865,6 +2917,8 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     owner = ("" if v["team"].get("solo") else
              f'<p class="owner-line">{e(holder["name"])}, <i>{e(holder["role"] or "")}</i>, has this case.</p>' if holder
              else '<p class="owner-line">Nobody has this case yet.</p>')
+    closes = _closes_words(c)
+    owner += f'<p class="owner-line">{e(closes)}</p>' if closes else ""
     left = (f'<a class="back" href="/{"?shop=demo" if demo else ""}">All disputes and requests</a>{stage}'
             f'<p class="claim{"" if c["sorted"].get("by") == "ai" else " quote"}">{e(case_summary(c))}</p>'
             f'<p class="who">{e(cust.get("name") or cust.get("email") or "")}, <i>customer</i> · {e(cust.get("email") or "")}<br>'
