@@ -19,7 +19,9 @@ a broken file kept aside, never overwritten).
 from __future__ import annotations
 
 import re
-from datetime import datetime
+import threading
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 
 from .costs import escalated
 from .ledger import REASON_SHORT, outcome as paypal_outcome
@@ -57,6 +59,29 @@ def is_case_id(x) -> bool:
     return isinstance(x, str) and bool(CASE_ID.fullmatch(x))
 
 
+class _Clock(threading.local):
+    """A fixed "now" for this thread ("2026-10-20T07:41"), or None: the computer's. The demo's first load sets the demo
+    morning's (web.case_store), so what Second Look's AI does that morning reads as that morning."""
+    at = None
+
+
+CLOCK = _Clock()
+
+
+@contextmanager
+def clock(at: str | None):
+    was, CLOCK.at = CLOCK.at, at
+    try:
+        yield
+    finally:
+        CLOCK.at = was
+
+
+def now() -> datetime:
+    """Now in UTC, as Second Look stamps it: this thread's clock when one is set, else the computer's."""
+    return datetime.strptime(CLOCK.at, "%Y-%m-%dT%H:%M") if CLOCK.at else datetime.utcnow()
+
+
 def minute(iso=None) -> str:
     """'2026-10-19T08:52:00Z' -> '2026-10-19T08:52', the way Second Look saves times. Unreadable or none: now (UTC)."""
     for fmt, n in (("%Y-%m-%dT%H:%M:%S", 19), ("%Y-%m-%dT%H:%M", 16), ("%Y-%m-%d", 10)):
@@ -64,7 +89,7 @@ def minute(iso=None) -> str:
             return datetime.strptime(str(iso)[:n], fmt).strftime("%Y-%m-%dT%H:%M")
         except ValueError:
             continue
-    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+    return now().strftime("%Y-%m-%dT%H:%M")
 
 
 def entry(at, channel: str, direction: str, text: str, by: str, ai: bool = False, **extra) -> dict:

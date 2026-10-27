@@ -507,10 +507,15 @@ def case_store(src: str) -> cases_mod.CaseStore:
         # Second Look's AI looks at the morning once it is all filed (one look per case, after the lock: its approval
         # reads this store again). The first load waits for it, at most 10 s: the demo's review of the one request it
         # handles ships with the demo, so no model is called, and the first page already shows it handled.
+        # ... on the demo morning's own clock: a minute after the last request came in (Margot's, 07:40 on 20 Oct)
+        heard = [x["at"] for c in store.all() for x in c["timeline"] if x.get("direction") == "in" and x.get("at")]
+        morning = ((datetime.strptime(max(heard), "%Y-%m-%dT%H:%M") + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M")
+                   if heard else None)
         try:
-            for th in [autopilot_after("demo", store.get(cid)) for cid in dict.fromkeys(filed)]:
-                if th is not None:
-                    th.join(10)
+            with cases_mod.clock(morning):
+                for th in [autopilot_after("demo", store.get(cid)) for cid in dict.fromkeys(filed)]:
+                    if th is not None:
+                        th.join(10)
         finally:
             mine.set()
     return store
@@ -3545,7 +3550,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
     amount = money_out(chosen, dec.judgment, case["dispute"])
     need = required(chosen, dec, case["dispute"])
-    now = datetime.now()
+    now = _local_now()
     if kind == "pass" and ai and ai["solo"]:
         # A team of one: over its own limit, the seller decides; no handoff (nobody would ever clear one).
         cap = team_mod.limit(t, who["id"]) or 0.0
@@ -3696,7 +3701,12 @@ def autopilot_soon(src: str, stage: str, problem: str | None, did: str):
     if AUTOPILOT_RUN is None:
         _look(src, did)
         return None
-    return AUTOPILOT_RUN(lambda: _look(src, did))
+    at = cases_mod.CLOCK.at                       # a look in its own thread keeps the clock of whoever asked for it
+
+    def look():
+        with cases_mod.clock(at):
+            return _look(src, did)
+    return AUTOPILOT_RUN(look)
 
 
 def _look(src: str, did: str) -> dict | None:
@@ -3749,6 +3759,13 @@ def _ai_steps_back(src: str, did: str, c: dict | None, kind: str | None, why: st
                                                      ai=True, autopilot=True))
         case_store(src).update(c["id"], note)
     return {"did": did, "kind": kind, "handled": False, "why": why}
+
+
+def _local_now() -> datetime:
+    """Now in local time, as an approval shows it ("Sent by Giulia, 11:47"): the demo morning's when its clock is set."""
+    if cases_mod.CLOCK.at:
+        return cases_mod.now().replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+    return datetime.now()
 
 
 def _a_person_s(did: str, t: dict, c: dict | None, d: dict | None) -> str | None:
@@ -3842,7 +3859,7 @@ def _autopilot_case(src: str, did: str) -> dict:
         return back(f"it is {j.confidence:.0%} sure, and it answers on its own only from {s['min_confidence']:.0%}", kind)
     if kind not in on:
         return back(f"its answer ({_words(did)['action'].get(dec.action, dec.action).lower()}) is not one it sends on its own", kind)
-    day = datetime.utcnow().strftime("%Y-%m-%d")
+    day = cases_mod.now().strftime("%Y-%m-%d")
     if not store.reserve(kind, day, s["per_day"]):       # today's slot, taken before it sends
         return back(f"today's {s['per_day']} for this kind are used", kind)
     rep = {}

@@ -994,6 +994,37 @@ def test_a_person_s_approval_as_the_very_first_call_never_waits_on_itself():
         assert out["r"][0] == 200 and out["r"][1].startswith(f"Reply sent by email. Sent by {SIGNED}")   # already sent
 
 
+def test_the_demo_s_first_load_answers_on_the_demo_morning_s_clock():
+    from secondlook import cases as cases_mod
+    with morning() as b:
+        margot = web.case_store("demo").get("DEMO-C004")
+        assert margot["timeline"][-1]["at"] == "2026-10-20T07:41"            # a minute after her email, on 20 Oct
+        assert web.autopilot_store("demo").view()["cases"]["DEMO-C004"]["at"] == "2026-10-20T07:41"
+        assert web.case_store("demo").get("DEMO-C001")["timeline"][-1]["at"] == "2026-10-20T07:41"  # Sophie's step back
+        log = [json.loads(x) for x in (b.tmp / "actions-demo.jsonl").read_text().splitlines()]
+        assert [x["ts"] for x in log] == ["2026-10-20T07:41"]
+        assert web._utc_minute(web._raw("DEMO-C004")["at"]) == "2026-10-20T07:41"
+    assert cases_mod.CLOCK.at is None                                          # the clock goes back after the first load
+
+
+def test_a_look_in_its_own_thread_keeps_the_clock_of_whoever_asked():
+    from secondlook import cases as cases_mod
+    seen = []
+    kept_run, kept_look = web.AUTOPILOT_RUN, web._look
+    with morning():
+        web.case_store("demo")                                                 # the first load, done
+        web.AUTOPILOT_RUN = web._in_a_thread
+        web._look = lambda src, did: seen.append(cases_mod.minute(None))
+        try:
+            with cases_mod.clock("2026-10-20T07:41"):
+                th = web.autopilot_soon("demo", "inquiry", "not_received", "DEMO-C004")
+            th.join(5)
+        finally:
+            web.AUTOPILOT_RUN, web._look = kept_run, kept_look
+    assert seen == ["2026-10-20T07:41"]
+    assert cases_mod.minute(None) != "2026-10-20T07:41"                        # this thread's clock: the computer's
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
