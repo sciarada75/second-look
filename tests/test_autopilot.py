@@ -395,9 +395,9 @@ def test_in_the_server_its_look_runs_in_the_background():
 def test_what_it_sends_on_its_own_takes_nobody_s_minutes():
     with morning(ai_key=True, claude=says("MESSAGE")):
         no_record(on())
-        before = web.today_view("demo")["know"]
+        before = web.numbers_view("demo")["month"]
         cid = marco()
-        after = web.today_view("demo")["know"]
+        after = web.numbers_view("demo")["month"]
         assert (after["answers"], after["minutes"]) == (before["answers"], before["minutes"])
         costs = web.case_view(cid)["costs"]
         assert (costs["contacts"], costs["replies"], costs["minutes"]) == (2, 0, 0)

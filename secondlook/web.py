@@ -2611,8 +2611,9 @@ def _utc_minute(at) -> str:
     return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M")
 
 
-def today_view(src: str) -> dict:
-    """The three blocks of the morning screen, as data (the page and GET /api/today show the same)."""
+def today_view(src: str, me: str | None = None) -> dict:
+    """The morning screen as data (the page and GET /api/today show the same): what needs `me` (today.needs_you), what
+    came in since yesterday (each row says who has it), who has what. The figures are on Numbers (numbers_view)."""
     close_quiet(src)
     demo = src == "demo"
     today = shop_today(src)
@@ -2623,14 +2624,27 @@ def today_view(src: str) -> dict:
         failed = calls_failed(case_store(src), src)
     cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
     t = team_for_src(src)
-    assigned = {} if t.get("solo") else assignments_for("DEMO-" if demo else None).all()
+    solo = bool(t.get("solo"))
+    who = None if solo else team_mod.person(t, me)
+    head = solo or (who is not None and team_mod.limit(t, who["id"]) is None)
+    assigned = {} if solo else assignments_for("DEMO-" if demo else None).all()
     rec = autopilot_store(src).view()           # Second Look's AI's record, read once for every row
-    return {"today": today, "team": t, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
-            "calls_failed": failed,
-            "see": today_mod.came_in(cases, disputes, orders, today, review_of=lambda did: review_line(did, rec["cases"])),
-            "manage": today_mod.who_has(today_mod.open_items(cases, disputes, orders), assigned, t),
-            "know": today_mod.month(cases, disputes, orders, today, _policy(), sent_answers(src)),
-            "autopilot": {"handled": autopilot_handled(src, today, rec),
+    see = today_mod.came_in(cases, disputes, orders, today, review_of=lambda did: review_line(did, rec["cases"]))
+    if not solo:
+        names = {p["id"]: p.get("name") or p["id"] for p in team_mod.people(t)}
+        for r in see["rows"]:
+            r["has"] = names.get((assigned.get(r["decision_id"]) or {}).get("to"))
+    items = today_mod.open_items(cases, disputes, orders, today)
+    handled = autopilot_handled(src, today, rec)
+    for h in handled:
+        h["closes"] = _closes_words(case_store(src).get(h["id"]) if cases_mod.is_case_id(h["id"]) else None)
+    hv = ledger.overview(disputes, orders, today)["high_volume"]
+    return {"today": today, "team": t, "head": head, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
+            "calls_failed": failed, "see": see,
+            "needs": today_mod.needs_you(who["id"] if who else None, head, items, assigned, t,
+                                         [h for h in handled if not h.get("checked")], failed, hv),
+            "manage": today_mod.who_has(items, assigned, t),
+            "autopilot": {"handled": handled,
                           "on": [kind_words(k) for k, x in rec["kinds"].items()
                                  if x.get("on") and autopilot_mod.split_kind(k)[0] in autopilot_mod.SWITCHABLE]}}
 
@@ -2827,7 +2841,8 @@ def manage_block(mg: dict, q: str, ap: dict | None = None, me: str | None = None
 
 def today_page(src: str, me: str | None = None) -> str:
     demo = src == "demo"
-    v = today_view(src)
+    v = today_view(src, me)
+    k = numbers_view(src)["month"]
     q = "?shop=demo" if demo else ""
     name = DemoPayPal().shop["name"] if demo else _live_shop().get("name") or "Your shop"
     about = f'<p class="demo-note">{e(DemoPayPal().shop["about"])}</p>' if demo else ""
@@ -2836,8 +2851,8 @@ def today_page(src: str, me: str | None = None) -> str:
             f'<a href="/{q}">Disputes and requests</a> · <a href="/overview{q}">Overview</a></p>'
             f'<div class="blocks"><section class="block">{see_block(v["see"], q, v["phone"], v["calls_pending"], v["calls_failed"])}</section>'
             f'<section class="block">{manage_block(v["manage"], q, v["autopilot"], me, src)}</section>'
-            f'<section class="block">{month_block(v["know"], v["today"], q)}'
-            f'{claim_line_box(v["know"]["high_volume"], v["today"])}</section></div>')
+            f'<section class="block">{month_block(k, v["today"], q)}'
+            f'{claim_line_box(k["high_volume"], v["today"])}</section></div>')
     return page(f"Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
 
 
@@ -4204,8 +4219,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._redirect("/?practice=1")    # practice cases are a test bench, not a shop's morning
                 return self._send(today_page(src, me=me))
             if u.path == "/api/today":
-                v = today_view("live" if src == "live" else "demo")
-                return self._json({"today": v["today"], "see": v["see"], "manage": v["manage"], "know": v["know"],
+                v = today_view("live" if src == "live" else "demo", (qs.get("as") or [None])[0])
+                return self._json({"today": v["today"], "see": v["see"], "needs": v["needs"], "manage": v["manage"],
                                    "autopilot": v["autopilot"],
                                    "calls": {"being_transcribed": v["calls_pending"], "not_transcribed": v["calls_failed"]}})
             if u.path == "/api/numbers":

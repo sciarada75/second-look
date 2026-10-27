@@ -200,9 +200,10 @@ def channel_words(counts: dict) -> list:
     return [(ch, nouns[ch][counts.get(ch, 0) != 1], counts.get(ch, 0)) for ch in CHANNEL_ORDER if ch in CHANNEL_LABEL]
 
 
-def open_items(cases: list, disputes: list, orders: list) -> list:
+def open_items(cases: list, disputes: list, orders: list, today: date | None = None) -> list:
     """Everything still open, once each: every open PayPal dispute (a case holding one is answered on it), and every
-    open shop inquiry. Each with its decision id (whose assignment it is), who it is about and what is at stake."""
+    open shop inquiry. Each with its decision id (whose assignment it is), who it is about and what is at stake.
+    `today`: with it, each item says the days left on its PayPal deadline (None for an inquiry)."""
     held = links(cases, disputes, orders)
     linked = {id(c) for c in held.values()}
     amount_of, currency_of = _amounts(orders), _currencies(orders)
@@ -214,12 +215,13 @@ def open_items(cases: list, disputes: list, orders: list) -> list:
         out.append({"id": d["dispute_id"], "link": f"/c/{c['id']}" if c else f"/d/{d['dispute_id']}",
                     "who": (c or {}).get("customer", {}).get("name") or _buyer_name(d),
                     "summary": (c or {}).get("problem", {}).get("summary") or _first_message(d),
-                    "amount": _num(d["dispute_amount"]["value"]), "currency": d["dispute_amount"].get("currency_code") or "EUR"})
+                    "amount": _num(d["dispute_amount"]["value"]), "currency": d["dispute_amount"].get("currency_code") or "EUR",
+                    "days_left": ledger.days_left(d, today) if today else None})
     for c in cases:
         if c.get("status") == "open" and not c.get("dispute_id") and id(c) not in linked:
             out.append({"id": c["id"], "link": f"/c/{c['id']}", "who": c["customer"].get("name") or c["customer"].get("email"),
                         "summary": c["problem"].get("summary") or "", "amount": amount_of.get(c.get("order_no"), 0.0),
-                        "currency": currency_of.get(c.get("order_no")) or "EUR"})
+                        "currency": currency_of.get(c.get("order_no")) or "EUR", "days_left": None})
     return out
 
 
@@ -249,6 +251,37 @@ def who_has(items: list, assigned: dict, team: dict) -> dict:
                              "to_name": rows[to]["name"], "to_role": rows[to]["role"]})
     return {"solo": False, "total": len(items), "people": [rows[p["id"]] for p in people],
             "unassigned": unassigned, "handoffs": handoffs}
+
+
+# Claims: PayPal's high-volume line comes onto the morning screen when this few more would cross it, or once crossed.
+NEAR_LINE = 3
+
+
+def needs_you(me: str | None, head: bool, items: list, assigned: dict, team: dict, handled=(), failed=(), hv=None) -> list:
+    """The morning screen's first block: what needs this person now. Their cases, nearest PayPal deadline first (a
+    handoff to them says who passed it); the calls nobody could transcribe (anyone listens); and for the head of
+    customer care, Second Look's AI's answers nobody checked yet, and PayPal's high-volume line when it is near or
+    crossed. In a team of one every open case is the seller's. `items`: open_items(..., today); `assigned`: decision
+    id -> {"to", "handoff"}; `handled`: what Second Look's AI answered on its own, not checked yet."""
+    solo = bool(team.get("solo"))
+    people = {p["id"]: p for p in team.get("people", []) if isinstance(p, dict) and p.get("id")}
+    mine = []
+    for it in items:
+        a = assigned.get(it["id"]) or {}
+        if not solo and (not me or a.get("to") != me):
+            continue
+        hand = a.get("handoff") if isinstance(a.get("handoff"), dict) else None
+        frm = (people.get(hand.get("from")) or {}) if hand else {}
+        mine.append({**it, "kind": "case",
+                     "from_name": (frm.get("name") or hand.get("from_name") or "A colleague") if hand else None,
+                     "from_role": (frm.get("role") or "") if hand else None})
+    mine.sort(key=lambda x: (x.get("days_left") is None, x.get("days_left") or 0))
+    out = mine + ([{"kind": "calls", "wavs": list(failed)}] if failed else [])
+    if head:
+        out += [{**h, "ai_kind": h.get("kind"), "kind": "ai"} for h in handled]
+        if hv and hv.get("counts") and (hv.get("high_volume") or hv.get("claims_to_threshold", NEAR_LINE + 1) <= NEAR_LINE):
+            out.append({**hv, "kind": "line"})
+    return out
 
 
 def _closed_at(c: dict) -> str:

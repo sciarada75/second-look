@@ -156,7 +156,7 @@ def test_the_demo_morning_reads_every_channel_against_its_orders():
         # unassigned still 9: Sophie's left it (Marta's), Margot's open case joined it (a person checks it)
         assert len(v["manage"]["unassigned"]) == 9 and v["manage"]["handoffs"] == []
         assert [h["id"] for h in v["autopilot"]["handled"]] == ["DEMO-C004"]
-        k = v["know"]
+        k = web.numbers_view("demo")["month"]
         # Margot's order (15 Oct) and her request count this month; her answer is nobody's staff time (Second Look's AI)
         assert (k["from"], k["orders"], k["requests"], k["solved_before_dispute"]) == ("2026-10-01T00:00", 1330, 65, 31)
         assert (k["answers"], k["staff_cost"], k["back_cases"], k["back_paypal"], k["fees"]) == (23, 57.74, 160.0, 154.7, 14.0)
@@ -174,7 +174,8 @@ def test_what_the_team_does_this_morning_shows_at_once():
         v = web.today_view("demo")
         row = next(r for r in v["see"]["rows"] if r["case_id"] == "DEMO-C001")
         assert row["review"]["text"] == "Answered: Reply sent by email" and row["status"] == "closed"
-        assert (v["know"]["answers"], v["know"]["solved_before_dispute"]) == (24, 32)
+        k = web.numbers_view("demo")["month"]
+        assert (k["answers"], k["solved_before_dispute"]) == (24, 32)
         code, _ = web.approve("DEMO-034", "REFUND", "You're right: here is your refund.", by="marta")
         assert code == 202                                       # over Marta's 30 EUR: passed to Giulia, nothing sent
         hand = web.today_view("demo")["manage"]["handoffs"]
@@ -232,7 +233,7 @@ def test_the_morning_screen_over_http_and_as_data():
             con.request("GET", "/api/today?shop=demo")
             r = con.getresponse()
             data = json.loads(r.read())
-            assert data["today"] == "2026-10-20" and data["see"]["counts"]["form"] == 1 and data["know"]["requests"] == 65
+            assert data["today"] == "2026-10-20" and data["see"]["counts"]["form"] == 1
             assert [h["id"] for h in data["autopilot"]["handled"]] == ["DEMO-C004"]
             con.request("GET", "/today?practice=1")
             r = con.getresponse()
@@ -377,6 +378,40 @@ def test_a_period_counts_only_its_own_days_and_this_month_is_the_morning_screen_
     assert (sep["from"], sep["to"], octo["to"]) == ("2026-09-01T00:00", "2026-09-21T00:00", None)
     m = today.month(cases, [], orders, TODAY, None)
     assert {k: m[k] for k in octo} == octo                     # the morning screen's month is this period, unchanged
+
+
+def test_needs_you_is_what_is_yours_nearest_deadline_first_then_calls_then_the_head_s_checks():
+    def it(i, left):
+        return {"id": i, "link": f"/d/{i}", "who": f"W {i}", "summary": "s", "amount": 10.0, "currency": "EUR",
+                "days_left": left}
+    items = [it("D1", 9), it("C1", None), it("D2", 2), it("D3", 1)]
+    assigned = {"D1": {"to": "marta"}, "C1": {"to": "marta"}, "D2": {"to": "marta", "handoff": {"from": "giulia"}},
+                "D3": {"to": "giulia"}}
+    ai = [{"id": "DEMO-C9", "kind": "inquiry · not_received · MESSAGE"}]
+    n = today.needs_you("marta", False, items, assigned, TEAM, handled=ai, failed=["a.wav"])
+    assert [(x["kind"], x.get("id")) for x in n] == [("case", "D2"), ("case", "D1"), ("case", "C1"), ("calls", None)]
+    assert (n[0]["from_name"], n[0]["from_role"]) == ("Giulia", "Head of customer care") and n[1]["from_name"] is None
+    near = {"counts": True, "high_volume": False, "claims_to_threshold": 2, "claims": 30, "sales": 2100, "ratio": 0.014}
+    g = today.needs_you("giulia", True, items, assigned, TEAM, handled=ai, hv=near)
+    assert [x["kind"] for x in g] == ["case", "ai", "line"] and g[1]["ai_kind"] == "inquiry · not_received · MESSAGE"
+    far = {**near, "claims_to_threshold": 9}
+    assert [x["kind"] for x in today.needs_you("giulia", True, items, assigned, TEAM, hv=far)] == ["case"]
+    assert [x["id"] for x in today.needs_you(None, True, items, {}, {"solo": True})] == ["D3", "D2", "D1", "C1"]
+    assert today.needs_you("sara", False, items, assigned, TEAM) == []
+
+
+def test_the_demo_morning_needs_giulia_for_one_check_and_marta_for_her_four_cases():
+    with morning():
+        g = web.today_view("demo", "giulia")
+        assert [(x["kind"], x.get("id")) for x in g["needs"]] == [("ai", "DEMO-C004")] and g["head"]
+        assert g["needs"][0]["closes"] == "Answered · closes on 23 Oct if Margot doesn't write"
+        m = web.today_view("demo", "marta")
+        assert [x["kind"] for x in m["needs"]] == ["case"] * 4 and not m["head"]
+        lefts = [x["days_left"] for x in m["needs"]]
+        assert lefts == sorted(lefts, key=lambda d: (d is None, d or 0))
+        assert next(r for r in g["see"]["rows"] if r["case_id"] == "DEMO-C001")["has"] == "Marta"
+        assert next(r for r in g["see"]["rows"] if r["case_id"] == "DEMO-C004")["has"] is None
+        assert "know" not in g
 
 
 if __name__ == "__main__":
