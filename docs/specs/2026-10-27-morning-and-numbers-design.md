@@ -41,7 +41,8 @@ YOUR TEAM IS ON IT               Marta 4 · Luca 2 · Sara 0 · not taken yet 14
   yesterday. Nearest PayPal deadline first. Empty: *"Nothing needs you. Your team has the rest."*
 - **Looks right** (new) marks an AI answer checked, so the count goes down; **I'd have done it differently** works
   as today (that kind off, its count restarts). The "why" field opens only after that button, never a cut-off
-  text box.
+  text box. The check is the head of customer care's on the morning screen; **any person** can check from the
+  case's own page, which carries the same two buttons.
 - **New since yesterday**: the same rows as today's *I see*, one line each (customer · what they asked · amount ·
   deadline · who has it, or Second Look's AI's tag), not the paragraph per row of today.
 - **Your team is on it** (head of customer care): one line, a person per name with their open count, and *not
@@ -50,7 +51,8 @@ YOUR TEAM IS ON IT               Marta 4 · Luca 2 · Sara 0 · not taken yet 14
 - **Nothing numeric beyond the header line.** PayPal's claim line comes onto the morning screen only as a *Needs
   you* item when the shop is within 3 claims of 1.5% (then it is something to act on); otherwise it lives on
   Numbers.
-- **The header** loses the clutter: the demo's "switch person" stays, smaller, in one place.
+- **The header** loses the clutter: the page's own intro line and the demo's "about" paragraph go (the nav's demo
+  label already says it); the "switch person" badge stays where it is, its second line smaller.
 - `GET /api/today` keeps its data (`see`, `manage`, `autopilot`); `know` moves to `GET /api/numbers`.
 
 ## 2. Numbers (`/numbers`, which replaces the Overview)
@@ -106,8 +108,9 @@ PAYPAL DISPUTES, LAST 90 DAYS   how they ended (as today's Overview)
   opens a new case naming the earlier one (as today).
 - **On screen:** an answered case reads *"Answered · closes on 23 Oct if Margot doesn't write"*. A person can still
   close it earlier, by hand, as today.
-- **Never:** a PayPal dispute (PayPal closes those); a case with a refund, replacement or exchange still to
-  happen; a case a person marked to keep open (not built: say so if asked).
+- **Never:** a PayPal dispute (PayPal closes those); a case with any money or goods logged on it (a refund, a
+  replacement, an exchange: a person closes it with what happened); a case a person marked to keep open (not
+  built: say so if asked).
 - **The demo's answer time:** Second Look's AI's first-load answer to Margot is stamped on the demo's clock (a
   few minutes after her email, 20 Oct), not the computer's (it read 27 Oct, 06:25).
 
