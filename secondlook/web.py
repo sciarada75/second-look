@@ -1915,7 +1915,15 @@ table.compare tr.sub th,table.compare tr.sub td{{border-top:0;padding-top:0;colo
 .know-row dt{{color:var(--ink)}} .know-row dd{{margin:0}} .know-row dd b{{display:block}}
 @media (max-width:1100px){{.blocks{{grid-template-columns:1fr}}}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
-@media (max-width:1100px){{.ov-grid{{grid-template-columns:1fr}} .barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:1fr}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
+@media (max-width:1100px){{.ov-grid{{grid-template-columns:1fr}} .barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
+/* a phone: the header wraps (brand, shop, who you are, then the nav) instead of making every page scroll sideways */
+@media (max-width:700px){{header.top{{flex-wrap:wrap;gap:12px 16px;padding:12px 16px}} main{{padding:24px 16px 60px}}
+  .who-am-i{{flex-wrap:wrap;gap:10px 16px;min-width:0}} .shop{{padding-left:14px}} .brand small{{display:none}}
+  header.top nav{{flex-wrap:wrap;gap:4px}} header.top nav a{{padding:6px 10px}} header.top nav .mode{{margin-left:0}}
+  .shop-menu{{left:0;min-width:0;width:calc(100vw - 32px);max-width:300px}}
+  .ev{{grid-template-columns:minmax(0,1fr) auto}} .ev dd:not(.tag){{grid-column:1/3}} .ev dd.tag{{grid-column:1/3;text-align:left}}
+  .ruler .mark .lab{{width:120px}} .ruler .mark:first-child .lab{{transform:none;text-align:left}}
+  .ruler .mark:last-child .lab{{transform:translateX(-100%);text-align:right}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
 </style></head><body>
 <header class="top {context}"><div class="who-am-i"><a class="brand" href="/today">{mark}Second Look<small>Sell without fear.</small></a>{shop}</div>{nav}</header>

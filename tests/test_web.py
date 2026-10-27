@@ -819,6 +819,17 @@ def test_your_call_itself_is_never_approved_so_a_review_is_never_marked_sent_wit
         assert code == 400 and "not an answer" in text and b.sent == [] and web._saved("X")[1] is None
 
 
+def test_the_header_wraps_on_a_phone_instead_of_making_the_page_scroll_sideways():
+    import re
+    html_ = web.page("Numbers | Second Look", "", "<p>x</p>", here="numbers")
+    narrow = " ".join(re.findall(r"@media \(max-width:700px\)\{(.*?)\}\}", html_, re.S))
+    for rule in (r"header\.top\{[^}]*flex-wrap:wrap", r"\.who-am-i\{[^}]*flex-wrap:wrap", r"header\.top nav\{[^}]*flex-wrap:wrap",
+                 r"\.ev\{grid-template-columns:minmax\(0,1fr\) auto\}",          # evidence: the source tag under, not off
+                 r"\.ruler \.mark:last-child \.lab\{[^}]*translateX\(-100%\)"):    # the timeline's last label ends inside
+        assert re.search(rule, narrow), rule
+    assert ".case{grid-template-columns:minmax(0,1fr)}" in html_        # a case page's one column shrinks to the screen
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
