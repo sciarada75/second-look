@@ -265,10 +265,11 @@ def needs_you(me: str | None, head: bool, items: list, assigned: dict, team: dic
     id -> {"to", "handoff"}; `handled`: what Second Look's AI answered on its own, not checked yet."""
     solo = bool(team.get("solo"))
     people = {p["id"]: p for p in team.get("people", []) if isinstance(p, dict) and p.get("id")}
+    checks = {h.get("id") for h in handled} if head else set()     # a case that is also a check shows once, as the check
     mine = []
     for it in items:
         a = assigned.get(it["id"]) or {}
-        if not solo and (not me or a.get("to") != me):
+        if (not solo and (not me or a.get("to") != me)) or it["id"] in checks:
             continue
         hand = a.get("handoff") if isinstance(a.get("handoff"), dict) else None
         frm = (people.get(hand.get("from")) or {}) if hand else {}

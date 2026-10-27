@@ -418,6 +418,34 @@ def test_the_demo_morning_needs_giulia_for_one_check_and_marta_for_her_four_case
         assert "know" not in g
 
 
+def test_an_answer_nobody_checked_stays_in_needs_you_until_someone_does():
+    from test_closing import on_day
+    with morning():
+        web.case_store("demo")
+        with on_day(date(2026, 10, 22)):                                      # two days on: no longer "since yesterday"
+            g = web.today_view("demo", "giulia")
+            assert ("ai", "DEMO-C004") in [(x["kind"], x.get("id")) for x in g["needs"]]
+            assert g["autopilot"]["handled"] == []                            # the since-yesterday list keeps its window
+
+
+def test_a_case_that_is_also_an_ai_check_shows_once_as_the_check():
+    def it(i, left):
+        return {"id": i, "link": f"/c/{i}", "who": f"W {i}", "summary": "s", "amount": 10.0, "currency": "EUR",
+                "days_left": left}
+    items = [it("C1", None), it("C2", None)]
+    ai = [{"id": "C1", "kind": "inquiry · not_received · MESSAGE"}]
+    g = today.needs_you("giulia", True, items, {"C1": {"to": "giulia"}, "C2": {"to": "giulia"}}, TEAM, handled=ai)
+    assert [(x["kind"], x.get("id")) for x in g] == [("case", "C2"), ("ai", "C1")]
+    solo = today.needs_you(None, True, items, {}, {"solo": True}, handled=ai)
+    assert [(x["kind"], x.get("id")) for x in solo] == [("case", "C2"), ("ai", "C1")]
+
+
+def test_a_seller_on_their_own_with_nothing_to_do_has_no_team_to_mention():
+    html_ = web.needs_block([], "", None, "live", solo=True)
+    assert "Nothing needs you" in html_ and "Your team has the rest" not in html_
+    assert "Your team has the rest." in web.needs_block([], "", "giulia", "demo")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

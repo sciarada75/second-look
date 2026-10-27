@@ -1486,10 +1486,11 @@ def ai_check_form(src: str, did: str, me: str | None, back: str) -> str:
             '</details></div>')
 
 
-def autopilot_handled(src: str, today, rec: dict | None = None) -> list:
-    """I manage: what Second Look's AI answered on its own since yesterday, for a person to check. `rec`: its record,
-    read once by the page."""
-    start = today_mod.since(today)
+def autopilot_handled(src: str, today, rec: dict | None = None, since: bool = True) -> list:
+    """What Second Look's AI answered on its own since yesterday, for a person to check; with `since` False, every
+    answer it ever sent (Needs you keeps an unchecked one until someone checks it). `rec`: its record, read once by
+    the page."""
+    start = today_mod.since(today) if since else ""
     out, store = [], case_store(src)
     for did, x in (rec or autopilot_store(src).view())["cases"].items():
         if not x.get("handled") or (x.get("at") or "") < start:
@@ -2628,13 +2629,14 @@ def today_view(src: str, me: str | None = None) -> dict:
             r["has"] = names.get((assigned.get(r["decision_id"]) or {}).get("to"))
     items = today_mod.open_items(cases, disputes, orders, today)
     handled = autopilot_handled(src, today, rec)
-    for h in handled:
+    # Needs you: every answer nobody checked yet, however old (the since-yesterday list is the API's "autopilot")
+    unchecked = [h for h in autopilot_handled(src, today, rec, since=False) if not h.get("checked")]
+    for h in handled + unchecked:
         h["closes"] = _closes_words(case_store(src).get(h["id"]) if cases_mod.is_case_id(h["id"]) else None)
     hv = ledger.overview(disputes, orders, today)["high_volume"]
     return {"today": today, "team": t, "head": head, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
             "calls_failed": failed, "see": see,
-            "needs": today_mod.needs_you(who["id"] if who else None, head, items, assigned, t,
-                                         [h for h in handled if not h.get("checked")], failed, hv),
+            "needs": today_mod.needs_you(who["id"] if who else None, head, items, assigned, t, unchecked, failed, hv),
             "manage": today_mod.who_has(items, assigned, t),
             "autopilot": {"handled": handled,
                           "on": [kind_words(k) for k, x in rec["kinds"].items()
@@ -2851,11 +2853,12 @@ def see_block(s: dict, q: str, phone: bool = False, pending: int = 0) -> str:
             f'deadline first</p><p class="chips">{"".join(chips)}</p>{listing}')
 
 
-def needs_block(needs: list, q: str, me: str | None, src: str) -> str:
-    """The morning screen's first block: what needs this person (today.needs_you), or that nothing does."""
+def needs_block(needs: list, q: str, me: str | None, src: str, solo: bool = False) -> str:
+    """The morning screen's first block: what needs this person (today.needs_you), or that nothing does (a seller on
+    their own has no team to hand the rest to)."""
     if not needs:
         return ('<section class="needs calm"><h2>Nothing needs you</h2>'
-                '<p class="t-sub">Your team has the rest.</p></section>')
+                + ('' if solo else '<p class="t-sub">Your team has the rest.</p>') + '</section>')
     rows, ai = [], [n for n in needs if n["kind"] == "ai"]
     for n in needs:
         if n["kind"] == "case":
@@ -2923,7 +2926,7 @@ def today_page(src: str, me: str | None = None) -> str:
             "Nothing goes out until a person approves it, each within their own limit, except the kinds Second Look's AI "
             f"answers on its own under your setting: {'; '.join(ours)} (Your rules).")
     body = (f'<div class="morning"><h1 class="page">{e(hello)}.</h1><p class="who">{e(line)}</p>'
-            f'{needs_block(v["needs"], q, me, src)}'
+            f'{needs_block(v["needs"], q, me, src, bool(t.get("solo")))}'
             f'<section class="new">{see_block(s, q, v["phone"], v["calls_pending"])}</section>'
             f'{team_block(v["manage"], v["head"], q)}<p class="t-sub rule-line">{e(rule)}</p></div>')
     return page("Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
