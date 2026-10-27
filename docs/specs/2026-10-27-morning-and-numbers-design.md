@@ -135,3 +135,24 @@ PAYPAL DISPUTES, LAST 90 DAYS   how they ended (as today's Overview)
 
 A custom date range; comparison against the same month last year (no year of data); a per-person numbers view;
 keeping a case open on purpose; reopening a closed case in place.
+
+## As built (27/10, after review)
+
+- **A colleague's own cases** are their *Needs you* (the same heading for everyone), then *Not taken yet*: no
+  separate "Your cases" block.
+- **The channel chips** (📞 1 call · ✉️ 3 emails …) stay under *New since yesterday*: they say where things came
+  from, and "Phone: not connected yet" / "being transcribed" live there.
+- **The week chart** shows requests only (one series, no legend); solved is in the table.
+- **The CSV** keeps its own month filter (`books.for_month`): a list of money events, not a figure.
+- **Closing itself, exactly:** the shop's reply is the last word *filed* (a call transcribed later can carry an
+  earlier time); "3 days" = calendar days from the reply's date (answered 20 Oct → closes on 23 Oct); stamped on
+  that day at 00:00, whenever someone looks. It also never closes while a PayPal dispute is open on the order
+  (linked or not yet: linking happens on the case's page), a refund PayPal didn't confirm is pending, or a
+  handoff waits. Re-checked under the case's lock and again inside the write. Runs on the morning screen (after
+  the call box is filed), the lists, Numbers, the case page and `GET /api/cases/<id>`.
+- **Needs you keeps an AI answer until someone checks it** (no since-yesterday cut-off); a case that is also an
+  AI check shows once, as the check.
+- **The film:** Giulia's first-load morning is *Needs you · 1* (Margot's answer to check); it reads 2 once Marta
+  passes DEMO-034 up. Capture from the screen.
+- **Phones:** the shared header wraps at 390 px (no page scrolls sideways); the dispute page's timeline ruler is
+  cramped there (not fixed).

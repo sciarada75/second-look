@@ -107,18 +107,30 @@ the ten checks; the page then shows the recommendation, any change your limits m
 reply (editable), and one Approve button that sends exactly what is on screen. Practice cases are
 one click away and never reach PayPal.
 
-- **Today** (`/today`), the shop's first page, in three blocks. *I see*: everything that came in since
-  yesterday, every channel in one list (phone calls, email, web form, PayPal disputes),
-  each matched to its order with Second Look's recommendation in one line, nearest PayPal deadline first,
-  and the new orders beside it. *I manage*: who has which open case, with their role, what nobody has
-  yet, and what waits after a handoff. *I know*: this month, every channel: requests, solved before any
-  PayPal dispute, staff time (estimated), money given back, fees, what the open cases could still cost,
-  and PayPal's claim line. The same month figures head the Overview.
-- **Overview** (`/overview`): the last 90 days at a glance, from PayPal's own outcome codes: won,
-  buyer withdrew, closed with no decision, settled with an offer, refunded, lost at claim, lost for
-  no reply in time. Money kept, money given back, dispute fees, how many were settled before a
-  claim. Every open case with who it is waiting on, the days left, and what PayPal does if nobody
-  answers.
+- **Today** (`/today`), the shop's first page, answers one question for the person looking: *what needs
+  me?* **Needs you** first: their cases, nearest PayPal deadline first (a handoff says who passed it),
+  calls nobody could transcribe, and, for the head of customer care, what Second Look's AI answered on
+  its own and nobody has checked yet (*Looks right* / *I'd have done it differently*), and PayPal's
+  high-volume line when it is within 3 claims or crossed. Then **New since yesterday**: every channel in
+  one list (phone calls, email, web form, PayPal disputes), one line each, matched to its order, who has
+  it and Second Look's recommendation. Then the team in one line (a colleague sees what nobody has taken
+  yet). No figures: those are on Numbers.
+- **Numbers** (`/numbers`; `/overview` still leads there): every figure beside the same days of the
+  period before, *like for like*: this month so far (1–20 Oct) against 1–20 Sep, or this week so far
+  against the same days last week, never a part-month against a whole one. Orders, requests (and per 100
+  orders), solved before any PayPal dispute, answered by Second Look's AI on its own, staff time
+  (estimated), money given back, PayPal dispute fees. A period before the shop's records begin says *no
+  record yet*, never 0 (the demo's own cases begin on 1 Sep). Requests week by week. **Right now**, apart
+  because a snapshot has nothing to compare with: what the open cases could still cost, and PayPal's
+  high-volume line. Then PayPal's own last 90 days, from its outcome codes: won, buyer withdrew, closed
+  with no decision, settled with an offer, refunded, lost at claim, lost for no reply in time.
+- **An answered request closes itself.** When the shop's reply is a request's last word and the customer
+  stays quiet for 3 days (`policy.json` `close_answered_after_days`), it closes as *solved before any
+  dispute*, signed "Closed by Second Look: no reply in 3 days", stamped on the day it was due. Code, not
+  AI, checked at each look at the shop's cases (no timer). Never a case with a PayPal dispute on its order
+  (linked or not yet), money or goods logged, a refund PayPal didn't confirm, or a handoff waiting. The
+  case says when: "Answered · closes on 23 Oct if Margot doesn't write". If the customer writes later,
+  their message opens a new case naming the old one.
 - **Customer card** (`/customer/<payer id>`): one customer's orders, disputes, claims and refunds
   against the shop's usual rate.
 - **For your CRM or helpdesk:** `GET /api/customers/<email or PayPal payer id>` returns the same
@@ -149,9 +161,10 @@ as the screen.
 | `POST /api/disputes/<id>/approve` | `{"action": "DEFEND", "message": "…", "by": "<person id>", "review": "<review.mark>"}`: send the answer. Exactly the page's checks: only the recommended action (or, on "your call", the question or an answer held back only for its size), refused if the case changed, sent once. `by` is required in a team shop. `review` is optional: the `mark` from `GET /api/disputes/<id>`; when sent, the approval is refused (409) if the review changed since |
 | `GET /api/customers/<email or payer id>` | a customer's record with the shop: orders, disputes, claims, refunds, against the shop's usual rate |
 | `GET /api/orders/<order no>` | one order as the shop's order system holds it: customer, items, amount, how it was paid (`paid_with`: `paypal`, `card` or `bank`), delivery address. In the demo shop, a made-up stand-in for the shop's own order system, labelled so (`source`) |
-| `GET /books.csv?month=YYYY-MM` | the month's money events for the shop's accounting, one row each: date, what (refund, partial refund, replacement, PayPal refund, PayPal fee), order and invoice number, amount, fees (a PayPal dispute's fee estimated from PayPal's fee table, as on the Overview), whether the item came back or was lost, who approved it, the channel, the case or PayPal dispute, and its status (logged, sent to PayPal, paid, cancelled, or PayPal's outcome). The facts only, never a credit note: that is the accountant's. The *I know* block links it as *Export for accounting* |
+| `GET /books.csv?month=YYYY-MM` | the month's money events for the shop's accounting, one row each: date, what (refund, partial refund, replacement, PayPal refund, PayPal fee), order and invoice number, amount, fees (a PayPal dispute's fee estimated from PayPal's fee table, as on Numbers), whether the item came back or was lost, who approved it, the channel, the case or PayPal dispute, and its status (logged, sent to PayPal, paid, cancelled, or PayPal's outcome). The facts only, never a credit note: that is the accountant's. Numbers links it as *Export for accounting* |
 | `GET /api/tracking/<order no>` | the courier's record of that order: the parcel (`tracking`: status, where it was left) and any return (`return`). In the demo shop, a made-up stand-in for the courier, labelled so; on the live shop, PayPal's tracking of a PayPal order |
-| `GET /api/today` | the morning screen as data: `see` (what came in since yesterday, one row per problem, with `counts` by channel and the new `orders`), `manage` (who has which open case, with roles; unassigned; handoffs), `know` (this month: requests, solved before any dispute, staff time and its estimate's inputs, money given back, fees, what open cases could still cost, PayPal's claim line) and `autopilot` (what Second Look's AI answered on its own since yesterday, and the kinds that are on) |
+| `GET /api/today?as=<person id>` | the morning screen as data: `needs` (what needs that person, in the page's order), `see` (what came in since yesterday, one row per problem, with `counts` by channel, the new `orders`, and who `has` each), `manage` (who has which open case, with roles; unassigned; handoffs) and `autopilot` (what Second Look's AI answered on its own since yesterday, and the kinds that are on) |
+| `GET /api/numbers?by=month\|week` | Numbers as data: `this` and `before` (the same days of the period before, or `null` before the shop's records begin), each with every flow (requests, by channel, solved before any dispute, answered by Second Look's AI, staff time and its estimate's inputs, money given back, fees); `weeks`; `month` (this month with what the open cases could still cost and PayPal's claim line); `paypal` (PayPal's last 90 days) |
 | `POST /api/requests` | `{"channel": "email" or "form", "from": {"name", "email"}, "text", "subject", "time", "order", "source_id"}`: one request from your helpdesk or web form. Second Look sorts it (rules first, its AI only for what they can't settle) and files it on its case: `201` with `case_id`, `filed` (`opened` or `joined`), `stage`, `sorted` and `dispute_id`; `200` with `"filed": "already_received"` when that `source_id` came before. JSON only (`415` otherwise), at most 1 MB (`413`) |
 | `GET /api/cases/<case id>?as=<person id>` | one case as its page shows it: the customer (with their role), the order, the stage, the channels (`channels`, and `channel_labels` as people say them: "web form", "PayPal"), who has it, every contact on every channel (each with its `role`), `costs_so_far` (estimated), and its `decision_id` (its PayPal dispute, or the case itself for a shop inquiry) with that decision's `review` and, with `?as=`, `for_person` |
 | `POST /api/cases/<case id>/review`, `/approve` | review or approve the case's decision, exactly as `POST /api/disputes/<id>/review` and `/approve` do (same body, same limits, sent once). `GET /api/disputes/<id>` and its approve also take a case id: a shop inquiry is a decision of its own |
@@ -364,9 +377,11 @@ arrived · Reply only*. Whether it does is your shop's choice.
     before it sends);
   - its look failed; or PayPal didn't confirm a refund it asked for (that one is also listed for a
     person to check: the money may have moved).
-- **You check it.** The morning screen's *I manage* says "Handled by Second Look's AI: 1 — check
-  them". On each, *I'd have done it differently* (anyone) switches that kind off at once and restarts
-  its count, with who and why. What it sent stays sent: the person follows up.
+- **You check it.** The head of customer care's *Needs you* says "Second Look's AI answered 1 on its own:
+  check it", until someone does; anyone can check from the case's own page. *Looks right* notes the check
+  (its record doesn't move: only people's decisions on its advice count). *I'd have done it differently*
+  switches that kind off at once and restarts its count, with who and why. What it sent stays sent: the
+  person follows up.
 - **The record holds only for the setup it was earned under.** Change what Second Look's AI is told
   (its instructions), the model it runs on, or your rules (your preferences, your limits, and the
   guard's rules: defending a parcel delivered to PayPal's address, the injection markers), and every
@@ -424,8 +439,8 @@ git clone https://github.com/sciarada75/second-look.git && cd second-look
 python3 -m secondlook serve        # http://127.0.0.1:8765 (Ctrl-C stops it)
 ```
 
-Open http://127.0.0.1:8765/today?shop=demo: the morning screen, with what came in since yesterday
-(made-up data: the demo shop's today is 20 Oct 2026), who has what, and the month so far. The
+Open http://127.0.0.1:8765/today?shop=demo: the morning screen, what needs the person you are, then what
+came in since yesterday (made-up data: the demo shop's today is 20 Oct 2026) and who has what. The
 Disputes list is one click away (http://127.0.0.1:8765/?shop=demo). This is "Linen & Paper", a made-up shop with a customer care
 team of four. Its open cases come with the reviews Claude made of them, shipped in `demo/reviews/`,
 so they show without an AI key; the page says so. A shipped review goes out of date like any other
@@ -442,8 +457,8 @@ the moment its case changes.
   full. That is over the shop's 50 EUR auto-refund cap, so a person decides, and over Marta's 30 EUR
   limit, so her button reads *Pass to Giulia*. Passing it sends nothing: the case waits for Giulia
   with Marta's note. Switch to Giulia (`&as=giulia`) and she sends it.
-- **The overview** (http://127.0.0.1:8765/overview?shop=demo): the last 90 days, money kept and given
-  back, dispute fees, and every open case with the days left and what PayPal does if nobody answers.
+- **Numbers** (http://127.0.0.1:8765/numbers?shop=demo): October so far against the same days of
+  September, week by week since 1 Sep, what the open cases could still cost, PayPal's last 90 days.
 - **Requests by phone, email and web form**, under the disputes. Sophie, a customer who paid by card,
   phones that her tablecloth never arrived, then writes (http://127.0.0.1:8765/c/DEMO-C001?shop=demo):
   her call (a 34-second recording in `demo/calls/`, voiced by Kokoro, an open-weight text-to-speech
@@ -486,7 +501,7 @@ delete `.tmp/` and start both again to see them new.
 The books: add `SECONDLOOK_BOOKS_URL=http://127.0.0.1:8767/hooks/secondlook` to terminal 1's command and
 start `python3 -m bookbox serve` in a third. Approve DEMO-034's refund as Giulia
 (http://127.0.0.1:8765/d/DEMO-034?shop=demo&as=giulia) and Bookbox (http://127.0.0.1:8767) shows the row.
-On the morning screen, *Export for accounting* downloads the month as CSV.
+On Numbers, *Export for accounting* downloads the month as CSV.
 
 **3. Practice cases and the eval.** `cases/` holds 16 test disputes with known answers, and
 `cases/inquiries/` 9 shop inquiries (email, web form, a phone call) with known answers. In the browser
@@ -595,7 +610,7 @@ EUR 10 of a EUR 42 dispute.
 - The model judge needs an Anthropic API key; without one, the rules baseline runs, labelled as
   such. The demo shop's open cases show the reviews Claude made of them, shipped in `demo/reviews/`.
 - The demo shop's orders, buyers and outcomes are made up (labelled on every page); the outcome
-  codes and reasons are PayPal's own. Dispute fees on the overview are estimated from PayPal's fee
+  codes and reasons are PayPal's own. Dispute fees on Numbers are estimated from PayPal's fee
   table: the dispute object doesn't carry them.
 - PayPal's refund API (`POST /v2/payments/captures/{id}/refund`) refunded a live sandbox payment on
   26/10/2026: 1.00 of a 12.00 EUR checkout with no dispute, through Second Look's own refund call. The
