@@ -68,7 +68,8 @@ def test_the_shop_s_setting_sets_the_days():
             assert web.quiet_days() == 3, bad
     finally:
         web._policy = kept
-    assert "after 3 days with no word from the customer" in web.rules_page(demo=True, me="giulia")
+    with morning():                                                            # the rules page reads the demo's state
+        assert "after 3 days with no word from the customer" in web.rules_page(demo=True, me="giulia")
 
 
 def test_a_look_at_the_shop_closes_what_is_due_and_the_customer_s_next_message_opens_a_new_case():
