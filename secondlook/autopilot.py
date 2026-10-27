@@ -285,3 +285,16 @@ class Record(team_mod.JsonFile):
             c["checked"] = {"by": by, "at": at, "differently": True, "why": note}
             return 200, kind
         return self.change(do)
+
+    def looks_right(self, did: str, by: str, at: str) -> tuple:
+        """A person checked what it sent on its own, and it looks right: the check is kept, so the answers left to check
+        go down. It never counts toward the record: only people's decisions on its advice, before anything is sent, do."""
+        def do(data):
+            c = data["cases"].get(did)
+            if not c or not c.get("handled"):
+                return 404, "Second Look's AI didn't answer this case on its own."
+            if c.get("checked"):
+                return 409, f"Already checked by {c['checked']['by']}."
+            c["checked"] = {"by": by, "at": at, "differently": False}
+            return 200, c["kind"]
+        return self.change(do)

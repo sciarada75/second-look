@@ -1430,6 +1430,48 @@ def autopilot_differently(src: str, did: str, by: str | None, why: str = "") -> 
     return 200, text
 
 
+def autopilot_looks_right(src: str, did: str, by: str | None) -> tuple:
+    """A person checked what Second Look's AI sent on its own, and it looks right: noted on its record and on the case."""
+    who = team_mod.person(team_for_src(src), by)
+    if not who:
+        return 400, "Say who you are: a person in this shop's team."
+    code, out = autopilot_store(src).looks_right(did, who["name"], cases_mod.minute(None))
+    if code != 200:
+        return code, out
+    text = f"{who['name']} checked what Second Look's AI sent on its own: it looks right."
+    c = case_store(src).get(did) if cases_mod.is_case_id(did) else find_case_of_dispute(did)
+    if c:
+        case_store(src).add(c["id"], cases_mod.entry(None, reply_channel(c), "note", text, who["name"]))
+    return 200, text
+
+
+def _back_to(to: str, src: str) -> str:
+    """Where a check sends the person back: the case page they were on, or the morning screen. Never elsewhere."""
+    return to if re.fullmatch(r"/c/[A-Za-z0-9-]+", to or "") else f"/today?shop={src}"
+
+
+def ai_check_form(src: str, did: str, me: str | None, back: str) -> str:
+    """Looks right / I'd have done it differently, on what Second Look's AI sent on its own (anyone in the team). The
+    reason opens only after the second button. Once checked: who checked it, and how. Nothing when it didn't answer."""
+    x = autopilot_store(src).view()["cases"].get(did) or {}
+    if not x.get("handled"):
+        return ""
+    ch = x.get("checked")
+    if ch:
+        return (f'<p class="t-sub">{e(ch["by"])} would have done it differently</p>' if ch.get("differently") else
+                f'<p class="t-sub">{e(ch["by"])} checked it: looks right</p>')
+    hidden = (f'<input type="hidden" name="case" value="{e(did)}"><input type="hidden" name="shop" value="{e(src)}">'
+              f'<input type="hidden" name="to" value="{e(back)}">'
+              + (f'<input type="hidden" name="by" value="{e(me)}">' if me else ""))
+    return (f'<div class="ai-check-actions"><form method="post" action="/autopilot/looks-right">{hidden}'
+            '<button class="quiet">Looks right</button></form>'
+            '<details><summary class="quiet">I&#x27;d have done it differently</summary>'
+            f'<form method="post" action="/autopilot/differently" class="addrule">{hidden}'
+            '<input name="why" maxlength="300" aria-label="What you would have done" '
+            'placeholder="What you would have done (optional)"><button>Switch it off and note it</button></form>'
+            '</details></div>')
+
+
 def autopilot_handled(src: str, today, rec: dict | None = None) -> list:
     """I manage: what Second Look's AI answered on its own since yesterday, for a person to check. `rec`: its record,
     read once by the page."""
@@ -2977,7 +3019,8 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     else:
         case = _case(cid)
         left += f'<h2>What the evidence says</h2>{evidence(case["seller_records"], inquiry=True)}' if o else ""
-        right = (review_column(cid, case, me, plain_owner=False)
+        right = (ai_check_form(v["src"], cid, me, f"/c/{cid}")
+                 + review_column(cid, case, me, plain_owner=False)
                  + (_close_form(cid, me) if c["status"] == "open" else ""))
         if not c.get("order_no"):
             right += _pick_form(cid, me, "Sorted as a question with no order. If it is about one, say which.", question=True)
@@ -4291,15 +4334,18 @@ class Handler(BaseHTTPRequestHandler):
                 ok, me = by_for_post(team_for(parts[1]), form.get("by", [""])[0])
                 if not ok:
                     return self._send("Choose who you are at the top of the page.", 400)
-            if parts in (["autopilot", "switch"], ["autopilot", "differently"]):
+            if parts in (["autopilot", "switch"], ["autopilot", "differently"], ["autopilot", "looks-right"]):
                 src = "live" if form.get("shop", [""])[0] == "live" else "demo"
                 by = form.get("by", [""])[0]
                 if parts[1] == "switch":
                     code, text = autopilot_switch(src, form.get("kind", [""])[0], form.get("on", [""])[0] == "on", by)
                     to = f"/rules?shop={src}"
-                else:
+                elif parts[1] == "differently":
                     code, text = autopilot_differently(src, form.get("case", [""])[0], by, form.get("why", [""])[0])
-                    to = f"/today?shop={src}"
+                    to = _back_to(form.get("to", [""])[0], src)
+                else:
+                    code, text = autopilot_looks_right(src, form.get("case", [""])[0], by)
+                    to = _back_to(form.get("to", [""])[0], src)
                 return self._redirect(to) if code == 200 else self._send(e(text), code)
             if parts == ["rules", "add"]:
                 add_rule(form.get("rule", [""])[0])

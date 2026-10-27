@@ -1025,6 +1025,36 @@ def test_a_look_in_its_own_thread_keeps_the_clock_of_whoever_asked():
     assert cases_mod.minute(None) != "2026-10-20T07:41"                        # this thread's clock: the computer's
 
 
+def test_looks_right_marks_it_checked_and_moves_nothing_in_its_record():
+    with morning():
+        web.case_store("demo")                                                 # the first load, done: it takes today's slot
+        kind_before = web.autopilot_store("demo").view()["kinds"][KIND]
+        page = web.case_file_page("DEMO-C004", me="marta")
+        assert "Looks right" in page and "I&#x27;d have done it differently" in page   # anyone checks from the case
+        with served() as post:
+            assert post("/autopilot/looks-right", {"case": "DEMO-C004", "by": "nobody", "shop": "demo"})[0] == 400
+            assert post("/autopilot/looks-right", {"case": "DEMO-C001", "by": "giulia", "shop": "demo"}) == (
+                404, "Second Look&#x27;s AI didn&#x27;t answer this case on its own.")        # sent as text, escaped
+            assert post("/autopilot/looks-right", {"case": "DEMO-C004", "by": "giulia", "shop": "demo",
+                                                   "to": "/c/DEMO-C004"})[0] == 303
+            assert post("/autopilot/looks-right", {"case": "DEMO-C004", "by": "marta", "shop": "demo"}) == (
+                409, "Already checked by Giulia.")
+            assert post("/autopilot/differently", {"case": "DEMO-C004", "by": "marta", "shop": "demo"}) == (
+                409, "Already noted by Giulia.")
+        x = web.autopilot_store("demo").view()
+        assert x["cases"]["DEMO-C004"]["checked"]["by"] == "Giulia" and not x["cases"]["DEMO-C004"]["checked"]["differently"]
+        assert x["kinds"][KIND] == kind_before                                # its record and its switch: unchanged
+        assert web.case_store("demo").get("DEMO-C004")["timeline"][-1]["text"] == \
+            "Giulia checked what Second Look's AI sent on its own: it looks right."
+        assert "Giulia checked it: looks right" in web.case_file_page("DEMO-C004", me="marta")
+
+
+def test_a_check_sends_you_back_only_to_a_page_of_this_app():
+    assert web._back_to("/c/DEMO-C004", "demo") == "/c/DEMO-C004"
+    for bad in ("", "https://elsewhere.example/c/X", "//elsewhere.example", "/c/X?y=<b>", "/rules"):
+        assert web._back_to(bad, "demo") == "/today?shop=demo", bad
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
