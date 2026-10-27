@@ -92,6 +92,8 @@ def test_the_change_column_says_which_way_and_by_how_much():
     assert web._change(3, 3, "n", "EUR") == "same"
     assert web._change(10.5, 30.0, "money", "EUR") == "−19.50 EUR"
     assert web._change(150, 120, "min", "EUR") == "+30 min"
+    assert web._change(138.57, 138.6, "min", "EUR") == "same"               # whole minutes, as the cells show them
+    assert web._change(6.4, 5.6, "min", "EUR") == "same" and web._change(0.57, 0, "min", "EUR") == "+1 min"
     assert web._span(date(2026, 10, 1), date(2026, 10, 20)) == "1–20 Oct"
     assert web._span(date(2026, 9, 28), date(2026, 10, 4)) == "28 Sep–4 Oct"
 

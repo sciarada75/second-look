@@ -2713,7 +2713,10 @@ def _fmt(v, kind: str, cur: str) -> str:
 
 
 def _change(a, b, kind: str, cur: str) -> str:
-    """This period against the one before: "+2", "−19.50 EUR", "+30 min", or "same"."""
+    """This period against the one before: "+2", "−19.50 EUR", "+30 min", or "same". Minutes are compared whole, as
+    the cells show them (_hours): never "+0 min"."""
+    if kind == "min":
+        a, b = round(a), round(b)
     d = a - b
     if abs(d) < 0.005:
         return "same"
