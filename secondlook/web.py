@@ -833,6 +833,7 @@ def pick_order(cid: str, order_no: str, by: str | None) -> tuple:
 def api_case_of(cid: str, as_person: str | None = None) -> dict | None:
     """Other systems -> Second Look: one case as data, what its page shows. `review` and, with ?as=, `for_person`
     are the case's decision's (its PayPal dispute, else the inquiry), the same as GET /api/disputes/<decision_id>."""
+    close_quiet(shop_of_case(cid)) if cases_mod.is_case_id(cid) else None
     v = case_view(cid)
     if v is None:
         return None
@@ -1176,27 +1177,40 @@ def quiet_days() -> int:
 
 def close_quiet(src: str) -> list:
     """Every answered request whose customer stayed quiet for the shop's days closes itself, as solved before any
-    dispute, signed (cases.closes_on). Code, not AI. Run at each look at the shop's cases, against the shop's today:
-    no timer. Each case is checked again under its lock: a customer who just wrote keeps it open."""
+    dispute, signed (cases.closes_on), and stamped on the day it was due: a late look never moves it to another week.
+    Code, not AI. Run at each look at the shop's cases, against the shop's today: no timer. Never one a PayPal dispute
+    is on, even before anything linked it (today.links reads that without writing), nor one a handoff waits on.
+    Checked again under the case's lock, and once more inside the write: a customer who just wrote keeps it open."""
     if src not in CASE_FILES:
         return []
     days, today, store, done = quiet_days(), shop_today(src), case_store(src), []
-    for c in store.all():
-        on = cases_mod.closes_on(c, days)
-        if on is None or on > today:
+    cases = store.all()
+
+    def due(c) -> bool:
+        on = cases_mod.closes_on(c, days) if c else None
+        return on is not None and on <= today
+    if not any(due(c) for c in cases):
+        return []
+    disputed = {c["id"] for c in today_mod.links(cases, shop_disputes(src), shop_orders(src)).values()}
+    for c in cases:
+        if not due(c) or c["id"] in disputed:
             continue
         with _case_lock(c["id"]):
-            x = store.get(c["id"])
-            on = cases_mod.closes_on(x, days) if x else None
-            if on is None or on > today:
+            a = None if team_for(c["id"]).get("solo") else assignments_for(c["id"]).get(c["id"])
+            if not due(store.get(c["id"])) or isinstance((a or {}).get("handoff"), dict):
                 continue
+            closed = []
 
             def close(y):
-                y["status"], y["outcome"], y["closed_at"], y["closed_by"] = "closed", "solved", cases_mod.minute(None), "Second Look"
-                y["timeline"].append(cases_mod.entry(None, reply_channel(y), "note",
+                if not due(y):             # the customer's message was filed in between: it stays theirs
+                    return
+                at = f"{cases_mod.closes_on(y, days).isoformat()}T00:00"
+                y["status"], y["outcome"], y["closed_at"], y["closed_by"] = "closed", "solved", at, "Second Look"
+                y["timeline"].append(cases_mod.entry(at, reply_channel(y), "note",
                                                      f"Closed by Second Look: no reply in {days} days.", "Second Look"))
+                closed.append(y["id"])
             store.update(c["id"], close)
-            done.append(c["id"])
+            done += closed
     return done
 
 
@@ -2592,7 +2606,6 @@ def _utc_minute(at) -> str:
 def today_view(src: str, me: str | None = None) -> dict:
     """The morning screen as data (the page and GET /api/today show the same): what needs `me` (today.needs_you), what
     came in since yesterday (each row says who has it), who has what. The figures are on Numbers (numbers_view)."""
-    close_quiet(src)
     demo = src == "demo"
     today = shop_today(src)
     waiting, failed = 0, []
@@ -2600,6 +2613,7 @@ def today_view(src: str, me: str | None = None) -> dict:
         file_calls(case_store(src), src)              # a call left in the box since the last look comes in now
         waiting = calls_waiting(case_store(src), src) if transcriber_on() else 0
         failed = calls_failed(case_store(src), src)
+    close_quiet(src)                                  # after the calls: one waiting in the box keeps its case open
     cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
     t = team_for_src(src)
     solo = bool(t.get("solo"))

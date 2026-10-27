@@ -1,5 +1,6 @@
 """An answered shop request closes itself, as solved before any dispute, once the customer stays quiet for the shop's
 days (policy.json "close_answered_after_days", 3). Code, not AI. Run: python3 tests/test_closing.py"""
+import copy
 import sys
 from contextlib import contextmanager
 from datetime import date
@@ -91,6 +92,106 @@ def test_the_customer_writing_before_the_day_keeps_it_open():
                                                                "Margot Lefèvre"))
         with on_day(date(2026, 10, 30)):
             assert web.close_quiet("demo") == []
+        assert web.case_store("demo").get("DEMO-C004")["status"] == "open"
+
+
+def test_an_open_paypal_dispute_on_the_case_s_order_keeps_it_open_even_before_it_is_linked():
+    with morning():
+        store = web.case_store("demo")
+        orders = copy.deepcopy(web.shop_orders("demo"))
+        sophie = store.get("DEMO-C001")
+        o = next(o for o in orders if o.get("order_no") == sophie["order_no"])
+        o["transaction_id"], o["paid_with"] = "TX-SOPHIE", "paypal"            # her order paid through PayPal
+        web.shop_orders = lambda src: orders if src == "demo" else []          # the bench puts shop_orders back
+        store.add("DEMO-C001", cases_mod.entry("2026-10-20T09:00", "email", "out", "We are on it.", "Marta"))
+        disputes = web.shop_disputes("demo")
+        d = copy.deepcopy(next(x for x in disputes if x.get("status") != "RESOLVED"))
+        d.update(dispute_id="DEMO-NEW", create_time="2026-10-22T10:00:00Z", update_time="2026-10-22T10:00:00Z",
+                 disputed_transactions=[{"seller_transaction_id": "TX-SOPHIE"}])
+        kept = web.shop_disputes
+        web.shop_disputes = lambda src: disputes + [d] if src == "demo" else kept(src)
+        try:
+            assert store.get("DEMO-C001").get("dispute_id") is None             # nothing has linked it yet
+            with on_day(date(2026, 10, 23)):
+                assert web.close_quiet("demo") == ["DEMO-C004"]                # Margot's; never Sophie's
+        finally:
+            web.shop_disputes = kept
+        assert store.get("DEMO-C001")["status"] == "open"
+
+
+def test_a_customer_s_message_filed_just_before_the_write_keeps_it_open():
+    with morning():
+        web.case_store("demo")
+        kept, fired = cases_mod.CaseStore.update, []
+
+        def update(self, cid, fn):
+            if not fired and cid == "DEMO-C004":
+                fired.append(1)       # Margot's email is filed (the store's lock only) after the re-check, before the write
+                web.receive("demo", {"channel": "email", "text": "Still nothing. Order LP-90003.", "source_id": "race:1",
+                                     "from": {"name": "Margot Lefèvre", "email": "margot.lefevre@example.com"}})
+            return kept(self, cid, fn)
+        cases_mod.CaseStore.update = update
+        try:
+            with on_day(date(2026, 10, 23)):
+                assert web.close_quiet("demo") == []
+        finally:
+            cases_mod.CaseStore.update = kept
+        assert fired and web.case_store("demo").get("DEMO-C004")["status"] == "open"
+
+
+def test_a_refund_paypal_didn_t_confirm_keeps_it_open():
+    mark = {"request_id": "sl-1", "kind": "refund", "amount": 36.0, "currency": "EUR", "at": "2026-10-20T07:41", "by": "Giulia"}
+    assert cases_mod.closes_on(case(("2026-10-20T07:40", "in"), ("2026-10-20T07:41", "out"), unconfirmed=[mark]), 3) is None
+
+
+def test_a_handoff_waiting_on_the_case_keeps_it_open():
+    with morning() as b:
+        web.case_store("demo")
+        b.store.update("DEMO-C004", lambda a: {"to": "giulia", "handoff": {
+            "from": "marta", "from_name": "Marta", "action": "REFUND", "amount": 36.0, "message": "Refund",
+            "at": "2026-10-21T10:00"}})
+        with on_day(date(2026, 10, 23)):
+            assert web.close_quiet("demo") == []
+        assert web.case_store("demo").get("DEMO-C004")["status"] == "open"
+
+
+def test_the_last_word_is_the_last_one_filed_whatever_its_time():
+    # a call transcribed after the shop's reply can carry an earlier time: the customer still spoke last
+    assert cases_mod.closes_on(case(("2026-10-20T07:40", "in"), ("2026-10-20T10:00", "out"), ("2026-10-20T09:55", "in")),
+                               3) is None
+
+
+def test_it_is_stamped_on_the_day_it_was_due_not_the_day_someone_looked():
+    with morning():
+        web.case_store("demo")
+        with on_day(date(2026, 10, 26)):
+            assert web.close_quiet("demo") == ["DEMO-C004"]
+        c = web.case_store("demo").get("DEMO-C004")
+        assert c["closed_at"] == "2026-10-23T00:00" and c["timeline"][-1]["at"] == "2026-10-23T00:00"
+
+
+def test_a_look_through_the_api_closes_what_is_due():
+    with morning():
+        with on_day(date(2026, 10, 23)):
+            assert web.api_case_of("DEMO-C004")["status"] == "closed"
+
+
+def test_a_call_waiting_in_the_box_is_filed_before_anything_closes():
+    with morning():
+        web.case_store("demo")
+        kept = web.file_calls
+
+        def file_calls(store, src, later=None):      # Margot called on 21 Oct; the call is filed at the next look
+            if not any(x.get("source") == "call:margot" for x in store.get("DEMO-C004")["timeline"]):
+                store.add("DEMO-C004", cases_mod.entry("2026-10-21T10:00", "call", "in", "Still nothing.",
+                                                       "Margot Lefèvre", source="call:margot"))
+            return 1
+        web.file_calls = file_calls
+        try:
+            with on_day(date(2026, 10, 23)):
+                web.today_view("demo", "giulia")
+        finally:
+            web.file_calls = kept
         assert web.case_store("demo").get("DEMO-C004")["status"] == "open"
 
 
