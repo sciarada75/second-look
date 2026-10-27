@@ -239,6 +239,11 @@ def test_the_morning_screen_over_http_and_as_data():
             data = json.loads(r.read())
             assert data["today"] == "2026-10-20" and data["see"]["counts"]["form"] == 1
             assert [h["id"] for h in data["autopilot"]["handled"]] == ["DEMO-C004"]
+            con.request("GET", "/api/today?shop=demo&as=giulia")                # what needs this person, as data
+            data = json.loads(con.getresponse().read())
+            assert [(x["kind"], x.get("id")) for x in data["needs"]] == [("ai", "DEMO-C004")]
+            con.request("GET", "/api/numbers?shop=demo")                        # the month's figures moved to Numbers
+            assert json.loads(con.getresponse().read())["month"]["requests"] == 65
             con.request("GET", "/today?practice=1")
             r = con.getresponse()
             r.read()

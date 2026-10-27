@@ -1055,6 +1055,24 @@ def test_a_check_sends_you_back_only_to_a_page_of_this_app():
         assert web._back_to(bad, "demo") == "/today?shop=demo", bad
 
 
+def test_a_check_from_the_case_page_lands_back_on_that_case_page():
+    with morning():
+        web.case_store("demo")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            con = HTTPConnection("127.0.0.1", srv.server_address[1], timeout=10)
+            con.request("POST", "/autopilot/looks-right", body=urlencode({"case": "DEMO-C004", "by": "marta", "shop": "demo",
+                                                                          "to": "/c/DEMO-C004"}),
+                        headers={"Content-Type": "application/x-www-form-urlencoded"})
+            r = con.getresponse()
+            r.read()
+            assert r.status == 303 and r.getheader("Location") == "/c/DEMO-C004"
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
