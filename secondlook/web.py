@@ -316,6 +316,26 @@ def _live_forget() -> None:
         _LIVE.clear()
 
 
+def _live_read(key: str, pp):
+    """The live shop's orders or disputes from PayPal (cached a minute); RuntimeError when PayPal can't be read."""
+    fetch = {"orders": evidence_mod._orders, "disputes": evidence_mod.shop_disputes}[key]
+    return _live_cached(key, lambda: fetch(pp, datetime.utcnow()))
+
+
+def paypal_now(src: str) -> tuple | None:
+    """(disputes, orders) for a decision that must not take "PayPal couldn't be read" for "nothing there" (an answered
+    request closing itself); None when PayPal can't be read. shop_disputes and shop_orders read [] then, as before."""
+    if src == "demo":
+        return shop_disputes(src), shop_orders(src)
+    pp = client_from_env(ROOT)
+    if isinstance(pp, MockPayPal):
+        return [], []                     # no PayPal keys: no live PayPal, so no dispute to wait for
+    try:
+        return _live_read("disputes", pp), _live_read("orders", pp)
+    except RuntimeError:
+        return None
+
+
 def shop_orders(src: str) -> list:
     """Every order the shop holds, as stored: PayPal's (the demo's data, or Transaction Search on the live
     sandbox) and, in the demo, the orders paid by card or bank. No PayPal keys: no live orders."""
@@ -326,7 +346,7 @@ def shop_orders(src: str) -> list:
     if isinstance(pp, MockPayPal):
         return []
     try:
-        return _live_cached("orders", lambda: evidence_mod._orders(pp, datetime.utcnow()))
+        return _live_read("orders", pp)
     except RuntimeError:
         return []
 
@@ -338,7 +358,7 @@ def shop_disputes(src: str) -> list:
     if isinstance(pp, MockPayPal):
         return []
     try:
-        return _live_cached("disputes", lambda: evidence_mod.shop_disputes(pp, datetime.utcnow()))
+        return _live_read("disputes", pp)
     except RuntimeError:
         return []
 
@@ -1175,15 +1195,27 @@ def quiet_days() -> int:
     return v if isinstance(v, int) and not isinstance(v, bool) and v >= 1 else 3
 
 
+def _handoff_waits(c: dict) -> bool:
+    """A colleague passed this case to someone and it waits for them: it never closes on its own meanwhile."""
+    a = None if team_for(c["id"]).get("solo") else assignments_for(c["id"]).get(c["id"])
+    return isinstance((a or {}).get("handoff"), dict)
+
+
 def close_quiet(src: str) -> list:
     """Every answered request whose customer stayed quiet for the shop's days closes itself, as solved before any
     dispute, signed (cases.closes_on), and stamped on the day it was due: a late look never moves it to another week.
-    Code, not AI. Run at each look at the shop's cases, against the shop's today: no timer. Never one a PayPal dispute
-    is on, even before anything linked it (today.links reads that without writing), nor one a handoff waits on.
-    Checked again under the case's lock, and once more inside the write: a customer who just wrote keeps it open."""
+    Code, not AI. Run at each look at the shop's cases, against the shop's today: no timer.
+    Never one a customer may have spoken on since: the call box is filed first, and nothing closes while a recording
+    is still being transcribed. Never one a PayPal dispute is on, even before anything linked it (today.links reads
+    that without writing), and nothing at all when PayPal can't be read; nor one a handoff waits on. Checked again
+    under the case's lock, and once more inside the write: a customer who just wrote keeps it open."""
     if src not in CASE_FILES:
         return []
     days, today, store, done = quiet_days(), shop_today(src), case_store(src), []
+    if CALL_BOXES.get(src):
+        file_calls(store, src)
+        if transcriber_on() and calls_waiting(store, src) > 0:
+            return []                   # a call whose words aren't in yet may be the customer speaking again
     cases = store.all()
 
     def due(c) -> bool:
@@ -1191,13 +1223,15 @@ def close_quiet(src: str) -> list:
         return on is not None and on <= today
     if not any(due(c) for c in cases):
         return []
-    disputed = {c["id"] for c in today_mod.links(cases, shop_disputes(src), shop_orders(src)).values()}
+    read = paypal_now(src)
+    if read is None:
+        return []                       # PayPal couldn't be read: a dispute may be open on any of them
+    disputed = {c["id"] for c in today_mod.links(cases, *read).values()}
     for c in cases:
         if not due(c) or c["id"] in disputed:
             continue
         with _case_lock(c["id"]):
-            a = None if team_for(c["id"]).get("solo") else assignments_for(c["id"]).get(c["id"])
-            if not due(store.get(c["id"])) or isinstance((a or {}).get("handoff"), dict):
+            if not due(store.get(c["id"])) or _handoff_waits(c):
                 continue
             closed = []
 
@@ -1206,6 +1240,7 @@ def close_quiet(src: str) -> list:
                     return
                 at = f"{cases_mod.closes_on(y, days).isoformat()}T00:00"
                 y["status"], y["outcome"], y["closed_at"], y["closed_by"] = "closed", "solved", at, "Second Look"
+                # stamped on the day it was due, appended after whatever was filed since (the page reads it in time)
                 y["timeline"].append(cases_mod.entry(at, reply_channel(y), "note",
                                                      f"Closed by Second Look: no reply in {days} days.", "Second Look"))
                 closed.append(y["id"])
@@ -1215,9 +1250,10 @@ def close_quiet(src: str) -> list:
 
 
 def _closes_words(c: dict | None) -> str:
-    """"Answered · closes on 23 Oct if Margot doesn't write", or "" when the case doesn't close itself."""
+    """"Answered · closes on 23 Oct if Margot doesn't write", or "" when it won't: the case doesn't close itself, a
+    handoff waits on it, or its day came and something held it open (every look closes what is due first)."""
     on = cases_mod.closes_on(c, quiet_days()) if c else None
-    if on is None:
+    if on is None or _handoff_waits(c) or on <= shop_today(shop_of_case(c["id"])):
         return ""
     first = ((c.get("customer") or {}).get("name") or "").split(" ")[0] or "the customer"
     return f"Answered · closes on {on.day} {on:%b} if {first} doesn't write"

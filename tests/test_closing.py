@@ -195,6 +195,80 @@ def test_a_call_waiting_in_the_box_is_filed_before_anything_closes():
         assert web.case_store("demo").get("DEMO-C004")["status"] == "open"
 
 
+def test_when_paypal_can_t_be_read_nothing_closes_on_that_look():
+    with morning():
+        store = web.case_store("live")
+        code, out = web.receive("live", {"channel": "email", "text": "Where is my order?", "source_id": "live:1",
+                                         "time": "2026-10-20T07:40:00Z",
+                                         "from": {"name": "Ann Lee", "email": "ann@example.com"}})
+        store.add(out["case_id"], cases_mod.entry("2026-10-20T08:00", "email", "out", "It is on its way.", "Giulia"))
+
+        def down(*a):
+            raise RuntimeError("PayPal answered 503")
+        kept = (web.client_from_env, web.evidence_mod.shop_disputes, web.evidence_mod._orders)
+        web.client_from_env = lambda root: object()                            # a live client, not the practice one
+        web.evidence_mod.shop_disputes = web.evidence_mod._orders = down
+        web._live_forget()
+        try:
+            with on_day(date(2026, 10, 30)):
+                assert web.close_quiet("live") == []                           # an open dispute may be on it: unknown
+                assert web.shop_disputes("live") == []                         # every other caller reads as before
+        finally:
+            web.client_from_env, web.evidence_mod.shop_disputes, web.evidence_mod._orders = kept
+            web._live_forget()
+        assert store.get(out["case_id"])["status"] == "open"
+
+
+def test_every_look_files_the_call_box_first_and_waits_for_a_call_still_being_transcribed():
+    with morning():
+        web.case_store("demo")
+        kept = web.file_calls
+
+        def file_calls(store, src, later=None):      # Margot called on 21 Oct; the call is filed at the next look
+            if not any(x.get("source") == "call:margot" for x in store.get("DEMO-C004")["timeline"]):
+                store.add("DEMO-C004", cases_mod.entry("2026-10-21T10:00", "call", "in", "Still nothing.",
+                                                       "Margot Lefèvre", source="call:margot"))
+            return 1
+        web.file_calls = file_calls
+        try:
+            with on_day(date(2026, 10, 23)):
+                web.inbox_page("demo", me="giulia")                            # the Disputes list, not the morning screen
+        finally:
+            web.file_calls = kept
+        assert web.case_store("demo").get("DEMO-C004")["status"] == "open"
+    with morning():
+        web.case_store("demo")
+        kept = (web.calls_waiting, web.TRANSCRIBE)
+        web.calls_waiting, web.TRANSCRIBE = (lambda store, src: 1), (lambda wav: None)   # whisper is on a recording
+        try:
+            with on_day(date(2026, 10, 23)):
+                assert web.close_quiet("demo") == []
+        finally:
+            web.calls_waiting, web.TRANSCRIBE = kept
+        with on_day(date(2026, 10, 23)):
+            assert web.close_quiet("demo") == ["DEMO-C004"]                    # its words came: nothing else held it
+
+
+def test_the_case_never_promises_a_day_it_won_t_close_on():
+    with morning() as b:
+        web.case_store("demo")
+        assert "closes on 23 Oct" in web._closes_words(web.case_store("demo").get("DEMO-C004"))
+        b.store.update("DEMO-C004", lambda a: {"to": "giulia", "handoff": {
+            "from": "marta", "from_name": "Marta", "action": "REFUND", "amount": 36.0, "message": "Refund",
+            "at": "2026-10-21T10:00"}})
+        assert web._closes_words(web.case_store("demo").get("DEMO-C004")) == ""          # a handoff waits on it
+        assert "closes on" not in web.case_file_page("DEMO-C004", me="giulia")
+    with morning():
+        web.case_store("demo")
+        kept = web.close_quiet
+        web.close_quiet = lambda src: []                                       # something held it past its day
+        try:
+            with on_day(date(2026, 10, 26)):
+                assert web._closes_words(web.case_store("demo").get("DEMO-C004")) == ""
+        finally:
+            web.close_quiet = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
