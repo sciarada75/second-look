@@ -127,8 +127,10 @@ one click away and never reach PayPal.
 - **An answered request closes itself.** When the shop's reply is a request's last word and the customer
   stays quiet for 3 days (`policy.json` `close_answered_after_days`), it closes as *solved before any
   dispute*, signed "Closed by Second Look: no reply in 3 days", stamped on the day it was due. Code, not
-  AI, checked at each look at the shop's cases (no timer). Never a case with a PayPal dispute on its order
-  (linked or not yet), money or goods logged, a refund PayPal didn't confirm, or a handoff waiting. The
+  AI, checked at each look at the shop's cases (no timer). Never while a PayPal dispute is open on its order
+  (linked to the case or not yet), with money or goods logged, a refund PayPal didn't confirm, or a
+  handoff waiting; and nothing closes on a look when PayPal can't be read or a call is still being
+  transcribed. The
   case says when: "Answered · closes on 23 Oct if Margot doesn't write". If the customer writes later,
   their message opens a new case naming the old one.
 - **Customer card** (`/customer/<payer id>`): one customer's orders, disputes, claims and refunds
@@ -458,7 +460,7 @@ the moment its case changes.
   limit, so her button reads *Pass to Giulia*. Passing it sends nothing: the case waits for Giulia
   with Marta's note. Switch to Giulia (`&as=giulia`) and she sends it.
 - **Numbers** (http://127.0.0.1:8765/numbers?shop=demo): October so far against the same days of
-  September, week by week since 1 Sep, what the open cases could still cost, PayPal's last 90 days.
+  September, week by week since 7 Sep, what the open cases could still cost, PayPal's last 90 days.
 - **Requests by phone, email and web form**, under the disputes. Sophie, a customer who paid by card,
   phones that her tablecloth never arrived, then writes (http://127.0.0.1:8765/c/DEMO-C001?shop=demo):
   her call (a 34-second recording in `demo/calls/`, voiced by Kokoro, an open-weight text-to-speech
