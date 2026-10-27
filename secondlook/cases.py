@@ -42,7 +42,7 @@ STAFF_DEFAULTS = {"hourly_cost": 25.0, "reply_minutes": 6}
 
 
 # How a case ends when PayPal resolves its dispute: ledger.outcome() reads PayPal's outcome_code and reason (the
-# same reading the Overview uses); these are the case's words for each of its answers.
+# same reading Numbers uses); these are the case's words for each of its answers.
 OUTCOME_SAYS = {"won": "defended, and won", "lost_claim": "defended, and lost at claim",
                 "lost_no_reply": "lost: no reply in time", "refunded": "refunded", "settled_offer": "settled with an offer",
                 "covered": "PayPal covered it", "withdrew": "the customer withdrew", "closed": "closed with no decision"}

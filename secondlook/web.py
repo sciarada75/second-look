@@ -1857,11 +1857,10 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 .costs th,.costs td{{text-align:left;vertical-align:top;padding:10px 12px 10px 0;border-top:1px solid var(--rule);font-size:16px}}
 .costs th{{font-weight:700;width:30%}} .costs td:last-child{{font-weight:500}}
 .cost-note{{color:var(--soft);font-size:15px;margin:10px 0 0}}
-/* overview */
+/* numbers: tiles, bar lists, PayPal's line */
 .kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0 36px}}
 .tile{{background:#fff;border:1px solid var(--rule);padding:18px 20px;display:flex;flex-direction:column;gap:4px}}
 .tile b{{font-size:34px;line-height:1.1;font-variant-numeric:tabular-nums}} .t-label{{font-weight:500}} .t-sub{{color:var(--soft);font-size:14px}}
-.ov-grid{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px;align-items:start}}
 .bl-h{{font-size:15px;color:var(--soft);font-weight:500;margin:16px 0 6px}}
 .barlist{{list-style:none;padding:0;margin:0}}
 .barlist li{{display:grid;grid-template-columns:200px 1fr 40px;gap:12px;align-items:center;padding:5px 0}}
@@ -1878,15 +1877,11 @@ table.waiting{{width:100%;border-collapse:collapse;margin-top:8px}}
 .ai-tag{{display:inline-block;margin-left:8px;padding:0 6px;font-size:12px;font-weight:500;border:1px solid var(--kraft);color:#6E4F27;background:#fff}}
 .talk .t-sub{{display:block}} .talk q{{white-space:pre-line}} .pick input{{width:100%;font:400 16px "Schibsted Grotesk",sans-serif;padding:10px 12px;border:1px solid var(--rule);background:#fff}}
 .pick label{{display:block;font-weight:700;margin:12px 0 6px}}
-.blocks{{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start;margin-top:18px}}
-.block{{background:#fff;border:1px solid var(--rule);padding:18px 20px}} .block.wide{{max-width:1100px;margin:0 0 30px}}
-.block h2{{margin:0 0 2px}} .block > .t-sub{{display:block;margin:0 0 12px}}
 .chips{{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}} .chip{{font-size:14px;padding:3px 10px;border-radius:14px;background:#EEF2F4}}
-.chip.ord{{background:#E8F0EA}} .chip.off{{color:var(--soft);background:transparent;border:1px dashed var(--rule)}}
+.chip.off{{color:var(--soft);background:transparent;border:1px dashed var(--rule)}}
 ol.see,ul.see{{list-style:none;padding:0;margin:0}} .see li a{{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:9px 0;border-top:1px solid var(--rule);text-decoration:none;font-size:15px}}
 .see .rec{{display:block;color:var(--soft)}} .due{{color:var(--incon);font-weight:700;white-space:nowrap}} .due.soft{{color:var(--soft);font-weight:400}}
 .ai-tag.rules{{border-color:var(--unclear);color:var(--soft)}}
-dl.know{{margin:0}} .know-row{{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:12px;padding:8px 0;border-top:1px solid var(--rule)}}
 .morning{{max-width:880px}} .morning h1.page{{margin-bottom:4px}} .rule-line{{margin-top:18px}}
 section.needs,section.new,section.team{{background:#fff;border:1px solid var(--rule);padding:18px 20px;margin-top:20px}}
 section.needs{{border-left:4px solid var(--incon)}} section.needs.calm{{border-left-color:var(--pass)}}
@@ -1912,10 +1907,8 @@ table.compare tr.sub th,table.compare tr.sub td{{border-top:0;padding-top:0;colo
 @media (max-width:700px){{table.compare th,table.compare td{{padding:8px 6px;font-size:14px}}
   .xchart li{{grid-template-columns:1fr auto}} .xchart .x-label{{grid-column:1;grid-row:1}} .xchart b{{grid-column:2;grid-row:1}}
   .xchart .x-track{{grid-column:1/3;grid-row:2}} .xchart .t-sub{{grid-column:1/3;grid-row:3}}}}
-.know-row dt{{color:var(--ink)}} .know-row dd{{margin:0}} .know-row dd b{{display:block}}
-@media (max-width:1100px){{.blocks{{grid-template-columns:1fr}}}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
-@media (max-width:1100px){{.ov-grid{{grid-template-columns:1fr}} .barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
+@media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 /* a phone: the header wraps (brand, shop, who you are, then the nav) instead of making every page scroll sideways */
 @media (max-width:700px){{header.top{{flex-wrap:wrap;gap:12px 16px;padding:12px 16px}} main{{padding:24px 16px 60px}}
   .who-am-i{{flex-wrap:wrap;gap:10px 16px;min-width:0}} .shop{{padding-left:14px}} .brand small{{display:none}}
@@ -2040,7 +2033,7 @@ def _shop(src: str):
         return pp, pp.disputes(), pp.orders(), pp.today
     pp = client_from_env(ROOT)
     if isinstance(pp, MockPayPal):
-        raise RuntimeError("No PayPal keys in .env: the overview needs the live sandbox, or open the demo shop.")
+        raise RuntimeError("No PayPal keys in .env: this page needs the live sandbox, or open the demo shop.")
     now = datetime.utcnow()
     return (pp, _live_cached("disputes", lambda: evidence_mod.shop_disputes(pp, now)),
             _live_cached("orders", lambda: evidence_mod._orders(pp, now)), now.date())
@@ -2797,7 +2790,7 @@ def numbers_page(src: str, me: str | None = None, by: str = "month") -> str:
 
 
 def claim_line_box(hv: dict, today, cur: str = "EUR") -> str:
-    """PayPal's high-volume line, as the Overview shows it: claims and card chargebacks against sales over PayPal's
+    """PayPal's high-volume line, as Numbers shows it: claims and card chargebacks against sales over PayPal's
     own window (the three previous full months), with the 1.5% line."""
     start, end = ledger.quarter_window(today)
     meter_w = min(100, 100 * hv["ratio"] / 0.02) if hv["sales"] else 0
@@ -4276,7 +4269,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send("", 204)
             qs = parse_qs(u.query)
             _REQUEST.qs = qs
-            # The shop you're in stays the same from page to page: an Overview of one shop next to the
+            # The shop you're in stays the same from page to page: the numbers of one shop next to the
             # disputes of another made no sense (Claudia, 21/10). Demo by default: it has a history.
             asked = (qs.get("shop") or [""])[0]
             if asked in ("demo", "live"):

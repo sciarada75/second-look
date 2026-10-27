@@ -73,7 +73,7 @@ def case_events(c: dict, order: dict | None, invoice: str | None, currency: str 
 
 def dispute_events(d: dict, invoice: str | None, handled_by: str | None, high_volume: bool) -> list:
     """What a resolved PayPal dispute moved: PayPal's refund to the buyer and the dispute fee, from PayPal's outcome
-    (the fee estimated from PayPal's fee table, as the Overview estimates it)."""
+    (the fee estimated from PayPal's fee table, as Numbers estimates it)."""
     if d.get("status") != "RESOLVED":
         return []
     cur = d["dispute_amount"].get("currency_code", "EUR")

@@ -830,6 +830,12 @@ def test_the_header_wraps_on_a_phone_instead_of_making_the_page_scroll_sideways(
     assert ".case{grid-template-columns:minmax(0,1fr)}" in html_        # a case page's one column shrinks to the screen
 
 
+def test_no_style_is_left_for_markup_that_is_gone():
+    html_ = web.page("Numbers | Second Look", "", "<p>x</p>", here="numbers")
+    for gone in (".ov-grid", ".blocks", ".block{", ".block ", ".block.", "dl.know", ".know-row", "/* overview */", ".chip.ord"):
+        assert gone not in html_, gone
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
