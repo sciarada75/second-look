@@ -459,6 +459,33 @@ def test_a_row_second_look_s_ai_answered_on_its_own_raises_no_not_taken_yet_alar
         assert "not taken yet" in row("DEMO-C002")                            # Lena's: nobody has it, nobody answered
 
 
+def test_needs_you_holds_only_what_is_your_move_and_the_rest_waits_in_its_own_bucket():
+    with morning():
+        v = web.today_view("demo", "giulia")
+        assert all(n["state"]["state"] == "your_move" for n in v["needs"] if n["kind"] == "case")
+        assert [x["id"] for x in v["waiting"]["waiting_customer"]] == ["DEMO-C004"]    # Margot: the AI answered
+        assert web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        v = web.today_view("demo", "giulia")
+        assert [x["id"] for x in v["waiting"]["waiting_paypal"]] == ["DEMO-039"]
+        assert "DEMO-039" not in [n.get("id") for n in v["needs"]]
+        assert v["handled"]["cases"] == 1 and v["handled"]["minutes"] == 6
+
+
+def test_a_case_closed_today_is_done_and_one_closed_before_is_not():
+    cases = [case("C1", ("2026-10-19T08:00", "email", "in"), status="closed", closed_at="2026-10-20T09:00"),
+             case("C2", ("2026-10-10T08:00", "email", "in"), status="closed", closed_at="2026-10-12T09:00")]
+    done = today.closed_today(cases, [], TODAY, keep=lambda i: True)
+    assert [x["id"] for x in done] == ["C1"] and done[0]["link"] == "/c/C1"
+    assert today.closed_today(cases, [], TODAY, keep=lambda i: False) == []
+
+
+def test_the_api_says_each_case_s_state():
+    with morning():
+        s = web.api_case_of("DEMO-C004")["state"]
+        assert s["state"] == "waiting_customer" and s["until"] == "2026-10-23"
+        assert web.api_case("DEMO-039")["state"]["state"] == "your_move"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

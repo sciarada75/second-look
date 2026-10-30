@@ -257,12 +257,15 @@ def who_has(items: list, assigned: dict, team: dict) -> dict:
 NEAR_LINE = 3
 
 
-def needs_you(me: str | None, head: bool, items: list, assigned: dict, team: dict, handled=(), failed=(), hv=None) -> list:
+def needs_you(me: str | None, head: bool, items: list, assigned: dict, team: dict, handled=(), failed=(), hv=None,
+              states=None) -> list:
     """The morning screen's first block: what needs this person now. Their cases, nearest PayPal deadline first (a
     handoff to them says who passed it); the calls nobody could transcribe (anyone listens); and for the head of
     customer care, Second Look's AI's answers nobody checked yet, and PayPal's high-volume line when it is near or
     crossed. In a team of one every open case is the seller's. `items`: open_items(..., today); `assigned`: decision
-    id -> {"to", "handoff"}; `handled`: what Second Look's AI answered on its own, not checked yet."""
+    id -> {"to", "handoff"}; `handled`: what Second Look's AI answered on its own, not checked yet.
+    `states`: decision id -> case state (web.case_state); a case that isn't the person's move waits in its own bucket
+    (waiting())."""
     solo = bool(team.get("solo"))
     people = {p["id"]: p for p in team.get("people", []) if isinstance(p, dict) and p.get("id")}
     checks = {h.get("id") for h in handled} if head else set()     # a case that is also a check shows once, as the check
@@ -271,9 +274,12 @@ def needs_you(me: str | None, head: bool, items: list, assigned: dict, team: dic
         a = assigned.get(it["id"]) or {}
         if (not solo and (not me or a.get("to") != me)) or it["id"] in checks:
             continue
+        st = (states or {}).get(it["id"])
+        if st is not None and st["state"] != "your_move":
+            continue            # answered, or PayPal's move: it waits in its own bucket, not here
         hand = a.get("handoff") if isinstance(a.get("handoff"), dict) else None
         frm = (people.get(hand.get("from")) or {}) if hand else {}
-        mine.append({**it, "kind": "case",
+        mine.append({**it, "kind": "case", "state": st,
                      "from_name": (frm.get("name") or hand.get("from_name") or "A colleague") if hand else None,
                      "from_role": (frm.get("role") or "") if hand else None})
     mine.sort(key=lambda x: (x.get("days_left") is None, x.get("days_left") or 0))
@@ -282,6 +288,42 @@ def needs_you(me: str | None, head: bool, items: list, assigned: dict, team: dic
         out += [{**h, "ai_kind": h.get("kind"), "kind": "ai"} for h in handled]
         if hv and hv.get("counts") and (hv.get("high_volume") or hv.get("claims_to_threshold", NEAR_LINE + 1) <= NEAR_LINE):
             out.append({**hv, "kind": "line"})
+    return out
+
+
+def waiting(me: str | None, head: bool, items: list, assigned: dict, team: dict, states: dict, ai_ids=()) -> dict:
+    """Today's other buckets (spec 2026-10-30, Part 3): this person's cases that wait for the customer or for PayPal,
+    or are done though still open in PayPal's list (the demo's simulated confirmation). The head of customer care also
+    sees what Second Look's AI answered (`ai_ids`): it answers for them. In a team of one, every case is the seller's.
+    Each row is open_items' row with its "state"; the nearest date first."""
+    solo = bool(team.get("solo"))
+    out = {"waiting_customer": [], "waiting_paypal": [], "done": []}
+    for it in items:
+        st = states.get(it["id"])
+        if not st or st["state"] not in out:
+            continue
+        if solo or (me and (assigned.get(it["id"]) or {}).get("to") == me) or (head and it["id"] in ai_ids):
+            out[st["state"]].append({**it, "state": st})
+    for k in out:
+        out[k].sort(key=lambda x: (x["state"]["until"] is None, x["state"]["until"] or date.max))
+    return out
+
+
+def closed_today(cases: list, orders: list, today: date, keep) -> list:
+    """Cases closed on the shop's today or later (the demo's clicks are stamped with the computer's date, after the
+    demo's fixed today), as open_items rows. `keep(decision id)`: whether this person sees it (web decides)."""
+    amount_of, currency_of = _amounts(orders), _currencies(orders)
+    out = []
+    for c in cases:
+        did = c.get("dispute_id") or c["id"]
+        if c.get("status") == "open" or _closed_at(c)[:10] < today.isoformat() or not keep(did):
+            continue
+        out.append({"id": did, "link": f"/c/{c['id']}",
+                    "who": c["customer"].get("name") or c["customer"].get("email"),
+                    "summary": c["problem"].get("summary") or "", "amount": amount_of.get(c.get("order_no"), 0.0),
+                    "currency": currency_of.get(c.get("order_no")) or "EUR", "days_left": None,
+                    "state": {"state": "done", "label": "Done", "whose": None, "why": "Closed.", "until": None,
+                              "then": "", "paypal": bool(c.get("dispute_id"))}})
     return out
 
 

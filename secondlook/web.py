@@ -866,6 +866,8 @@ def api_case_of(cid: str, as_person: str | None = None) -> dict | None:
         full = api_case(v["decision_id"], as_person=as_person)
         decision = {k: full[k] for k in ("review", "for_person", "handoff") if k in full}
     return {**decision, "decision_id": v["decision_id"],
+            "state": (lambda s: {**s, "until": s["until"].isoformat() if s["until"] else None})(
+                case_state(v["decision_id"], v["dispute"], c)),
             "case_id": c["id"], "stage": c["stage"], "stage_label": cases_mod.STAGE_LABEL[c["stage"]],
             "status": c["status"], "outcome": c["outcome"], "problem": c["problem"],
             "customer": {**c["customer"], "role": "customer"}, "order": v["order"], "sorted": c["sorted"],
@@ -2773,15 +2775,34 @@ def today_view(src: str, me: str | None = None) -> dict:
         for r in see["rows"]:
             r["has"] = names.get((assigned.get(r["decision_id"]) or {}).get("to"))
     items = today_mod.open_items(cases, disputes, orders, today)
+    dmap = {d["dispute_id"]: d for d in disputes}
+    held, cmap = today_mod.links(cases, disputes, orders), {c["id"]: c for c in cases}
+    states = {it["id"]: case_state(it["id"], dmap.get(it["id"]), held.get(it["id"]) or cmap.get(it["id"]), today=today)
+              for it in items}
     handled = autopilot_handled(src, today, rec)
     # Needs you: every answer nobody checked yet, however old (the since-yesterday list is the API's "autopilot")
     unchecked = [h for h in autopilot_handled(src, today, rec, since=False) if not h.get("checked")]
     for h in handled + unchecked:
         h["closes"] = _closes_words(case_store(src).get(h["id"]) if cases_mod.is_case_id(h["id"]) else None)
     hv = ledger.overview(disputes, orders, today)["high_volume"]
+    ai_ids = {h["id"] for h in autopilot_handled(src, today, rec, since=False)}
+    me_id = who["id"] if who else None
+    buckets = today_mod.waiting(me_id, head, items, assigned, t, states, ai_ids)
+    buckets["done"] += today_mod.closed_today(
+        cases, orders, today,
+        lambda i: solo or (assigned.get(i) or {}).get("to") == me_id or (head and i in ai_ids))
+    # today you handled: the answers this person sent today (the computer's day: the demo's clicks are real), at the
+    # shop's reply minutes each, the same estimate as a case's cost
+    name = (who or {}).get("name")
+    sent_today = [i for i in [*states, *(x["id"] for x in buckets["done"])]
+                  if (_raw(i) or {}).get("sent") and str(_saved_by(i).get("at") or "")[:10] == _local_now().date().isoformat()
+                  and (solo or _saved_by(i).get("by") == name)]
+    handled_n = len(set(sent_today))
     return {"today": today, "team": t, "head": head, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
             "calls_failed": failed, "see": see,
-            "needs": today_mod.needs_you(who["id"] if who else None, head, items, assigned, t, unchecked, failed, hv),
+            "needs": today_mod.needs_you(who["id"] if who else None, head, items, assigned, t, unchecked, failed, hv, states=states),
+            "waiting": buckets,
+            "handled": {"cases": handled_n, "minutes": handled_n * cases_mod.staff_time(_policy())["reply_minutes"]},
             "manage": today_mod.who_has(items, assigned, t),
             "autopilot": {"handled": handled,
                           "on": [kind_words(k) for k, x in rec["kinds"].items()
@@ -4294,6 +4315,8 @@ def api_case(did: str, as_person: str | None = None) -> dict:
             o = page_offer(did, None if t.get("solo") else who["id"], case)
             out["for_person"] = {"person": who["name"], **{k: v for k, v in o.items() if not k.startswith("_")},
                                  "why": o["says"] if o["outcome"] == "refused" else None}
+    st = case_state(did, d, out_of_date=bool(saved) and bool(_changes(did, case)))
+    out["state"] = {**st, "until": st["until"].isoformat() if st["until"] else None}
     return out
 
 
@@ -4448,7 +4471,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/today":
                 v = today_view("live" if src == "live" else "demo", (qs.get("as") or [None])[0])
                 return self._json({"today": v["today"], "see": v["see"], "needs": v["needs"], "manage": v["manage"],
-                                   "autopilot": v["autopilot"],
+                                   "waiting": v["waiting"], "handled": v["handled"], "autopilot": v["autopilot"],
                                    "calls": {"being_transcribed": v["calls_pending"], "not_transcribed": v["calls_failed"]}})
             if u.path == "/api/numbers":
                 return self._json(numbers_view("live" if src == "live" else "demo", (qs.get("by") or ["month"])[0]))
