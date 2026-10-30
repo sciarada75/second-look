@@ -23,50 +23,63 @@ OTHERS = 2      # at most two moves beside the AI's pick: more is a menu, not a 
 SIGN = "\n\nBest regards,\n{shop}"
 TEMPLATES = {
     "MESSAGE": {
-        "not_received": "Hi {first},\n\nthank you for writing, and sorry the parcel hasn't reached you. We're checking "
-                        "with {carrier} what happened to it{tracking} and will write to you again within two working days.",
-        "not_as_described": "Hi {first},\n\nthank you for telling us, and sorry it isn't what you expected. Could you send "
+        "not_received": "Hi {first},\n\nThank you for writing, and sorry the parcel hasn't reached you. We're checking "
+                        "with {carrier} what happened to it{tracking} and will write to you again soon.",
+        "not_as_described": "Hi {first},\n\nThank you for telling us, and sorry it isn't what you expected. Could you send "
                             "us a photo of the item and of what doesn't match the listing? Then we can put it right.",
-        "wrong_size": "Hi {first},\n\nthank you for writing, and sorry the size isn't right. Tell us the size you need "
+        "wrong_size": "Hi {first},\n\nThank you for writing, and sorry the size isn't right. Tell us the size you need "
                       "and we'll tell you how to send this one back.",
-        "refund_missing": "Hi {first},\n\nthank you for writing. We're checking our records for your return and will "
-                          "write to you again within two working days.",
-        "question": "Hi {first},\n\nthank you for your message. We're looking into it and will write to you again "
-                    "within two working days.",
+        "refund_missing": "Hi {first},\n\nThank you for writing. We're checking what happened with {order} and will "
+                          "write to you again soon.",
+        "question": "Hi {first},\n\nThank you for your message. We're looking into it and will write to you again soon.",
     },
-    "REFUND": {"*": "Hi {first},\n\nwe're sorry for the trouble. We have refunded {amount} in full for order {order}. "
-                    "You'll see it back on your account in a few days."},
+    # a shop request: the refund is logged now and paid by the shop, so the text never says it already arrived
+    "REFUND": {"*": "Hi {first},\n\nWe're sorry for the trouble. We're refunding {amount} for {order}. You'll see it "
+                    "back on your account in a few days."},
     "REPLACE": {
-        "wrong_size": "Hi {first},\n\nwe're sorry the size isn't right. We'll send you the right size as soon as this "
-                      "one is on its way back to us; the return details follow in a separate email.",
-        "*": "Hi {first},\n\nwe're sorry for the trouble. We're sending you a replacement for order {order}, and will "
-             "write with its tracking number as soon as it ships.",
+        "wrong_size": "Hi {first},\n\nWe're sorry the size isn't right. Reply with the size you need and we'll tell you "
+                      "how to send this one back; the right one leaves as soon as it's on its way to us.",
+        "*": "Hi {first},\n\nWe're sorry for the trouble. We're sending you a replacement for {order}, and will write "
+             "with its tracking number as soon as it ships.",
     },
-    "DEFEND": {"*": "Hi {first},\n\nour records show your parcel was delivered{delivered}{tracking}. We've shared the "
-                    "courier's record with PayPal. If something is still wrong, please write to us and we'll look again."},
+    # a delivery the courier recorded; without one the evidence is the shipping record, and the text says only that
+    "DEFEND": {"delivered": "Hi {first},\n\nOur records show your parcel was delivered{delivered}{tracking}. We've shared "
+                            "the courier's record with PayPal. If something is still wrong, please write to us and "
+                            "we'll look again.",
+               "*": "Hi {first},\n\nWe've shared our shipping record{tracking} with PayPal. If something is still "
+                    "wrong, please write to us and we'll look into it."},
+}
+# On a PayPal dispute: a refund goes through PayPal at once; a replacement is an offer the buyer accepts in PayPal.
+DISPUTE_TEMPLATES = {
+    "REFUND": {"*": "Hi {first},\n\nWe're sorry for the trouble. We've refunded {amount} through PayPal for {order}. "
+                    "You'll see it back on your account in a few days."},
+    "REPLACE": {"*": "Hi {first},\n\nWe're sorry for the trouble. We've offered to send you a replacement for {order}. "
+                     "Once you accept the offer in PayPal, we'll ship it and send you its tracking number."},
 }
 # When the case has no such fact, the words a text falls back on.
 FACT_DEFAULTS = {"first": "there", "carrier": "the courier", "tracking": "", "amount": "the full amount",
                  "order": "your order", "delivered": "", "shop": "the shop"}
-LABEL = {"MESSAGE": "Reply only", "REFUND": "Answer and refund {amount}", "REPLACE": "Answer and send a replacement",
+LABEL = {"MESSAGE": "Reply only", "REFUND": "Answer and refund {amount}", "REPLACE": "Offer a replacement",
          "DEFEND": "Send your evidence"}
 INQUIRY_LABEL = {**LABEL, "REPLACE": "Answer and exchange"}
 THEN = {"MESSAGE": "{first} gets your reply. No money moves.",
         "REFUND": "{first} gets your reply and {amount} back. PayPal closes the dispute; the case waits for PayPal "
                   "to confirm.",
-        "REPLACE": "{first} gets your reply; the replacement is logged for you to send.",
-        "DEFEND": "PayPal gets the courier's record and {first} your reply. No money moves."}
-INQUIRY_THEN = {**THEN, "REFUND": "{first} gets your reply, and the refund of {amount} is logged on the case."}
+        "REPLACE": "PayPal passes your offer to {first}; if they accept, you send the replacement.",
+        "DEFEND": "PayPal gets your shipping record and {first} your reply. No money moves."}
+INQUIRY_THEN = {**THEN, "REFUND": "{first} gets your reply, and the refund of {amount} is logged on the case.",
+                "REPLACE": "{first} gets your reply; the replacement is logged for you to send."}
 
 
-def _fill(words: str, facts: dict) -> str:
-    return words.format(**{**FACT_DEFAULTS, **{k: v for k, v in facts.items() if v}})
+def _fill(words: str, facts: dict, defaults: dict = FACT_DEFAULTS) -> str:
+    # Values are substituted, never re-parsed as templates: never concatenate data into a template before calling this.
+    return words.format(**{**defaults, **{k: v for k, v in facts.items() if v}})
 
 
 def kind_of(case: dict | None, dispute: dict | None) -> str:
     """The cause, as cases.KINDS names it: PayPal's reason on a dispute, else the shop case's own kind."""
-    if dispute and dispute.get("reason") in REASON_KIND:
-        return REASON_KIND[dispute["reason"]]
+    if dispute:     # a PayPal reason we don't map (e.g. UNAUTHORISED) never borrows the shop case's kind
+        return REASON_KIND.get(dispute.get("reason"), "question")
     k = ((case or {}).get("problem") or {}).get("kind")
     return k if k in FITS else "question"
 
@@ -83,10 +96,17 @@ def others(kind: str, pick: str | None, paypal: set | None, inquiry: bool) -> li
     return out[:OTHERS]
 
 
-def text(action: str, kind: str, facts: dict) -> str:
-    """The fixed reply that goes with a move, filled with the case's facts and signed by the shop. A person may edit it."""
-    t = TEMPLATES.get(action) or TEMPLATES["MESSAGE"]
-    return _fill((t.get(kind) or t.get("*") or TEMPLATES["MESSAGE"]["question"]) + SIGN, facts)
+def text(action: str, kind: str, facts: dict, inquiry: bool = False) -> str:
+    """The fixed reply that goes with a move, filled with the case's facts and signed by the shop. A person may edit it.
+    It says only what is true: a dispute and a shop request differ on refunds and replacements, a defence claims a
+    delivery only when the courier recorded one, and an unknown action raises KeyError (a money move must never get a
+    reply-only text)."""
+    t = DISPUTE_TEMPLATES[action] if not inquiry and action in DISPUTE_TEMPLATES else TEMPLATES[action]
+    if action == "DEFEND":
+        words = t["delivered"] if facts.get("delivered") else t["*"]
+    else:
+        words = t.get(kind) or t["*"]
+    return _fill(words + SIGN, facts)
 
 
 def label(action: str, inquiry: bool, facts: dict) -> str:
@@ -96,4 +116,5 @@ def label(action: str, inquiry: bool, facts: dict) -> str:
 
 def then(action: str, facts: dict, inquiry: bool) -> str:
     """What happens next, joined under the button."""
-    return _fill((INQUIRY_THEN if inquiry else THEN)[action], facts)
+    out = _fill((INQUIRY_THEN if inquiry else THEN)[action], facts, {**FACT_DEFAULTS, "first": "the customer"})
+    return out[:1].upper() + out[1:]

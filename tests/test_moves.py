@@ -1,5 +1,6 @@
 """The moves: what fits each cause, what PayPal allows, and fixed texts that never promise money a move doesn't send
 (spec 2026-10-30, Part 2). Run: python3 tests/test_moves.py"""
+import re
 import sys
 from pathlib import Path
 
@@ -7,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from secondlook import moves  # noqa: E402
 
 FACTS = {"first": "Sophie", "carrier": "Local courier", "tracking": " (tracking LC90001IT)", "amount": "64.00 EUR",
-         "order": "LP-90001", "delivered": " on 15 Oct", "shop": "Linen & Paper"}
+         "order": "order LP-90001", "delivered": " on 15 Oct", "shop": "Linen & Paper"}
 
 
 def test_the_cause_comes_from_paypal_s_reason_else_the_shop_s_case():
@@ -31,8 +32,47 @@ def test_only_what_paypal_allows_on_a_dispute():
 def test_no_text_promises_money_its_move_doesn_t_send():
     for kind in moves.FITS:
         for action in ("MESSAGE", "REPLACE", "DEFEND"):
-            assert "refund" not in moves.text(action, kind, FACTS).lower(), (action, kind)
+            for inquiry in (True, False):
+                t = moves.text(action, kind, {}, inquiry=inquiry)
+                assert not re.search(r"refund|money back|rimbors", t, re.I), (action, kind, inquiry)
     assert "64.00 EUR" in moves.text("REFUND", "not_received", FACTS)
+
+
+def test_defence_text_claims_a_delivery_only_when_the_courier_recorded_one():
+    t = moves.text("DEFEND", "not_received", {"first": "Sophie"})
+    assert "shared our shipping record" in t and "delivered" not in t
+    assert "was delivered on 15 Oct" in moves.text("DEFEND", "not_received", FACTS)
+
+
+def test_a_dispute_and_a_shop_request_do_not_say_the_same_about_money_and_offers():
+    d = moves.text("REPLACE", "not_as_described", FACTS, inquiry=False)
+    assert "offered" in d and "accept" in d
+    assert "We're refunding" in moves.text("REFUND", "question", FACTS, inquiry=True)
+    assert "We've refunded" not in moves.text("REFUND", "question", FACTS, inquiry=True)
+    r = moves.text("REFUND", "question", FACTS, inquiry=False)
+    assert "We've refunded" in r and "through PayPal" in r
+
+
+def test_an_unknown_action_never_borrows_a_reply_only_text():
+    try:
+        moves.text("PARTIAL_REFUND", "question", {})
+    except KeyError:
+        return
+    raise AssertionError("expected KeyError")
+
+
+def test_nothing_is_left_unfilled_or_awkward_when_facts_are_missing():
+    for inquiry in (True, False):
+        for kind in moves.FITS:
+            for action in ("MESSAGE", "REFUND", "REPLACE", "DEFEND"):
+                for s in (moves.text(action, kind, {}, inquiry=inquiry), moves.label(action, inquiry, {}),
+                          moves.then(action, {}, inquiry=inquiry)):
+                    assert "{" not in s and "for order your order" not in s, s
+    assert moves.then("MESSAGE", {}, inquiry=True) == "The customer gets your reply. No money moves."
+
+
+def test_a_paypal_reason_we_do_not_map_never_borrows_the_shop_case_s_kind():
+    assert moves.kind_of({"problem": {"kind": "not_received"}}, {"reason": "UNAUTHORISED"}) == "question"
 
 
 def test_texts_are_filled_with_the_case_s_facts_and_signed_by_the_shop():
@@ -44,6 +84,7 @@ def test_texts_are_filled_with_the_case_s_facts_and_signed_by_the_shop():
 def test_each_button_says_everything_it_sends_and_what_happens_next():
     assert moves.label("REFUND", False, FACTS) == "Answer and refund 64.00 EUR"
     assert moves.label("REPLACE", True, FACTS) == "Answer and exchange"
+    assert moves.label("REPLACE", False, FACTS) == "Offer a replacement"
     assert moves.label("MESSAGE", False, FACTS) == "Reply only"
     assert moves.then("MESSAGE", FACTS, inquiry=True) == "Sophie gets your reply. No money moves."
     assert "PayPal" in moves.then("REFUND", FACTS, inquiry=False)
