@@ -7,6 +7,7 @@ Nothing in this module calls a model. That is the point.
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
@@ -300,13 +301,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 
-# What held back the AI's own answer and says nothing against a person choosing a catalog move themselves: its size,
-# its confidence, and PayPal refusing the AI's pick (the moves offered are PayPal's allowed ones already).
-TEMPLATE_OK_STOPS = SIZE_STOPS | {"confidence", "paypal_allowed"}
-
-
-def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, stops: Sequence[str] = (),
-                template: bool = False) -> bool:
+def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, stops: Sequence[str] = ()) -> bool:
     """The seller approves the action they were shown, never "whatever the model says now".
     Two exceptions on "your call" (ASK_SELLER):
     - they may send the drafted question, because a message moves no money. Not when the draft was
@@ -317,21 +312,7 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     - they may take the answer the AI drafted when the ONLY reasons it was held back are its size
       (SIZE_STOPS): those limits exist to hand the decision to a person, and this person is it.
       Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
-    `template`: the person chose a move from the catalog (moves.py) with its own fixed text, never the AI's draft
-    (spec 2026-10-30, Part 2). A reply goes unless PayPal takes no message; money or goods only when nothing but
-    TEMPLATE_OK_STOPS held the AI back (never past a trust stop); evidence never against a refund or a replacement
-    already logged, an unconfirmed refund, or evidence the judge found inconsistent.
     How much money this person may send is checked after this, against their role (team.covers)."""
-    if template:
-        held = set(stops)
-        if chosen == "MESSAGE":
-            return "message_not_allowed" not in held
-        if chosen in MONEY:
-            return not (held - TEMPLATE_OK_STOPS)
-        if chosen == "DEFEND":
-            return not held & {"refund_logged_on_case", "replacement_logged_on_case", "refund_unconfirmed",
-                               "inconsistent"}
-        return False
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
         # (`refund_logged_on_case`: the draft was a defence against a refund the shop already promised.)
         return (drafted_for not in MONEY and "message_not_allowed" not in stops and "unknown_action" not in stops
@@ -340,3 +321,24 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     if recommended == "ASK_SELLER" and chosen == drafted_for and chosen != "ASK_SELLER" and held_for_size_only(stops):
         return True
     return chosen == recommended
+
+
+# The moves a person may choose from the catalog (moves.py). PARTIAL_REFUND isn't one: its amount is the AI's.
+CATALOG = ("MESSAGE", "REFUND", "REPLACE", "DEFEND")
+
+
+def move_stops(chosen: str, j: Judgment, policy: dict, dispute: dict, records: dict) -> list:
+    """Why the guard would hold back `chosen` on this case, judged as if it were the answer: every rule runs again for
+    the person's move. The AI's stops can't be reused: each trust rule fires only for the action it judges, so a
+    case the AI answered with a reply carries no stop against a refund (an order refunded in full, a refund logged or
+    unconfirmed, broken evidence, a repeat buyer, injected text: found in review, 30/10). Confidence is set to 1.0:
+    it measures the AI's own answer, not a person's choice. Run it at approval time, on the case as it is then."""
+    return apply_policy(dataclasses.replace(j, action=chosen, confidence=1.0, partial_amount=None),
+                        policy, dispute, records).stops
+
+
+def may_send_move(chosen: str, stops: Sequence[str]) -> bool:
+    """A catalog move a person chose, with its own fixed text: one of CATALOG, and held back by nothing but its size
+    (`stops`: move_stops for it). Its size is checked after this against the person's limit (team.covers), as for
+    any answer. Rule 4 (delivered to the PayPal address: defend) records no stop: a person may still choose to refund."""
+    return chosen in CATALOG and not (set(stops) - SIZE_STOPS)
