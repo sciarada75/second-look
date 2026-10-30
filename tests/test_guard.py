@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from secondlook.guard import Judgment, apply_policy, may_approve  # noqa: E402
+from secondlook.guard import Judgment, apply_policy, may_approve, paypal_can  # noqa: E402
 
 POLICY = {"min_confidence": 0.75, "max_auto_refund": 50.0, "always_ask_above": 200.0,
           "defend_if_delivered_to_paypal_address": True,
@@ -305,6 +305,27 @@ def test_the_currency_of_a_partial_amount_is_checked_not_guessed():
 
 def test_no_drafted_question_when_the_ai_returned_an_unknown_action():
     assert not may_approve("ASK_SELLER", "MESSAGE", drafted_for="ASK_SELLER", stops=["unknown_action"])
+
+
+def test_paypal_can_reads_what_paypal_allows_once_for_rule_6_and_the_moves():
+    d = {"status": "WAITING_FOR_SELLER_RESPONSE", "links": [{"rel": "provide_evidence"}, {"rel": "send_message"}],
+         "allowed_response_options": {"accept_claim": {"accept_claim_types": ["REFUND"]},
+                                      "make_offer": {"offer_types": ["REFUND"]}}}
+    assert paypal_can(d) == {"DEFEND", "MESSAGE", "REFUND", "PARTIAL_REFUND"}
+    assert "MESSAGE" not in paypal_can({**d, "status": "WAITING_FOR_BUYER_RESPONSE"})
+    assert paypal_can({"status": "WAITING_FOR_SELLER_RESPONSE"}) is None          # PayPal didn't say
+
+
+def test_a_catalog_move_goes_unless_a_trust_reason_stands_against_it():
+    assert may_approve("REFUND", "MESSAGE", "REFUND", [], template=True)
+    assert not may_approve("REFUND", "MESSAGE", "REFUND", ["message_not_allowed"], template=True)
+    assert may_approve("ASK_SELLER", "REFUND", "REFUND", ["cap", "confidence"], template=True)
+    assert not may_approve("ASK_SELLER", "REFUND", "MESSAGE", ["injection"], template=True)
+    assert not may_approve("ASK_SELLER", "REPLACE", "MESSAGE", ["already_refunded"], template=True)
+    assert may_approve("REFUND", "DEFEND", "REFUND", ["cap"], template=True)
+    assert not may_approve("REFUND", "DEFEND", "REFUND", ["refund_logged_on_case"], template=True)
+    assert not may_approve("REFUND", "ASK_SELLER", "REFUND", [], template=True)
+    assert not may_approve("REFUND", "MESSAGE", "REFUND", [])                      # without the catalog: as before
 
 
 if __name__ == "__main__":

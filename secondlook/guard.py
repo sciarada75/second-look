@@ -112,6 +112,31 @@ def money_out(action: str, j: Judgment, dispute: dict) -> float:
         return float(dispute["dispute_amount"]["value"])
 
 
+def paypal_can(dispute: dict) -> set | None:
+    """What PayPal lets the shop do on this dispute now, as Second Look's actions; None when PayPal didn't say
+    (no allowed_response_options: a practice case, an old record). Rule 6 and the moves catalog (moves.py) read this
+    one function, so a button never offers what PayPal would refuse. Learned from a real sandbox dispute (2026-10-16):
+    at the INQUIRY stage make_offer allows only REFUND, so REPLACE is not possible."""
+    allowed = dispute.get("allowed_response_options")
+    if not allowed:
+        return None
+    can = set()
+    rels = {l.get("rel") for l in dispute.get("links", [])}
+    if "provide_evidence" in rels:
+        can.add("DEFEND")
+    # PayPal keeps the send_message link while it waits for the buyer, but refuses a second seller
+    # message then (422, seen live 2026-10-18): one message, then the buyer's turn.
+    if "send_message" in rels and dispute.get("status") != "WAITING_FOR_BUYER_RESPONSE":
+        can.add("MESSAGE")
+    for t in allowed.get("accept_claim", {}).get("accept_claim_types", []):
+        can.add({"REFUND": "REFUND", "PARTIAL_REFUND": "PARTIAL_REFUND"}.get(t, ""))
+    for t in allowed.get("make_offer", {}).get("offer_types", []):
+        can.add({"REFUND": "PARTIAL_REFUND", "REPLACEMENT_WITHOUT_REFUND": "REPLACE",
+                 "REFUND_WITH_REPLACEMENT": "REPLACE"}.get(t, ""))
+    can.discard("")
+    return can
+
+
 def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Decision:
     notes: List[str] = []
     stops: List[str] = []
@@ -186,23 +211,9 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
             stops.append("injection")
             break
 
-    # Rule 6: only actions PayPal allows at this stage. Learned from a real sandbox dispute
-    # (2026-10-16): at the INQUIRY stage make_offer allows only REFUND, so REPLACE is not possible.
-    allowed = dispute.get("allowed_response_options")
-    if allowed:
-        can = set()
-        rels = {l.get("rel") for l in dispute.get("links", [])}
-        if "provide_evidence" in rels:
-            can.add("DEFEND")
-        # PayPal keeps the send_message link while it waits for the buyer, but refuses a second seller
-        # message then (422, seen live 2026-10-18): one message, then the buyer's turn.
-        if "send_message" in rels and dispute.get("status") != "WAITING_FOR_BUYER_RESPONSE":
-            can.add("MESSAGE")
-        for t in allowed.get("accept_claim", {}).get("accept_claim_types", []):
-            can.add({"REFUND": "REFUND", "PARTIAL_REFUND": "PARTIAL_REFUND"}.get(t, ""))
-        for t in allowed.get("make_offer", {}).get("offer_types", []):
-            can.add({"REFUND": "PARTIAL_REFUND", "REPLACEMENT_WITHOUT_REFUND": "REPLACE",
-                     "REFUND_WITH_REPLACEMENT": "REPLACE"}.get(t, ""))
+    # Rule 6: only actions PayPal allows at this stage (paypal_can).
+    can = paypal_can(dispute)
+    if can is not None:
         # Recorded on its own: PayPal may refuse the AI's answer (DEFEND at INQUIRY) and still take a
         # message, so "paypal_allowed" must not stop the question; this does (PP-R-ZOY-10193120, 23/10).
         if "MESSAGE" not in can:
@@ -210,7 +221,7 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
         subject = _subject()
         if subject != "ASK_SELLER" and subject not in can:
             notes.append(f"PayPal does not allow {subject} at the {dispute.get('dispute_life_cycle_stage', '?')} stage "
-                         f"(allowed: {', '.join(sorted(c for c in can if c))}). Routed to you.")
+                         f"(allowed: {', '.join(sorted(can))}). Routed to you.")
             action = "ASK_SELLER"
             stops.append("paypal_allowed")
 
@@ -289,7 +300,13 @@ def apply_policy(j: Judgment, policy: dict, dispute: dict, records: dict) -> Dec
     return Decision(action=action, reasons=notes, judgment=j, overridden=(action != j.action), stops=stops)
 
 
-def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, stops: Sequence[str] = ()) -> bool:
+# What held back the AI's own answer and says nothing against a person choosing a catalog move themselves: its size,
+# its confidence, and PayPal refusing the AI's pick (the moves offered are PayPal's allowed ones already).
+TEMPLATE_OK_STOPS = SIZE_STOPS | {"confidence", "paypal_allowed"}
+
+
+def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, stops: Sequence[str] = (),
+                template: bool = False) -> bool:
     """The seller approves the action they were shown, never "whatever the model says now".
     Two exceptions on "your call" (ASK_SELLER):
     - they may send the drafted question, because a message moves no money. Not when the draft was
@@ -300,7 +317,21 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
     - they may take the answer the AI drafted when the ONLY reasons it was held back are its size
       (SIZE_STOPS): those limits exist to hand the decision to a person, and this person is it.
       Never when it was held back for trust; never with no recorded reasons (reviews before 23/10).
+    `template`: the person chose a move from the catalog (moves.py) with its own fixed text, never the AI's draft
+    (spec 2026-10-30, Part 2). A reply goes unless PayPal takes no message; money or goods only when nothing but
+    TEMPLATE_OK_STOPS held the AI back (never past a trust stop); evidence never against a refund or a replacement
+    already logged, an unconfirmed refund, or evidence the judge found inconsistent.
     How much money this person may send is checked after this, against their role (team.covers)."""
+    if template:
+        held = set(stops)
+        if chosen == "MESSAGE":
+            return "message_not_allowed" not in held
+        if chosen in MONEY:
+            return not (held - TEMPLATE_OK_STOPS)
+        if chosen == "DEFEND":
+            return not held & {"refund_logged_on_case", "replacement_logged_on_case", "refund_unconfirmed",
+                               "inconsistent"}
+        return False
     if recommended == "ASK_SELLER" and chosen == "MESSAGE":
         # (`refund_logged_on_case`: the draft was a defence against a refund the shop already promised.)
         return (drafted_for not in MONEY and "message_not_allowed" not in stops and "unknown_action" not in stops
