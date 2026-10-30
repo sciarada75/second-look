@@ -861,13 +861,16 @@ def api_case_of(cid: str, as_person: str | None = None) -> dict | None:
     if v is None:
         return None
     c = v["case"]
-    decision = {}
+    decision, state = {}, None
     if c["sorted"]["by"]:
         full = api_case(v["decision_id"], as_person=as_person)
         decision = {k: full[k] for k in ("review", "for_person", "handoff") if k in full}
+        state = full["state"]
+    if state is None:
+        st = case_state(v["decision_id"], v["dispute"], c)
+        state = {**st, "until": st["until"].isoformat() if st["until"] else None}
     return {**decision, "decision_id": v["decision_id"],
-            "state": (lambda s: {**s, "until": s["until"].isoformat() if s["until"] else None})(
-                case_state(v["decision_id"], v["dispute"], c)),
+            "state": state,
             "case_id": c["id"], "stage": c["stage"], "stage_label": cases_mod.STAGE_LABEL[c["stage"]],
             "status": c["status"], "outcome": c["outcome"], "problem": c["problem"],
             "customer": {**c["customer"], "role": "customer"}, "order": v["order"], "sorted": c["sorted"],
@@ -1321,6 +1324,11 @@ def confirm_demo_refunds() -> list:
         return new
 
 
+# case_state's "this dispute has no shop case, don't look for one": Today knows it already and must not re-read the
+# case file for every open dispute (None means "look it up").
+NO_CASE: dict = {}
+
+
 def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out_of_date: bool = False,
                today=None) -> dict:
     """The one state of a case (state.of), from what Second Look holds: the review and what was sent, who has the case,
@@ -1336,7 +1344,9 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
         src = src_of_case(did, "live")
         if dispute is None:
             dispute = _case(did)["dispute"]
-        if c is None and src in CASE_FILES:
+        if c is NO_CASE:
+            c = None
+        elif c is None and src in CASE_FILES:
             c = find_case_of_dispute(did)
     raw = _raw(did) or {}
     seen = raw.get("seen") or {}
@@ -2777,27 +2787,35 @@ def today_view(src: str, me: str | None = None) -> dict:
     items = today_mod.open_items(cases, disputes, orders, today)
     dmap = {d["dispute_id"]: d for d in disputes}
     held, cmap = today_mod.links(cases, disputes, orders), {c["id"]: c for c in cases}
-    states = {it["id"]: case_state(it["id"], dmap.get(it["id"]), held.get(it["id"]) or cmap.get(it["id"]), today=today)
+    states = {it["id"]: case_state(it["id"], dmap.get(it["id"]),
+                                   held.get(it["id"]) or cmap.get(it["id"]) or (NO_CASE if it["id"] in dmap else None),
+                                   today=today)
               for it in items}
     handled = autopilot_handled(src, today, rec)
     # Needs you: every answer nobody checked yet, however old (the since-yesterday list is the API's "autopilot")
-    unchecked = [h for h in autopilot_handled(src, today, rec, since=False) if not h.get("checked")]
+    every_ai = autopilot_handled(src, today, rec, since=False)
+    unchecked = [h for h in every_ai if not h.get("checked")]
     for h in handled + unchecked:
         h["closes"] = _closes_words(case_store(src).get(h["id"]) if cases_mod.is_case_id(h["id"]) else None)
     hv = ledger.overview(disputes, orders, today)["high_volume"]
-    ai_ids = {h["id"] for h in autopilot_handled(src, today, rec, since=False)}
+    ai_ids = {h["id"] for h in every_ai}
     me_id = who["id"] if who else None
     buckets = today_mod.waiting(me_id, head, items, assigned, t, states, ai_ids)
+    in_done = {x["id"] for x in buckets["done"]}
     buckets["done"] += today_mod.closed_today(
         cases, orders, today,
-        lambda i: solo or (assigned.get(i) or {}).get("to") == me_id or (head and i in ai_ids))
+        lambda i: i not in in_done and (solo or (assigned.get(i) or {}).get("to") == me_id or (head and i in ai_ids)))
     # today you handled: the answers this person sent today (the computer's day: the demo's clicks are real), at the
     # shop's reply minutes each, the same estimate as a case's cost
     name = (who or {}).get("name")
-    sent_today = [i for i in [*states, *(x["id"] for x in buckets["done"])]
-                  if (_raw(i) or {}).get("sent") and str(_saved_by(i).get("at") or "")[:10] == _local_now().date().isoformat()
-                  and (solo or _saved_by(i).get("by") == name)]
-    handled_n = len(set(sent_today))
+    day, sent_today = _local_now().date().isoformat(), set()
+    for i in [*states, *(x["id"] for x in buckets["done"])]:
+        raw = _raw(i) or {}
+        by = raw.get("by")
+        if (raw.get("sent") and str(raw.get("at") or "")[:10] == day
+                and not str(by or "").startswith(autopilot_mod.AI_NAME) and (solo or (name and by == name))):
+            sent_today.add(i)
+    handled_n = len(sent_today)
     return {"today": today, "team": t, "head": head, "phone": bool(CALL_BOXES.get(src)), "calls_pending": waiting,
             "calls_failed": failed, "see": see,
             "needs": today_mod.needs_you(who["id"] if who else None, head, items, assigned, t, unchecked, failed, hv, states=states),
@@ -4315,7 +4333,7 @@ def api_case(did: str, as_person: str | None = None) -> dict:
             o = page_offer(did, None if t.get("solo") else who["id"], case)
             out["for_person"] = {"person": who["name"], **{k: v for k, v in o.items() if not k.startswith("_")},
                                  "why": o["says"] if o["outcome"] == "refused" else None}
-    st = case_state(did, d, out_of_date=bool(saved) and bool(_changes(did, case)))
+    st = case_state(did, None if cases_mod.is_case_id(did) else d, out_of_date=bool(saved) and bool(_changes(did, case)))
     out["state"] = {**st, "until": st["until"].isoformat() if st["until"] else None}
     return out
 

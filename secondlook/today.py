@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from . import ledger
+from . import state as state_mod
 from .cases import CHANNEL_LABEL, KIND_LABEL, minute, staff_time
 from .costs import DISPUTE_FEE, escalated
 
@@ -322,8 +323,7 @@ def closed_today(cases: list, orders: list, today: date, keep) -> list:
                     "who": c["customer"].get("name") or c["customer"].get("email"),
                     "summary": c["problem"].get("summary") or "", "amount": amount_of.get(c.get("order_no"), 0.0),
                     "currency": currency_of.get(c.get("order_no")) or "EUR", "days_left": None,
-                    "state": {"state": "done", "label": "Done", "whose": None, "why": "Closed.", "until": None,
-                              "then": "", "paypal": bool(c.get("dispute_id"))}})
+                    "state": {**state_mod.of(c, None, today), "paypal": bool(c.get("dispute_id"))}})
     return out
 
 

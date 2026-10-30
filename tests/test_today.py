@@ -486,6 +486,37 @@ def test_the_api_says_each_case_s_state():
         assert web.api_case("DEMO-039")["state"]["state"] == "your_move"
 
 
+def test_the_two_case_endpoints_agree_and_a_shop_inquiry_is_not_a_paypal_dispute():
+    with morning():
+        s = web.api_case("DEMO-C004")["state"]
+        assert s == web.api_case_of("DEMO-C004")["state"]
+        assert s["state"] == "waiting_customer" and s["until"] == "2026-10-23" and s["paypal"] is False
+        assert web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        assert web.api_case("DEMO-034")["state"] == web.api_case_of("DEMO-C003")["state"]    # Pablo: one case, one dispute
+        assert web.approve("DEMO-034", "REFUND", "Your refund is on its way.", by="giulia")[0] in (200, 202)
+        assert web.api_case("DEMO-034")["state"] == web.api_case_of("DEMO-C003")["state"]
+
+
+def test_handled_today_counts_the_person_s_own_sends_not_the_ai_s_nor_a_colleague_s():
+    with morning():
+        assert web.today_view("demo", "giulia")["handled"]["cases"] == 0       # Margot's answer is the AI's
+        assert web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="marta")[0] == 200
+        assert web.today_view("demo", "giulia")["handled"]["cases"] == 0
+        assert web.today_view("demo", "marta")["handled"]["cases"] == 1
+
+
+def test_a_view_of_today_does_not_look_for_a_case_file_per_dispute():
+    with morning():
+        kept = web.find_case_of_dispute
+        def no_lookup(did):
+            raise AssertionError("case file re-read for " + did)
+        web.find_case_of_dispute = no_lookup
+        try:
+            web.today_view("demo", "giulia")
+        finally:
+            web.find_case_of_dispute = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
