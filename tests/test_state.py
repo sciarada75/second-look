@@ -73,6 +73,13 @@ def test_a_shop_request_answered_waits_for_the_customer_until_it_closes_itself()
     assert s["then"] == "If Margot doesn't write, it closes itself on 23 Oct."
 
 
+def test_a_request_kept_open_past_its_closing_day_is_your_move_and_says_so():
+    s = state.of(case(), None, TODAY, answered_at="2026-10-20T05:41", closes_on=TODAY)
+    assert s["state"] == "your_move"
+    assert s["why"] == "It was due to close itself on 20 Oct; something kept it open: check it."
+    assert s["then"] == "No PayPal deadline: this came to the shop, not to PayPal."
+
+
 def test_a_shop_request_is_your_move_with_no_paypal_deadline_said_plainly():
     s = state.of(case(), None, TODAY)
     assert (s["state"], s["until"], s["why"]) == ("your_move", None, "Waiting for your answer.")

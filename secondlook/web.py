@@ -1278,6 +1278,9 @@ def _sent_refund(raw: dict | None) -> bool:
     return str(raw["sent"]).startswith("Refund")
 
 
+_CONFIRM_LOCK = threading.Lock()
+
+
 def _confirmed_file() -> Path:
     # beside the reviews: every test bench that moves them moves this too
     return REVIEWS.parent / "paypal-demo-confirmed.json"
@@ -1296,15 +1299,19 @@ def confirm_demo_refunds() -> list:
     """The look after a refund in the demo shop: its PayPal "confirms" it, as a real one would within minutes, so the
     film can show a case reach Done. Nothing in the demo reaches PayPal, so without this a refunded case waited for
     PayPal forever. Never on the sandbox or a live shop. Returns the ids confirmed now."""
-    done, new = demo_confirmed(), []
-    for f in sorted(REVIEWS.glob("DEMO-*.json")) if REVIEWS.exists() else []:
-        if re.fullmatch(r"DEMO-\d+", f.stem) and f.stem not in done and _sent_refund(_raw(f.stem)):
-            done[f.stem] = cases_mod.minute(None)
-            new.append(f.stem)
-    if new:
-        _confirmed_file().parent.mkdir(parents=True, exist_ok=True)
-        _confirmed_file().write_text(json.dumps(done))
-    return new
+    with _CONFIRM_LOCK:
+        done, new = demo_confirmed(), []
+        for f in sorted(REVIEWS.glob("DEMO-*.json")) if REVIEWS.exists() else []:
+            if re.fullmatch(r"DEMO-\d+", f.stem) and f.stem not in done and _sent_refund(_raw(f.stem)):
+                done[f.stem] = cases_mod.minute(None)
+                new.append(f.stem)
+        if new:
+            target = _confirmed_file()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(".tmp")
+            tmp.write_text(json.dumps(done))
+            os.replace(tmp, target)
+        return new
 
 
 def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out_of_date: bool = False,
@@ -1317,7 +1324,7 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
         src = shop_of_case(did)
         c = c if c is not None else case_store(src).get(did)
         if c is not None and c.get("dispute_id"):
-            return case_state(c["dispute_id"], None, c, out_of_date, today)   # a dispute on it: PayPal's rules
+            return case_state(c["dispute_id"], dispute, c, out_of_date, today)   # a dispute on it: PayPal's rules
     else:
         src = src_of_case(did, "live")
         if dispute is None:
@@ -1326,8 +1333,18 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
             c = find_case_of_dispute(did)
     raw = _raw(did) or {}
     # sent with no time recorded (a review older than its `at`): nothing the buyer said can be "since" it
-    answered_at = ((_utc_minute(raw["at"]) if raw.get("at") else "9999-12-31T23:59") if raw.get("sent") else None)
     seen = raw.get("seen") or {}
+    answered_at = None
+    if raw.get("sent"):
+        if raw.get("at"):
+            answered_at = _utc_minute(raw["at"])
+        elif dispute:
+            # sent before `at` was recorded: the answer counts only while the buyer hasn't written beyond what the
+            # review saw (no time to compare, so the message count stands in for it)
+            n = sum(1 for m in dispute.get("messages", []) if m.get("posted_by") == "BUYER")
+            answered_at = "9999-12-31T23:59" if n <= seen.get("buyer_messages", 0) else "0000-01-01T00:00"
+        else:
+            answered_at = "9999-12-31T23:59"    # a shop case: its closes_on decides
     t = team_for(did)
     a = None if t.get("solo") else assignments_for(did).get(did)
     hand = (a or {}).get("handoff") if isinstance((a or {}).get("handoff"), dict) and not raw.get("sent") else None
@@ -1337,6 +1354,8 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
         frm = (p or {}).get("name") or hand.get("from_name") or "a colleague"
     closes = cases_mod.closes_on(c, quiet_days()) if c is not None and dispute is None and not hand else None
     confirmed = demo_confirmed().get(did) if is_demo(did) and not cases_mod.is_case_id(did) else None
+    if confirmed and not (_sent_refund(raw) and answered_at and confirmed >= answered_at):
+        confirmed = None    # a confirmation belongs to the answer it confirmed, not to a later review of the case
     st = state_mod.of(c, dispute, today or shop_today(src if src in ("demo", "live") else "live"),
                       answered_at=answered_at, answered_stage=seen.get("stage") if dispute else None,
                       answered_due=raw.get("due"), money_sent=_sent_refund(raw), out_of_date=out_of_date,

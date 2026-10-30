@@ -94,7 +94,7 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
         when = f" by {until.day} {until:%b}" if until else f" within {ledger.INQUIRY_DAYS} days"
         return out(WAITING_CUSTOMER, "customer", f"Answered. Waiting for {name}.", until,
                    f"If {name} doesn't escalate{when}, PayPal closes the dispute.")
-    if case is not None and not dispute and closes_on and not out_of_date:
+    if case is not None and not dispute and closes_on and closes_on > today and not out_of_date:
         return out(WAITING_CUSTOMER, "customer", f"Answered. Waiting for {name}.", closes_on,
                    f"If {name} doesn't write, it closes itself on {closes_on.day} {closes_on:%b}.")
     c = case or {}
@@ -109,6 +109,8 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
         why = "A refund is logged: mark it paid, then close the case."
     elif answered_at and c.get("money"):
         why = "Refunded or replaced: close the case with what happened."
+    elif closes_on and closes_on <= today and not dispute:
+        why = f"It was due to close itself on {closes_on.day} {closes_on:%b}; something kept it open: check it."
     elif answered_at:
         why = f"{name} wrote again."
     else:

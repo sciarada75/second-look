@@ -881,6 +881,50 @@ def test_the_demo_s_paypal_confirms_a_refund_at_the_next_look_and_only_in_the_de
         web.REVIEWS = kept
 
 
+def test_an_old_answer_with_no_time_still_sees_the_buyer_writing_again():
+    old = {"sent": "Question sent.", "seen": {"buyer_messages": 1, "stage": "INQUIRY"}}
+    kept, kept_case = web._raw, web._case
+    try:
+        web._raw = lambda did: old
+        web._case = lambda did: (_ for _ in ()).throw(AssertionError("_case read"))     # (also item: dispute= given)
+        def d(n):
+            return {"dispute_id": "OLD1", "status": "WAITING_FOR_SELLER_RESPONSE", "dispute_life_cycle_stage": "INQUIRY",
+                    "seller_response_due_date": "2099-01-01T00:00:00Z",
+                    "messages": [{"posted_by": "BUYER", "content": "x", "time_posted": "2026-10-19T11:00:00Z"}] * n}
+        assert web.case_state("OLD1", d(2))["state"] == "your_move"
+        assert web.case_state("OLD1", d(1))["state"] == "waiting_customer"
+    finally:
+        web._raw, web._case = kept, kept_case
+
+
+def test_a_demo_confirmation_does_not_outlive_its_review():
+    tmp = Path(tempfile.mkdtemp())
+    kept = web.REVIEWS
+    try:
+        web.REVIEWS = tmp / "reviews"
+        web.REVIEWS.mkdir()
+        (tmp / "paypal-demo-confirmed.json").write_text(json.dumps({"DEMO-039": "2026-10-30T09:00"}))
+        (web.REVIEWS / "DEMO-039.json").write_text(json.dumps({"sent": None}))
+        d = {"dispute_id": "DEMO-039", "status": "WAITING_FOR_SELLER_RESPONSE", "dispute_life_cycle_stage": "INQUIRY",
+             "seller_response_due_date": "2099-01-01T00:00:00Z", "messages": []}
+        assert web.case_state("DEMO-039", d)["state"] != "done"
+    finally:
+        web.REVIEWS = kept
+
+
+def test_only_demo_disputes_are_confirmed_not_shop_cases():
+    tmp = Path(tempfile.mkdtemp())
+    kept = web.REVIEWS
+    try:
+        web.REVIEWS = tmp / "reviews"
+        web.REVIEWS.mkdir()
+        (web.REVIEWS / "DEMO-C001.json").write_text(json.dumps(
+            {"sent": "Refund of 64.00 EUR logged and reply sent.", "chosen": "REFUND", "at": "2026-10-30T08:00"}))
+        assert web.confirm_demo_refunds() == [] and web.demo_confirmed() == {}
+    finally:
+        web.REVIEWS = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
