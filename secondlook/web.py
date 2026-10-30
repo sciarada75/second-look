@@ -30,7 +30,7 @@ from pathlib import Path
 from datetime import timedelta, timezone
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
-from . import autopilot as autopilot_mod, books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, team as team_mod, today as today_mod
+from . import autopilot as autopilot_mod, books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, sort as sort_mod, state as state_mod, team as team_mod, today as today_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
 from .guard import apply_policy, may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
@@ -170,9 +170,12 @@ def _saved_by(dispute_id: str) -> dict:
     return {"by": raw.get("by"), "at": raw.get("at")} if raw is not None else {}
 
 
-def _save(dispute_id: str, d: Decision, sent=None, seen=None, by=None, at=None, judge=None) -> None:
+def _save(dispute_id: str, d: Decision, sent=None, seen=None, by=None, at=None, judge=None, chosen=None,
+          amount=None, due=None) -> None:
     REVIEWS.mkdir(parents=True, exist_ok=True)
     extra = {"judge": judge} if judge else {}
+    if chosen:      # what went out, the money it sent, and PayPal's answer-by date it went against (state.of: an
+        extra.update(chosen=chosen, amount=amount, due=due)   # answer stops counting when PayPal asks again)
     (REVIEWS / f"{dispute_id}.json").write_text(json.dumps({**asdict(d), "sent": sent, "seen": seen,
                                                             "by": by, "at": at, **extra}, ensure_ascii=False))
 
@@ -1257,6 +1260,88 @@ def _closes_words(c: dict | None) -> str:
         return ""
     first = ((c.get("customer") or {}).get("name") or "").split(" ")[0] or "the customer"
     return f"Answered · closes on {on.day} {on:%b} if {first} doesn't write"
+
+
+# Money PayPal pays out at once. A partial refund on a dispute is an offer the buyer must accept first: until then
+# the case waits for the customer (code review of Task 1, 30/10).
+REFUNDS = ("REFUND",)
+
+
+def _sent_refund(raw: dict | None) -> bool:
+    """The answer that went out sent money back. A review sent before 30/10 doesn't say what was chosen: its own
+    sentence does ("Refund accepted…", "Refund of 64.00 EUR logged…")."""
+    raw = raw or {}
+    if not raw.get("sent"):
+        return False
+    if raw.get("chosen"):
+        return raw["chosen"] in REFUNDS
+    return str(raw["sent"]).startswith("Refund")
+
+
+def _confirmed_file() -> Path:
+    # beside the reviews: every test bench that moves them moves this too
+    return REVIEWS.parent / "paypal-demo-confirmed.json"
+
+
+def demo_confirmed() -> dict:
+    """The demo shop's PayPal confirmations of refunds sent from Second Look: {dispute id: when}. Simulated, and every
+    page that shows one says so (spec 2026-10-30, Part 4). Only the demo's disputes (DEMO-031…) are ever here."""
+    try:
+        return json.loads(_confirmed_file().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def confirm_demo_refunds() -> list:
+    """The look after a refund in the demo shop: its PayPal "confirms" it, as a real one would within minutes, so the
+    film can show a case reach Done. Nothing in the demo reaches PayPal, so without this a refunded case waited for
+    PayPal forever. Never on the sandbox or a live shop. Returns the ids confirmed now."""
+    done, new = demo_confirmed(), []
+    for f in sorted(REVIEWS.glob("DEMO-*.json")) if REVIEWS.exists() else []:
+        if re.fullmatch(r"DEMO-\d+", f.stem) and f.stem not in done and _sent_refund(_raw(f.stem)):
+            done[f.stem] = cases_mod.minute(None)
+            new.append(f.stem)
+    if new:
+        _confirmed_file().parent.mkdir(parents=True, exist_ok=True)
+        _confirmed_file().write_text(json.dumps(done))
+    return new
+
+
+def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out_of_date: bool = False,
+               today=None) -> dict:
+    """The one state of a case (state.of), from what Second Look holds: the review and what was sent, who has the case,
+    its shop case and its PayPal dispute. `did`: the decision id (the PayPal dispute's, else the shop case's).
+    `dispute`, `c`: when the caller has them already (Today reads every case once). `out_of_date`: the case page's own
+    finding (_changes); Today doesn't ask. Returns state.of's dict plus "decision_id"."""
+    if cases_mod.is_case_id(did):
+        src = shop_of_case(did)
+        c = c if c is not None else case_store(src).get(did)
+        if c is not None and c.get("dispute_id"):
+            return case_state(c["dispute_id"], None, c, out_of_date, today)   # a dispute on it: PayPal's rules
+    else:
+        src = src_of_case(did, "live")
+        if dispute is None:
+            dispute = _case(did)["dispute"]
+        if c is None and src in CASE_FILES:
+            c = find_case_of_dispute(did)
+    raw = _raw(did) or {}
+    # sent with no time recorded (a review older than its `at`): nothing the buyer said can be "since" it
+    answered_at = ((_utc_minute(raw["at"]) if raw.get("at") else "9999-12-31T23:59") if raw.get("sent") else None)
+    seen = raw.get("seen") or {}
+    t = team_for(did)
+    a = None if t.get("solo") else assignments_for(did).get(did)
+    hand = (a or {}).get("handoff") if isinstance((a or {}).get("handoff"), dict) and not raw.get("sent") else None
+    frm = None
+    if hand:
+        p = team_mod.person(t, hand.get("from"))
+        frm = (p or {}).get("name") or hand.get("from_name") or "a colleague"
+    closes = cases_mod.closes_on(c, quiet_days()) if c is not None and dispute is None and not hand else None
+    confirmed = demo_confirmed().get(did) if is_demo(did) and not cases_mod.is_case_id(did) else None
+    st = state_mod.of(c, dispute, today or shop_today(src if src in ("demo", "live") else "live"),
+                      answered_at=answered_at, answered_stage=seen.get("stage") if dispute else None,
+                      answered_due=raw.get("due"), money_sent=_sent_refund(raw), out_of_date=out_of_date,
+                      holder=(a or {}).get("to"), handoff_from=frm, closes_on=closes, confirmed_at=confirmed)
+    return {**st, "decision_id": did}
 
 
 # ---------- the seller's rules ----------
@@ -3917,7 +4002,8 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
         # something new (the customer writing again) makes it out of date. Only this send's own change is added:
         # a message that lands while it is sent was never seen (re-reading the case here would count it).
         seen = {**seen, "amount": f"{max(0.0, float(seen['amount']) - amount):.2f}"}
-    _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged)
+    _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged, chosen=chosen,
+          amount=round(amount, 2) if amount else None, due=case["dispute"].get("seller_response_due_date"))
     if ai:
         _ai_handled(did, ai, sent)    # on its record and the list a person checks (its slot is taken already)
     if not t.get("solo") and not is_ai:

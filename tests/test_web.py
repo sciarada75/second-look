@@ -836,6 +836,51 @@ def test_no_style_is_left_for_markup_that_is_gone():
         assert gone not in html_, gone
 
 
+def test_a_sent_answer_keeps_what_was_chosen_and_how_much_it_sent():
+    with approval_bench():
+        web.approve("X", "REFUND", "Here is your refund", by="giulia")
+        raw = web._raw("X")
+        assert (raw["chosen"], raw["amount"], raw["action"]) == ("REFUND", 45.0, "REFUND") and web._sent_refund(raw)
+        assert "due" in raw          # PayPal's answer-by date the answer went against (none on this bench's dispute)
+    assert web._sent_refund({"sent": "Refund accepted and reply sent."})                 # a review saved before 30/10
+    assert not web._sent_refund({"sent": "Partial refund offered.", "chosen": "PARTIAL_REFUND"})   # an offer, not paid
+    assert not web._sent_refund({"sent": "Reply sent."}) and not web._sent_refund({})
+
+
+def test_the_state_of_a_dispute_follows_what_was_sent():
+    with approval_bench():
+        assert web.case_state("X")["state"] == "your_move"
+        web.approve("X", "REFUND", "Here is your refund", by="giulia")
+        s = web.case_state("X")
+        assert (s["state"], s["decision_id"]) == ("waiting_paypal", "X")
+    with approval_bench(action="ASK_SELLER", ai="MESSAGE", stops=["always_ask"], amount="20.00"):
+        web.approve("X", "MESSAGE", "We're on it", by="giulia")
+        assert web.case_state("X")["state"] == "waiting_customer"
+
+
+def test_a_handoff_is_the_receiver_s_move_and_says_who_passed_it():
+    with approval_bench():
+        assert web.approve("X", "REFUND", "Here is your refund", by="marta")[0] == 202      # 45 EUR: over Marta's 30
+        s = web.case_state("X")
+        assert (s["state"], s["whose"], s["why"]) == ("your_move", "giulia", "Passed to you by Marta.")
+
+
+def test_the_demo_s_paypal_confirms_a_refund_at_the_next_look_and_only_in_the_demo():
+    tmp = Path(tempfile.mkdtemp())
+    kept = web.REVIEWS
+    try:
+        web.REVIEWS = tmp / "reviews"
+        web.REVIEWS.mkdir()
+        refund = {"sent": "Refund accepted and reply sent.", "chosen": "REFUND", "at": "2026-10-30T08:00"}
+        (web.REVIEWS / "DEMO-039.json").write_text(json.dumps(refund))
+        (web.REVIEWS / "DEMO-031.json").write_text(json.dumps({"sent": "Reply sent.", "chosen": "MESSAGE"}))
+        (web.REVIEWS / "PP-R-ABC-1.json").write_text(json.dumps(refund))
+        assert web.confirm_demo_refunds() == ["DEMO-039"] and web.confirm_demo_refunds() == []
+        assert list(web.demo_confirmed()) == ["DEMO-039"]
+    finally:
+        web.REVIEWS = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
