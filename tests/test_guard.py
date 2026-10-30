@@ -391,6 +391,22 @@ def test_only_the_catalog_moves_can_be_sent():
     assert not may_send_move("BOGUS", []) and may_send_move("MESSAGE", [])
 
 
+DELIVERED = {"tracking": {"status": "DELIVERED", "delivered_to_paypal_address": True}}
+
+
+def test_rule_4_never_re_routes_a_persons_move_to_a_defence():
+    _refused({**DELIVERED, "order_amount": 30, "refunded_so_far": 30}, ("REFUND", "REPLACE"), ("MESSAGE",))
+    _refused({**DELIVERED, "refund_logged_on_case": "#12", "refund_paid": True}, ("REFUND",), ("DEFEND", "MESSAGE"))
+    _refused({**DELIVERED, "refund_unconfirmed": "29/10"}, ("REFUND",), ("MESSAGE",))
+    _refused({**DELIVERED, **REPEAT}, ("REFUND",), ("MESSAGE",))
+    _refused(DELIVERED, (), ("MESSAGE",), checks=BAD_EVIDENCE)
+
+
+def test_no_defence_on_a_shop_request():
+    assert not may_send_move("DEFEND", [], inquiry=True) and may_send_move("DEFEND", [])
+    assert may_send_move("MESSAGE", [], inquiry=True)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

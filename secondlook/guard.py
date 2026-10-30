@@ -332,13 +332,18 @@ def move_stops(chosen: str, j: Judgment, policy: dict, dispute: dict, records: d
     the person's move. The AI's stops can't be reused: each trust rule fires only for the action it judges, so a
     case the AI answered with a reply carries no stop against a refund (an order refunded in full, a refund logged or
     unconfirmed, broken evidence, a repeat buyer, injected text: found in review, 30/10). Confidence is set to 1.0:
-    it measures the AI's own answer, not a person's choice. Run it at approval time, on the case as it is then."""
+    it measures the AI's own answer, not a person's choice. Rule 4 is the shop's preference for the AI's own answer;
+    re-run here it would turn the person's move into DEFEND and skip every money rule (found in review, 30/10).
+    Run it at approval time, on the case as it is then."""
     return apply_policy(dataclasses.replace(j, action=chosen, confidence=1.0, partial_amount=None),
-                        policy, dispute, records).stops
+                        {**policy, "defend_if_delivered_to_paypal_address": False}, dispute, records).stops
 
 
-def may_send_move(chosen: str, stops: Sequence[str]) -> bool:
+def may_send_move(chosen: str, stops: Sequence[str], inquiry: bool = False) -> bool:
     """A catalog move a person chose, with its own fixed text: one of CATALOG, and held back by nothing but its size
     (`stops`: move_stops for it). Its size is checked after this against the person's limit (team.covers), as for
-    any answer. Rule 4 (delivered to the PayPal address: defend) records no stop: a person may still choose to refund."""
+    any answer. Rule 4 (delivered to the PayPal address: defend) records no stop: a person may still choose to refund.
+    `inquiry`: a shop request has no claim to defend, so DEFEND is refused there."""
+    if chosen == "DEFEND" and inquiry:
+        return False
     return chosen in CATALOG and not (set(stops) - SIZE_STOPS)
