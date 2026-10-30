@@ -1302,7 +1302,12 @@ def confirm_demo_refunds() -> list:
     with _CONFIRM_LOCK:
         done, new = demo_confirmed(), []
         for f in sorted(REVIEWS.glob("DEMO-*.json")) if REVIEWS.exists() else []:
-            if re.fullmatch(r"DEMO-\d+", f.stem) and f.stem not in done and _sent_refund(_raw(f.stem)):
+            raw = _raw(f.stem) if re.fullmatch(r"DEMO-\d+", f.stem) else None
+            if not _sent_refund(raw):
+                continue
+            # a confirmation belongs to the answer it confirmed: refunded again after a fresh review, it confirms again
+            sent_at = _utc_minute(raw["at"]) if raw.get("at") else ""
+            if f.stem not in done or done[f.stem] < sent_at:
                 done[f.stem] = cases_mod.minute(None)
                 new.append(f.stem)
         if new:
@@ -1332,7 +1337,6 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
         if c is None and src in CASE_FILES:
             c = find_case_of_dispute(did)
     raw = _raw(did) or {}
-    # sent with no time recorded (a review older than its `at`): nothing the buyer said can be "since" it
     seen = raw.get("seen") or {}
     answered_at = None
     if raw.get("sent"):

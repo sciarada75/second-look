@@ -925,6 +925,36 @@ def test_only_demo_disputes_are_confirmed_not_shop_cases():
         web.REVIEWS = kept
 
 
+def test_a_demo_dispute_refunded_again_after_a_fresh_review_is_confirmed_again():
+    tmp = Path(tempfile.mkdtemp())
+    kept = web.REVIEWS
+    try:
+        web.REVIEWS = tmp / "reviews"
+        web.REVIEWS.mkdir()
+        (tmp / "paypal-demo-confirmed.json").write_text(json.dumps({"DEMO-039": "2026-10-30T09:00"}))
+        refund = {"sent": "Refund accepted and reply sent.", "chosen": "REFUND", "at": "2026-10-30T08:00"}
+        (web.REVIEWS / "DEMO-039.json").write_text(json.dumps(refund))
+        assert web.confirm_demo_refunds() == []                       # the stored time is later than the send: kept
+        (web.REVIEWS / "DEMO-039.json").write_text(json.dumps({**refund, "at": "2036-10-30T10:00"}))
+        assert web.confirm_demo_refunds() == ["DEMO-039"]             # sent after the stored time: stamped again
+        assert web.demo_confirmed()["DEMO-039"] != "2026-10-30T09:00"
+    finally:
+        web.REVIEWS = kept
+
+
+def test_a_shop_case_with_a_dispute_goes_through_the_recursion_without_reading_the_case():
+    kept_case = web._case
+    try:
+        web._case = lambda did: (_ for _ in ()).throw(AssertionError("_case read"))
+        d = {"dispute_id": "DEMO-039", "status": "WAITING_FOR_SELLER_RESPONSE", "dispute_life_cycle_stage": "INQUIRY",
+             "seller_response_due_date": "2099-01-01T00:00:00Z", "messages": []}
+        c = {"id": "DEMO-C001", "dispute_id": "DEMO-039", "status": "open"}
+        s = web.case_state("DEMO-C001", dispute=d, c=c)
+        assert s["decision_id"] == "DEMO-039"
+    finally:
+        web._case = kept_case
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
