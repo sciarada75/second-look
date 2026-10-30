@@ -39,7 +39,8 @@ def _buyer_wrote_since(dispute: dict, at: str) -> bool:
 
 def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str | None = None,
        money_sent: bool = False, out_of_date: bool = False, holder: str | None = None,
-       handoff_from: str | None = None, closes_on: date | None = None, confirmed_at: str | None = None) -> dict:
+       handoff_from: str | None = None, closes_on: date | None = None, confirmed_at: str | None = None,
+       answered_stage: str | None = None, answered_due: str | None = None) -> dict:
     """The one state of a case, first match wins: Done, Waiting for PayPal, Waiting for the customer, Your move.
     `case`: the shop's case, or None for a PayPal dispute no other channel joined; `dispute`: its PayPal dispute, if
     any. `answered_at`: when the shop's answer from Second Look went (UTC minute), None if none did; `money_sent`: that
@@ -47,6 +48,9 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
     `holder`: the person who has the case (their id); `handoff_from`: the colleague who passed it to them;
     `closes_on`: when an answered shop request closes itself (cases.closes_on); `confirmed_at`: the demo shop's
     simulated PayPal confirmation of a refund (web.demo_confirmed: never on the sandbox or a live shop).
+    `answered_stage` / `answered_due`: the dispute's stage and seller_response_due_date when the answer went. An answer
+    counts only where it was given: a buyer escalating (no buyer message is posted) or PayPal asking the seller again
+    changes one of them and brings the case back to Your move. None = not recorded, no check.
     Returns {state, label, whose, why, until, then, paypal}: whose = a person's id (None: nobody has it yet),
     "customer", "paypal", or None once done; until = the date that matters, or None; paypal = a PayPal dispute is on it."""
     name = _first_name(case, dispute)
@@ -64,23 +68,30 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
         return out(DONE, None, "PayPal confirmed the refund and closed the dispute (demo: simulated).")
     if status == "UNDER_REVIEW":
         return out(WAITING_PAYPAL, "paypal", "PayPal is deciding.", then=ledger.if_nobody_answers(dispute, today))
+    if dispute and status == "WAITING_FOR_BUYER_RESPONSE":
+        # PayPal's live status beats our own record. An inquiry's one date is its 20 days, as ledger.days_left counts.
+        opened = _day(dispute.get("create_time"))
+        until = opened + timedelta(days=ledger.INQUIRY_DAYS) if stage == "INQUIRY" and opened \
+            else _day(dispute.get("buyer_response_due_date"))
+        return out(WAITING_CUSTOMER, "customer", f"Answered. Waiting for {name}.", until,
+                   ledger.if_nobody_answers(dispute, today))
     # an answer counts until something new comes in: the buyer posting after it, or the review going out of date
     answered = bool(answered_at) and not out_of_date and not (dispute and _buyer_wrote_since(dispute, answered_at))
+    answered = answered and (answered_stage is None or answered_stage == stage) and \
+        (answered_due is None or not dispute or
+         str(dispute.get("seller_response_due_date") or "")[:10] == str(answered_due)[:10])
     if dispute and answered and money_sent:
         return out(WAITING_PAYPAL, "paypal", f"PayPal pays {name} back and closes the dispute.",
                    then="It comes back to you only if PayPal refuses or the refund fails.")
     if dispute and answered and stage != "INQUIRY":
         return out(WAITING_PAYPAL, "paypal", "PayPal is deciding the claim with your answer.",
                    then="PayPal usually decides in about 10 days.")
-    if dispute and status == "WAITING_FOR_BUYER_RESPONSE":
-        return out(WAITING_CUSTOMER, "customer", f"Answered. Waiting for {name}.",
-                   _day(dispute.get("buyer_response_due_date")), ledger.if_nobody_answers(dispute, today))
     if dispute and answered:
         # The demo's PayPal never moves a status; a live one says WAITING_FOR_BUYER_RESPONSE (above). Either way an
         # inquiry the buyer doesn't escalate in 20 days is closed by PayPal.
         opened = _day(dispute.get("create_time"))
         until = opened + timedelta(days=ledger.INQUIRY_DAYS) if opened else None
-        when = f" by {until.day} {until:%b}" if until else " within 20 days"
+        when = f" by {until.day} {until:%b}" if until else f" within {ledger.INQUIRY_DAYS} days"
         return out(WAITING_CUSTOMER, "customer", f"Answered. Waiting for {name}.", until,
                    f"If {name} doesn't escalate{when}, PayPal closes the dispute.")
     if case is not None and not dispute and closes_on and not out_of_date:
@@ -105,4 +116,8 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
     if dispute:
         due = _day(dispute.get("seller_response_due_date")) if status == "WAITING_FOR_SELLER_RESPONSE" else None
         return out(YOUR_MOVE, holder, why, due, ledger.if_nobody_answers(dispute, today))
+    if c.get("dispute_id"):   # a dispute is on the case but wasn't loaded
+        r = out(YOUR_MOVE, holder, why, None, "A PayPal dispute is on this case: check it in PayPal.")
+        r["paypal"] = True
+        return r
     return out(YOUR_MOVE, holder, why, None, "No PayPal deadline: this came to the shop, not to PayPal.")

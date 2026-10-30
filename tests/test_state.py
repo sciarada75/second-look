@@ -54,8 +54,11 @@ def test_the_buyer_writing_after_the_answer_makes_it_your_move_again():
 
 def test_paypal_s_own_statuses():
     assert state.of(None, dispute(status="UNDER_REVIEW", stage="CHARGEBACK"), TODAY)["state"] == "waiting_paypal"
-    s = state.of(None, dispute(status="WAITING_FOR_BUYER_RESPONSE", buyer_response_due_date="2026-10-30T00:00:00Z"), TODAY)
+    s = state.of(None, dispute(status="WAITING_FOR_BUYER_RESPONSE", stage="CHARGEBACK",
+                               buyer_response_due_date="2026-10-30T00:00:00Z"), TODAY)
     assert (s["state"], s["until"]) == ("waiting_customer", date(2026, 10, 30))
+    s = state.of(None, dispute(status="WAITING_FOR_BUYER_RESPONSE", buyer_response_due_date="2026-10-30T00:00:00Z"), TODAY)
+    assert (s["state"], s["until"]) == ("waiting_customer", date(2026, 11, 8))
     assert state.of(None, dispute(status="RESOLVED"), TODAY)["state"] == "done"
 
 
@@ -88,13 +91,41 @@ def test_what_keeps_a_shop_request_on_your_move_says_why():
         "Refunded or replaced: close the case with what happened."
 
 
-def test_a_review_out_of_date_is_your_move_whatever_was_sent():
+def test_a_review_out_of_date_is_your_move_unless_paypal_holds_the_move():
     s = state.of(None, dispute(), TODAY, answered_at="2026-10-20T05:52", money_sent=True, out_of_date=True)
     assert (s["state"], s["why"]) == ("your_move", "Changed since the last look: take a fresh look.")
 
 
 def test_a_closed_case_is_done_whatever_its_dispute_says():
     assert state.of(case(status="closed"), dispute(), TODAY)["state"] == "done"
+
+
+def test_an_answer_counts_only_at_the_stage_it_was_given():
+    esc = dispute(stage="CHARGEBACK", seller_response_due_date="2026-11-20T00:00:00Z")
+    s = state.of(None, esc, TODAY, answered_at="2026-10-20T05:52", answered_stage="INQUIRY")
+    assert (s["state"], s["until"]) == ("your_move", date(2026, 11, 20))
+    s = state.of(None, esc, TODAY, answered_at="2026-10-20T05:52", answered_stage="INQUIRY", money_sent=True)
+    assert s["state"] == "your_move"
+
+
+def test_a_claim_answer_counts_only_at_the_due_date_it_was_given():
+    d = dispute(stage="CHARGEBACK", seller_response_due_date="2026-11-20T00:00:00Z")
+    s = state.of(None, d, TODAY, answered_at="2026-10-20T05:52", answered_stage="CHARGEBACK",
+                 answered_due="2026-11-20T00:00:00Z")
+    assert s["state"] == "waiting_paypal"
+    s = state.of(None, d, TODAY, answered_at="2026-10-20T05:52", answered_stage="CHARGEBACK",
+                 answered_due="2026-11-10T00:00:00Z")
+    assert s["state"] == "your_move"
+
+
+def test_paypal_s_live_wait_for_the_buyer_wins_over_our_record():
+    d = dispute(status="WAITING_FOR_BUYER_RESPONSE", stage="CHARGEBACK")
+    assert state.of(None, d, TODAY, answered_at="2026-10-20T05:52")["state"] == "waiting_customer"
+
+
+def test_a_dispute_on_the_case_that_was_not_loaded_is_said():
+    s = state.of(case(dispute_id="PP-1"), None, TODAY)
+    assert s["paypal"] is True and s["then"] == "A PayPal dispute is on this case: check it in PayPal."
 
 
 def test_every_state_has_a_label():
