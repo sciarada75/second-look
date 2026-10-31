@@ -346,7 +346,7 @@ def test_a_body_that_is_not_one_json_object_is_a_400_on_every_review_and_approve
 def test_the_small_things_currency_wording_logs_and_whose_review_it_is():
     assert web.OUTBOX_LOGS["live"] == web.ROOT / "records" / "actions-inquiries.jsonl"   # records/, not .tmp/
     gbp = [{"transaction_id": "T9", "email": "pat@example.com", "name": "Pat", "time": "2026-10-01T10:00:00Z",
-            "amount": 30.0, "currency": "GBP", "items": [{"item_name": "Art print", "item_quantity": "1"}]}]
+            "date": "2026-10-01", "amount": 30.0, "currency": "GBP", "items": [{"item_name": "Art print", "item_quantity": "1"}]}]
     with morning():
         web.case_store("demo")
         kept = web.shop_orders
@@ -415,7 +415,7 @@ def test_a_refund_logged_on_the_case_is_held_against_the_paypal_dispute_that_ope
 
 def test_an_order_amount_that_is_not_a_number_is_no_order_never_a_crash():
     odd = [{"transaction_id": "T7", "email": "kim@example.com", "name": "Kim", "time": "2026-10-01T10:00:00Z",
-            "amount": "n/a", "items": [{"item_name": "Art print", "item_quantity": "1"}]}]
+            "date": "2026-10-01", "amount": "n/a", "items": [{"item_name": "Art print", "item_quantity": "1"}]}]
     claude = lambda c: Judgment("REFUND", 0.95, "Faked.", draft_message="We refund you.")  # noqa: E731
     with morning(ai_key=True, claude=claude):
         web.case_store("demo")

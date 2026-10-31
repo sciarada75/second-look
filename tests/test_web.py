@@ -99,7 +99,8 @@ def approval_bench(action="REFUND", ai="REFUND", stops=(), amount="45.00", the_t
     """A saved review for case X, a fake PayPal that records what it was asked to do, and a team.
     Everything it replaces in `web` (and `secondlook.__main__.execute`) is put back afterwards."""
     patched = {(web, n): getattr(web, n) for n in
-               ("REVIEWS", "SUGGESTED", "_case", "_client", "team_for", "assignments_for", "notify")}
+               ("REVIEWS", "SUGGESTED", "_case", "_client", "team_for", "assignments_for", "notify",
+                "needs_after")}
     patched[(cli, "execute")] = cli.execute
     patched[(cli, "review")] = cli.review
     tmp = Path(tempfile.mkdtemp())
@@ -123,6 +124,7 @@ def approval_bench(action="REFUND", ai="REFUND", stops=(), amount="45.00", the_t
         web.assignments_for = lambda did: b.store
         cli.execute = execute
         web.notify = lambda event, payload: b.events.append((event, payload))
+        web.needs_after = lambda src, me, did: []
         j = Judgment(ai, 0.9, "why", draft_message="Hello", partial_amount=partial)
         web._save("X", Decision(action, [], j, action != ai, list(stops)), seen=web._seen(c))
         yield b
@@ -953,6 +955,19 @@ def test_a_shop_case_with_a_dispute_goes_through_the_recursion_without_reading_t
         assert s["decision_id"] == "DEMO-039"
     finally:
         web._case = kept_case
+
+
+def test_the_side_box_says_whose_move_and_after_a_move_what_went_and_that_nothing_needs_you():
+    with approval_bench():
+        page = web.case_page("X", me="giulia")
+        assert 'class="state-pill your_move"' in page and 'class="crumb"' in page and "Today</a> › Needs you" in page
+        assert '<p class="then"><b>What happens next:</b>' in page
+        web.approve("X", "REFUND", "Here is your refund", by="giulia")
+        page = web.case_page("X", me="giulia")
+        assert "✓ Done: Refund accepted and reply sent" in page and "Giulia, " in page
+        assert 'class="state-pill waiting_paypal"' in page and "Nothing needs you." in page
+        assert '<details class="fold">' in page and "Today</a> › Waiting for PayPal" in page
+        assert "done=X" in page                                     # the way back names the case for Today's toast
 
 
 if __name__ == "__main__":

@@ -92,9 +92,9 @@ def test_the_ai_is_asked_only_what_the_rules_cannot_settle():
         assert asked == []                                          # the rules settled it
         kept = web.shop_orders
         two = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada", "time": "2026-09-01T10:00:00Z",
-                "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
+                "date": "2026-09-01", "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
                {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada", "time": "2026-10-01T10:00:00Z",
-                "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
+                "date": "2026-10-01", "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
         web.shop_orders = lambda src: two
         try:
             code, out = web.receive("demo", email("Something arrived damaged.", "ada@example.com"))
@@ -225,9 +225,9 @@ def test_http_requests_come_as_json_from_your_own_systems():
 def test_what_a_customer_or_the_ai_wrote_is_shown_as_text_never_run_as_code():
     bad, odd = "<script>alert(1)</script>", "<b onmouseover=x>"   # odd: an item name the message doesn't name
     shop = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada " + bad, "time": "2026-09-01T10:00:00Z",
-             "amount": 20.0, "items": [{"item_name": "Art print " + odd, "item_quantity": "1"}]},
+             "date": "2026-09-01", "amount": 20.0, "items": [{"item_name": "Art print " + odd, "item_quantity": "1"}]},
             {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada " + bad, "time": "2026-10-01T10:00:00Z",
-             "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
+             "date": "2026-10-01", "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
     fake = lambda r: {"order_no": "", "item": "art print", "problem_kind": "not_as_described", "summary": "Sum " + bad}  # noqa: E731
     with morning(ai_key=True, ai=fake):
         web.case_store("demo")                     # the demo morning, filed on the real orders first
@@ -252,9 +252,9 @@ def test_what_a_customer_or_the_ai_wrote_is_shown_as_text_never_run_as_code():
 
 def test_a_summary_written_by_the_ai_is_shown_as_its_reading_of_the_message():
     two = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada", "time": "2026-09-01T10:00:00Z",
-            "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
+            "date": "2026-09-01", "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
            {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada", "time": "2026-10-01T10:00:00Z",
-            "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
+            "date": "2026-10-01", "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
     fake = lambda r: {"order_no": "", "item": "napkins", "problem_kind": "not_as_described",  # noqa: E731
                       "summary": "The shop agreed to refund the napkins"}
     with morning(ai_key=True, ai=fake):
@@ -275,9 +275,9 @@ def test_a_summary_written_by_the_ai_is_shown_as_its_reading_of_the_message():
 
 def test_a_question_can_still_be_given_its_order_but_an_order_is_never_picked_twice():
     two = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada", "time": "2026-09-01T10:00:00Z",
-            "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
+            "date": "2026-09-01", "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
            {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada", "time": "2026-10-01T10:00:00Z",
-            "amount": 36.0, "items": [{"item_name": "Linen shirt", "item_quantity": "1"}]}]
+            "date": "2026-10-01", "amount": 36.0, "items": [{"item_name": "Linen shirt", "item_quantity": "1"}]}]
     with morning():
         web.case_store("demo")                     # the demo morning, filed on the real orders first
         kept = web.shop_orders
@@ -369,9 +369,9 @@ def test_the_api_timeline_gives_each_name_its_role():
 
 def test_a_title_never_shows_the_ai_s_words_as_the_shop_s():
     two = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada", "time": "2026-09-01T10:00:00Z",
-            "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
+            "date": "2026-09-01", "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
            {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada", "time": "2026-10-01T10:00:00Z",
-            "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
+            "date": "2026-10-01", "amount": 36.0, "items": [{"item_name": "Linen napkins", "item_quantity": "1"}]}]
     fake = lambda r: {"order_no": "", "item": "napkins", "problem_kind": "not_as_described",  # noqa: E731
                       "summary": "Refund agreed"}
     with morning(ai_key=True, ai=fake):
@@ -525,9 +525,9 @@ def test_an_order_picked_for_another_customer_is_flagged_never_blocked():
 
 def test_an_order_picked_for_the_sender_is_not_flagged():
     two = [{"transaction_id": "T1", "email": "ada@example.com", "name": "Ada", "time": "2026-09-01T10:00:00Z",
-            "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
+            "date": "2026-09-01", "amount": 20.0, "items": [{"item_name": "Art print", "item_quantity": "1"}]},
            {"transaction_id": "T2", "email": "ada@example.com", "name": "Ada", "time": "2026-10-01T10:00:00Z",
-            "amount": 36.0, "items": [{"item_name": "Linen shirt", "item_quantity": "1"}]}]
+            "date": "2026-10-01", "amount": 36.0, "items": [{"item_name": "Linen shirt", "item_quantity": "1"}]}]
     with morning():
         web.case_store("demo")
         kept = web.shop_orders
