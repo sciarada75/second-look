@@ -1750,6 +1750,14 @@ def _seen(case: dict) -> dict:
     return seen
 
 
+def _out_of_date(did: str, case: dict, saved=None) -> bool:
+    """The one out-of-date rule every state reads (case page, API): a review saved, not sent, and the case changed since
+    (_changes). Once an answer went, later changes never make it the shop's move again: the buyer writing again or
+    PayPal escalating is caught by state.of itself. `saved`: _saved(did), when the caller has it."""
+    saved = _saved(did) if saved is None else saved
+    return bool(saved) and not saved[1] and bool(_changes(did, case))
+
+
 def _changes(dispute_id: str, case: dict) -> list:
     raw = _raw(dispute_id)  # a shipped demo review is judged by what it saw, like any other
     seen = raw.get("seen") if raw is not None else None
@@ -4054,7 +4062,7 @@ def side_box(did: str, case: dict, c: dict | None, me: str | None, flash: str = 
     saved = _saved(did)
     # a shop case's state never loads its PayPal dispute: the /c/ page shows the dispute only when PayPal listed it
     st = case_state(did, None if shop_case else case["dispute"], c,
-                    out_of_date=bool(saved) and not saved[1] and bool(_changes(did, case)), fetch=not shop_case)
+                    out_of_date=_out_of_date(did, case, saved), fetch=not shop_case)
     needs = needs_after(src, me, did)
     check_here = any(n["kind"] == "ai" and n.get("id") == did for n in needs)
     others = [n for n in needs if n.get("link") and n.get("id") != did]
@@ -4826,7 +4834,7 @@ def api_case(did: str, as_person: str | None = None) -> dict:
             o = page_offer(did, None if t.get("solo") else who["id"], case)
             out["for_person"] = {"person": who["name"], **{k: v for k, v in o.items() if not k.startswith("_")},
                                  "why": o["says"] if o["outcome"] == "refused" else None}
-    st = case_state(did, None if cases_mod.is_case_id(did) else d, out_of_date=bool(saved) and bool(_changes(did, case)))
+    st = case_state(did, None if cases_mod.is_case_id(did) else d, out_of_date=_out_of_date(did, case, saved))
     out["state"] = {**st, "until": st["until"].isoformat() if st["until"] else None}
     return out
 

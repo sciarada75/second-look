@@ -658,6 +658,33 @@ def test_on_a_phone_the_state_line_says_until_when_it_is_your_move():
         assert "your_move" not in after and "answer by" not in after         # not their move: no answer-by date
 
 
+def test_after_an_answer_went_a_later_change_never_makes_it_your_move_again_anywhere():
+    """One out-of-date rule (web._out_of_date): a review saved, not sent, and the case changed since. Once an answer
+    went, the API, the case page's state box and Today say the same state (final review, 31/10: agree.py)."""
+    def page_state(did):
+        html_ = web.case_file_page(did, "giulia") if did.startswith("DEMO-C") else web.case_page(did, me="giulia")
+        return re.search(r'state-pill (\w+)', html_).group(1)
+
+    def today_state(did):
+        v = web.today_view("demo", "giulia")
+        if did in [n.get("id") for n in v["needs"] if n.get("kind") == "case"]:
+            return "your_move"
+        return next((k for k, rows in v["waiting"].items() if did in [r["id"] for r in rows]), None)
+    with morning():
+        web.today_view("demo", "giulia")                                              # the demo's first look
+        assert web.autopilot_looks_right("demo", "DEMO-C004", "giulia")[0] == 200     # Margot: the AI's answer, checked
+        assert web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        real = web._changes
+        web._changes = lambda did, case: ["tracking was added or changed"]
+        try:
+            for did, api, want in [("DEMO-039", web.api_case, "waiting_paypal"),
+                                   ("DEMO-C004", web.api_case_of, "waiting_customer")]:
+                assert api(did)["state"]["state"] == page_state(did) == today_state(did) == want, did
+            assert web.api_case("DEMO-C004")["state"]["state"] == "waiting_customer"
+        finally:
+            web._changes = real
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
