@@ -164,3 +164,41 @@ again; an AI answer on its own; a handoff; a closed case. `moves`: allowed per P
 the limit turning a move into a pass. `guard`: a template move approvable, the AI's draft refused with any other
 move, everything refused today still refused. Pages: each state's side box, the banner after a move, Today's buckets.
 All 432 current tests keep passing; then a walk through the preview, and Claudia's.
+
+## As built (31/10/2026, branch `case-states`)
+
+Built in ten tasks, each reviewed twice (against this spec, then for quality and safety); 432 tests became
+about 520; the guard's decisions on every practice and demo dispute are byte-identical before and after.
+Walked in the demo shop (DEMO-039: Today → refund → Waiting for PayPal → Today: Done, *demo: simulated*).
+
+**Changed from the design, after review:**
+- *An answer counts only where it was given.* PayPal's live status wins over Second Look's record; an
+  answer stops counting when the buyer writes, when PayPal escalates (a new stage) or asks again (a new
+  answer-by date). An inquiry waiting for the buyer has one date (opening + 20 days). A shop request
+  past its closing day that something kept open is Your move, and says so.
+- *Only a full refund is money PayPal pays out at once.* A partial refund on a dispute is an offer the buyer
+  accepts: the case waits for the customer.
+- *A person's move is judged by every rule as if it were the answer* (`guard.move_stops`). The design reused
+  the AI's stops; review showed they describe only the AI's pick (a reply-only pick carries no stop against a
+  second refund on an order already refunded). Rule 4 (defend what was delivered to the PayPal address) is
+  off for a person's move: it would turn their choice into a defence and skip the money rules. No move is
+  offered when the AI's output wasn't recognised or PayPal takes nothing from the shop now.
+- *Texts say only what is true*: evidence says "delivered" only with the courier's delivery, and speaks of
+  the refund proof when that is what PayPal gets; a shop request's refund is "We're refunding"; a replacement
+  on a dispute is an offer.
+- *The case page never calls PayPal for its state* and never breaks when Today can't be read.
+- *The draft* stays with its button in the side box, styled as the dashed draft card, rather than at the end
+  of the conversation: one form, one place to edit.
+- *On a phone* a one-line state ("Your move · answer by 8 Nov") sits under the crumb; the customer's message
+  still comes before any button.
+- *Today*: an AI answer nobody checked yet shows once, as the check; "not taken yet" never flags a case
+  waiting for the customer or PayPal.
+- *Partial refund* is not a move a person chooses yet (it needs an amount the guard checks); the AI's own
+  partial refunds work as before.
+
+**Known and left for later:** the /c/ timeline shows stored UTC times beside local "Sent by" times; the /d/
+timeline strip still says "Your reply due" after the reply went; on a machine that re-transcribes Sophie's
+call locally her shipped review reads as out of date (also on main); a refund logged on an order's shop
+request and one on its PayPal dispute at the same instant are under different locks; a dispute PayPal
+resolved today with no shop case shows in no Today bucket; Ticketbook shows the state only through the API.
+

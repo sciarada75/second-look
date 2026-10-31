@@ -114,7 +114,28 @@ one click away and never reach PayPal.
   high-volume line when it is within 3 claims or crossed. Then **New since yesterday**: every channel in
   one list (phone calls, email, web form, PayPal disputes), one line each, matched to its order, who has
   it and Second Look's recommendation. Then the team in one line (a colleague sees what nobody has taken
-  yet). No figures: those are on Numbers.
+  yet). No figures: those are on Numbers. Each case appears once, in its state: what isn't the person's
+  move waits in **Waiting for the customer** ("closes itself on 23 Oct"), **Waiting for PayPal** or **Done**,
+  and a line says what they handled today. After a move, a short note at the top names the case and its new state.
+- **Every case is in exactly one state**, decided by one function (`secondlook/state.py`) that Today, the
+  case page and the API (`"state"` on `/api/cases/<id>` and `/api/disputes/<id>`) all read: **Your move**
+  (with PayPal's answer-by date, or "no PayPal deadline" for a request that came to the shop), **Waiting for
+  the customer**, **Waiting for PayPal**, **Done**. PayPal's own status wins over Second Look's record, and an
+  answer stops counting when the customer writes again or PayPal escalates the case.
+- **The case page** reads top to bottom the same way for every case: where you are (Today › whose move ›
+  the customer), what is tracked and verified (only facts a record holds, each with its source: PayPal,
+  the courier, your orders, or "your notes" when only the seller's word holds it), then what was said,
+  one look per voice (the customer's words, the shop's, Second Look's AI's own answers). The side box
+  starts with the state and its date; after a move it says what went, who and when, and "Nothing needs
+  you" with the next case. Each button says everything it sends, with what happens next under it.
+- **Another answer than the AI's.** Beside Second Look's AI's pick, at most two other moves that fit the
+  cause and that PayPal allows now (reply only, refund, exchange or replace, send your evidence), each with
+  its own fixed text, never the AI's draft for another answer, and "Decide later" with its date. A move a
+  person chooses is judged by every rule as if it were the answer (an order already refunded, a refund
+  not confirmed, a repeat buyer, injected text, broken evidence): it is neither offered nor sent past them,
+  and over the person's limit it passes to the head with its words.
+- **The demo shop's PayPal "confirms" a refund** at the next look at Today, labelled *demo: simulated*, so a
+  case can be shown reaching Done. Never on the sandbox or a live shop.
 - **Numbers** (`/numbers`; `/overview` still leads there): every figure beside the same days of the
   period before, *like for like*: this month so far (1–20 Oct) against 1–20 Sep, or this week so far
   against the same days last week, never a part-month against a whole one. Orders, requests (and per 100
