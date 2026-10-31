@@ -42,26 +42,34 @@ def test_review_without_a_record_of_what_it_saw_is_out_of_date():
 
 
 def test_rules_are_added_once_and_removed_by_position():
-    web.POLICY = Path(tempfile.mkdtemp()) / "policy.json"
-    web.POLICY.write_text(json.dumps({"max_auto_refund": 50, "seller_preferences": ["A"]}))
-    assert web.add_rule("  Never   promise a date. ") and not web.add_rule("Never promise a date.")
-    assert not web.add_rule("   ")
-    assert web._policy()["seller_preferences"] == ["A", "Never promise a date."]
-    web.remove_rule(0)
-    assert web._policy() == {"max_auto_refund": 50, "seller_preferences": ["Never promise a date."]}
+    kept = web.POLICY
+    try:
+        web.POLICY = Path(tempfile.mkdtemp()) / "policy.json"
+        web.POLICY.write_text(json.dumps({"max_auto_refund": 50, "seller_preferences": ["A"]}))
+        assert web.add_rule("  Never   promise a date. ") and not web.add_rule("Never promise a date.")
+        assert not web.add_rule("   ")
+        assert web._policy()["seller_preferences"] == ["A", "Never promise a date."]
+        web.remove_rule(0)
+        assert web._policy() == {"max_auto_refund": 50, "seller_preferences": ["Never promise a date."]}
+    finally:
+        web.POLICY = kept      # later tests read the shop's real policy (its guard's numbers)
 
 
 def test_a_rule_suggested_from_a_case_changes_nothing_until_accepted():
-    tmp = Path(tempfile.mkdtemp())
-    web.POLICY, web.SUGGESTED = tmp / "policy.json", tmp / "suggested.json"
-    web.POLICY.write_text(json.dumps({"seller_preferences": ["A"]}))
-    assert web.suggest_rule("Never promise a date.", "PP-1") and not web.suggest_rule("Never promise a date.")
-    assert web._policy()["seller_preferences"] == ["A"]                       # nothing applied yet
-    web.settle_suggestion(0, "Never promise a delivery date.")                # accepted, reworded
-    assert web._policy()["seller_preferences"] == ["A", "Never promise a delivery date."] and web.suggestions() == []
-    web.suggest_rule("Refund everyone.", "PP-2")
-    web.settle_suggestion(0, None)                                            # discarded
-    assert web._policy()["seller_preferences"] == ["A", "Never promise a delivery date."] and web.suggestions() == []
+    kept = web.POLICY
+    try:
+        tmp = Path(tempfile.mkdtemp())
+        web.POLICY, web.SUGGESTED = tmp / "policy.json", tmp / "suggested.json"
+        web.POLICY.write_text(json.dumps({"seller_preferences": ["A"]}))
+        assert web.suggest_rule("Never promise a date.", "PP-1") and not web.suggest_rule("Never promise a date.")
+        assert web._policy()["seller_preferences"] == ["A"]                       # nothing applied yet
+        web.settle_suggestion(0, "Never promise a delivery date.")                # accepted, reworded
+        assert web._policy()["seller_preferences"] == ["A", "Never promise a delivery date."] and web.suggestions() == []
+        web.suggest_rule("Refund everyone.", "PP-2")
+        web.settle_suggestion(0, None)                                            # discarded
+        assert web._policy()["seller_preferences"] == ["A", "Never promise a delivery date."] and web.suggestions() == []
+    finally:
+        web.POLICY = kept      # later tests read the shop's real policy (its guard's numbers)
 
 
 def test_a_notification_that_fails_never_stops_the_answer():
@@ -118,7 +126,6 @@ def approval_bench(action="REFUND", ai="REFUND", stops=(), amount="45.00", the_t
         return {}
     try:
         web.REVIEWS, web.SUGGESTED = tmp / "reviews", tmp / "suggested.json"
-        web.POLICY = web.ROOT / "policy.json"
         web._case = lambda did: c
         web._client = lambda did=None: web.MockPayPal(tmp, tmp / "actions.jsonl")
         web.team_for = lambda did: team_mod.of(the_team)
@@ -728,7 +735,6 @@ def no_reviews_here(ai_key=False):
         raise AssertionError("the Claude judge must not run in this test")
     try:
         web.REVIEWS = tmp / "reviews"
-        web.POLICY = web.ROOT / "policy.json"      # earlier tests leave a temporary one without the guard's numbers
         web.has_ai_key = lambda: ai_key
         web.notify = lambda event, payload: None
         judge_mod.BACKENDS["claude"] = no_paid_call
@@ -1073,6 +1079,22 @@ def test_tracked_rows_name_the_record_they_come_from():
         ("·", "Replacement 0.00 EUR: logged"), ("◷", "Refund 5.00 EUR: logged"), ("✓", "Partial refund 4.00 EUR: paid")]
 
 
+def test_a_demo_confirmation_counts_in_tracked_only_for_the_refund_it_confirmed():
+    """Tracked says "confirmed (demo: simulated)" only when the state says Done for it: a confirmation of an earlier
+    answer is not this one's (web._demo_confirmation, final review 31/10)."""
+    d = {"dispute_id": "DEMO-039", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED", "status": "OPEN",
+         "create_time": "2026-10-19T10:00:00Z", "dispute_amount": {"value": "29.00", "currency_code": "EUR"}}
+    raw = {"sent": "Refund accepted.", "chosen": "REFUND", "amount": 29.0, "at": "2026-10-20T10:00"}
+    kept = web.demo_confirmed
+    try:
+        def said(when):
+            web.demo_confirmed = lambda: {"DEMO-039": when}
+            return [r[3] for r in web.tracked_rows(d, {}, [], raw, None) if r[3].startswith("Refund of")]
+        assert said("2026-01-01T00:00") == ["Refund of 29.00 EUR sent to PayPal: waiting for PayPal to confirm"]
+        assert said("2026-12-31T00:00") == ["Refund of 29.00 EUR sent to PayPal: confirmed (demo: simulated)"]
+    finally:
+        web.demo_confirmed = kept
+
 def test_a_tracked_fact_reads_on_lines_on_a_phone():
     block = web.tracked_block([("✓", "Courier", "2026-10-05", "Last scan: delivered")])
     assert '<span class="fact">Last scan: delivered</span>' in block
@@ -1088,6 +1110,28 @@ def test_beside_the_ai_s_pick_two_moves_that_fit_with_their_own_texts():
         assert "refund" not in moves.split("<textarea")[1].split("</textarea>")[0].lower()
         assert "Your text mentions a refund" in page              # the warning, shown only when a text says so
 
+
+def test_decide_later_reads_the_state_the_side_box_already_has():
+    """The moves' "Decide later" is the state box's own state, not a second reading of it (final review, 31/10)."""
+    with approval_bench():
+        real, calls = web.case_state, []
+
+        def counted(did, *a, **kw):
+            calls.append(did)
+            return real(did, *a, **kw)
+        web.case_state = counted
+        try:
+            page = web.case_page("X", me="giulia")
+        finally:
+            web.case_state = real
+        assert '<p class="later"><b>Decide later</b>' in page and calls == ["X"]
+
+def test_a_reply_only_move_is_saved_as_a_reply_not_as_the_ai_s_question():
+    # the AI's refund held back for its size alone ("your call"): a Reply only move is a reply, not a question
+    with approval_bench(action="ASK_SELLER", ai="REFUND", stops=["cap"]) as b:
+        assert "Reply only" in web.case_page("X", me="giulia")
+        code, text = web.approve("X", "MESSAGE", "We're checking with the courier.", by="giulia", move=True)
+        assert code == 200 and b.sent == ["MESSAGE"] and text.startswith("Reply sent.")
 
 def test_a_catalog_move_sends_its_own_text_never_the_ai_s_draft_for_another_answer():
     with approval_bench() as b:

@@ -1376,6 +1376,30 @@ def confirm_demo_refunds() -> list:
 NO_CASE: dict = {}
 
 
+def _answered_at(raw: dict | None, dispute: dict | None) -> str | None:
+    """When the answer Second Look sent went (UTC minute), None if none did."""
+    raw = raw or {}
+    if not raw.get("sent"):
+        return None
+    if raw.get("at"):
+        return _utc_minute(raw["at"])
+    if dispute:
+        # sent before `at` was recorded: the answer counts only while the buyer hasn't written beyond what the
+        # review saw (no time to compare, so the message count stands in for it)
+        n = sum(1 for m in dispute.get("messages", []) if m.get("posted_by") == "BUYER")
+        return "9999-12-31T23:59" if n <= (raw.get("seen") or {}).get("buyer_messages", 0) else "0000-01-01T00:00"
+    return "9999-12-31T23:59"    # a shop case: its closes_on decides
+
+
+def _demo_confirmation(did: str, raw: dict | None, answered_at: str | None) -> str | None:
+    """The demo's simulated PayPal confirmation of the refund this answer sent (when), or None. A confirmation belongs
+    to the answer it confirmed, not to a later review of the case: the state (Done) and Tracked read it here alike."""
+    confirmed = demo_confirmed().get(did) if is_demo(did) and not cases_mod.is_case_id(did) else None
+    if confirmed and _sent_refund(raw) and answered_at and confirmed >= answered_at:
+        return confirmed
+    return None
+
+
 def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out_of_date: bool = False,
                today=None, *, fetch: bool = True) -> dict:
     """The one state of a case (state.of), from what Second Look holds: the review and what was sent, who has the case,
@@ -1401,17 +1425,7 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
             c = find_case_of_dispute(did)
     raw = _raw(did) or {}
     seen = raw.get("seen") or {}
-    answered_at = None
-    if raw.get("sent"):
-        if raw.get("at"):
-            answered_at = _utc_minute(raw["at"])
-        elif dispute:
-            # sent before `at` was recorded: the answer counts only while the buyer hasn't written beyond what the
-            # review saw (no time to compare, so the message count stands in for it)
-            n = sum(1 for m in dispute.get("messages", []) if m.get("posted_by") == "BUYER")
-            answered_at = "9999-12-31T23:59" if n <= seen.get("buyer_messages", 0) else "0000-01-01T00:00"
-        else:
-            answered_at = "9999-12-31T23:59"    # a shop case: its closes_on decides
+    answered_at = _answered_at(raw, dispute)
     t = team_for(did)
     a = None if t.get("solo") else assignments_for(did).get(did)
     hand = (a or {}).get("handoff") if isinstance((a or {}).get("handoff"), dict) and not raw.get("sent") else None
@@ -1420,9 +1434,7 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
         p = team_mod.person(t, hand.get("from"))
         frm = (p or {}).get("name") or hand.get("from_name") or "a colleague"
     closes = cases_mod.closes_on(c, quiet_days()) if c is not None and dispute is None and not hand else None
-    confirmed = demo_confirmed().get(did) if is_demo(did) and not cases_mod.is_case_id(did) else None
-    if confirmed and not (_sent_refund(raw) and answered_at and confirmed >= answered_at):
-        confirmed = None    # a confirmation belongs to the answer it confirmed, not to a later review of the case
+    confirmed = _demo_confirmation(did, raw, answered_at)
     st = state_mod.of(c, dispute, today or shop_today(src if src in ("demo", "live") else "live"),
                       answered_at=answered_at, answered_stage=seen.get("stage") if dispute else None,
                       answered_due=raw.get("due"), money_sent=_sent_refund(raw), out_of_date=out_of_date,
@@ -2066,7 +2078,6 @@ textarea{{width:100%;min-height:210px;font:400 16px/1.5 "Schibsted Grotesk",sans
 /* demo label, deadlines, costs */
 .mode.demo{{background:var(--kraft-bg);color:#6E4F27;border-left:3px solid var(--kraft);padding:2px 10px;font-weight:500}}
 .demo-note{{display:inline-block;margin:0 0 8px;padding:6px 12px;background:var(--kraft-bg);border-left:3px solid var(--kraft);color:#6E4F27;font-size:15px}}
-.nobody{{margin:-22px 0 26px;padding:8px 12px;border-left:3px solid var(--incon);color:var(--ink);font-size:16px}}
 .cardlink{{margin:14px 0 0}}
 .costs{{margin:30px 0;border:1px solid var(--rule);background:#fff;padding:14px 18px}} .costs table{{width:100%;border-collapse:collapse;margin-top:12px}}
 .costs summary{{cursor:pointer;display:grid;gap:4px}} .costs summary b{{font-size:19px}} .costs summary span{{color:var(--soft);font-size:15px}}
@@ -3443,7 +3454,7 @@ def tracked_rows(d: dict | None, records: dict, money: list, raw: dict | None, o
         rows.append(("✓", "PayPal", str(d.get("create_time") or "")[:10],
                      f'Dispute opened: {ledger.REASON_SHORT.get(d.get("reason"), d.get("reason")).lower()}'))
         if _dispute_money(raw):
-            confirmed = demo_confirmed().get(d["dispute_id"])
+            confirmed = _demo_confirmation(d["dispute_id"], raw, _answered_at(raw, d))
             said = ("confirmed (demo: simulated)" if confirmed else "confirmed by PayPal" if d.get("status") == "RESOLVED"
                     else "waiting for PayPal to confirm")
             rows.append(("◷" if said.startswith("waiting") else "✓", "PayPal", str((raw or {}).get("at") or "")[:10],
@@ -3717,10 +3728,11 @@ def _move_form(did: str, action: str, draft: str, button: str, then: str, me: st
             f'<div class="approve"><button>{e(button)}</button></div><p class="then">{e(then)}</p></form></details>')
 
 
-def other_moves(did: str, case: dict, me: str | None) -> str:
+def other_moves(did: str, case: dict, me: str | None, st: dict | None = None) -> str:
     """The moves beside Second Look's AI's pick (moves.py), each with its own fixed text, never the AI's draft; over
     this person's limit a move passes to the colleague who may send it, and says so. Only on a case reviewed and not
-    answered yet. "Decide later" closes the list: until when it can wait (the state box says what happens then)."""
+    answered yet. "Decide later" closes the list: until when it can wait (the state box says what happens then).
+    `st`: the state the side box computed, so "Decide later" never differs from it (None: read the same way)."""
     saved = _saved(did)
     if not saved or saved[1]:
         return ""
@@ -3750,7 +3762,8 @@ def other_moves(did: str, case: dict, me: str | None) -> str:
                   and not (a != dec.judgment.action and autopilot_mod.same_words(hand["message"], dec.judgment.draft_message)))
         draft = hand["message"] if theirs else moves_mod.text(a, kind, facts, inquiry)
         forms.append(_move_form(did, a, draft, button, then, me, kind_ == "pass"))
-    st = case_state(did, None if inquiry else d, c)
+    if st is None:
+        st = case_state(did, None if inquiry else d, c, out_of_date=_out_of_date(did, case, saved), fetch=False)
     u = st["until"]
     # the state box above already says what happens then: the deadline is said once (test_today)
     later = f'<p class="later"><b>Decide later</b>' + (f": until {u:%a} {u.day} {u:%b}." if u else ".") + '</p>'
@@ -4068,7 +4081,7 @@ def side_box(did: str, case: dict, c: dict | None, me: str | None, flash: str = 
     others = [n for n in needs if n.get("link") and n.get("id") != did]
     name = ((c or {}).get("customer") or {}).get("name") or \
         ((case["dispute"].get("disputed_transactions") or [{}])[0].get("buyer") or {}).get("name") or did
-    col = review_column(did, case, me, "", plain_owner)
+    col = review_column(did, case, me, "", plain_owner, st=st)
     if st["state"] != "your_move":
         col = f'<details class="fold"><summary>Second Look\'s review and the ten checks</summary>{col}</details>'
     # on a phone the side column comes after the case (the message before the button): the state's one line, on top
@@ -4115,10 +4128,12 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     return page(f"{msg[:40]} | Second Look", "Practice case" if practice else "PayPal sandbox", body, demo, me=me)
 
 
-def review_column(did: str, case: dict, me: str | None, flash: str = "", plain_owner: bool = True) -> str:
+def review_column(did: str, case: dict, me: str | None, flash: str = "", plain_owner: bool = True,
+                  st: dict | None = None) -> str:
     """The right-hand side of a case: whose it is, the review, the one button the limits allow, the costs and
     the ten checks. The same for a PayPal dispute (/d/) and a shop inquiry (/c/): only a few words differ.
-    plain_owner=False: the page already says whose case it is (the case page's header, with the role)."""
+    plain_owner=False: the page already says whose case it is (the case page's header, with the role).
+    `st`: the case's state, as the side box read it (the moves' "Decide later" says its date)."""
     w = _words(did)
     d, r = case["dispute"], case["seller_records"]
     amt = d["dispute_amount"]
@@ -4219,7 +4234,7 @@ def review_column(did: str, case: dict, me: str | None, flash: str = "", plain_o
         action_part = ""
     ten = checks(j, w["checks"]) or (f'<p class="na-line">The rules baseline runs none of the ten checks: it looks only at '
                                      f'{w["rules_look"]}. Claude runs them.</p>' if judged == "rules" else "")
-    moves = other_moves(did, case, me) if via in MOVES_SHOWN else ""
+    moves = other_moves(did, case, me, st) if via in MOVES_SHOWN else ""
     return (f'{owner}{banner}{flash}{verdict}{action_part}{moves}{costs}'
             f'<h2 style="margin-top:34px">The ten checks</h2>{ten}')
 
@@ -4532,12 +4547,13 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, 
     how = OUT_WORDS.get(result.get("channel"), "by email") if inquiry else ""
     via = ("logged for PayPal's refund API (demo: nothing sent)" if is_demo(did) else "sent through PayPal") \
         if inquiry and result.get("via") == "paypal" else "logged"
-    sent = {"MESSAGE": ("Question" if recommended == "ASK_SELLER" else "Reply") + f" sent {how}.",
+    asked = recommended == "ASK_SELLER" and not move     # a catalog "Reply only" is a reply, never the AI's question
+    sent = {"MESSAGE": ("Question" if asked else "Reply") + f" sent {how}.",
             "REFUND": f"Refund of {amount:.2f} {cur} {via} and reply sent {how}.",
             "PARTIAL_REFUND": f"Partial refund of {amount:.2f} {cur} {via} and reply sent {how}.",
             "REPLACE": f"Exchange or replacement logged and reply sent {how}."}.get(dec.action, "Done.") if inquiry else {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
             else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
-            "MESSAGE": "Question sent." if recommended == "ASK_SELLER" else "Reply sent.",
+            "MESSAGE": "Question sent." if asked else "Reply sent.",
             "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
             "REPLACE": "Replacement offered."}.get(dec.action, "Done.")
     if not t.get("solo"):
