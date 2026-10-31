@@ -30,12 +30,28 @@ def test_only_what_paypal_allows_on_a_dispute():
 
 
 def test_no_text_promises_money_its_move_doesn_t_send():
+    # The one exception: a defence after a refund the records say was paid speaks of that refund's proof (what PayPal
+    # gets), and sends no money.
+    proof = "we've shared the proof of that refund with PayPal"
     for kind in moves.FITS:
         for action in ("MESSAGE", "REPLACE", "DEFEND"):
             for inquiry in (True, False):
-                t = moves.text(action, kind, {}, inquiry=inquiry)
-                assert not re.search(r"refund|money back|rimbors", t, re.I), (action, kind, inquiry)
+                for facts in ({}, FACTS, {**FACTS, "refund_paid": True}):
+                    t = moves.text(action, kind, facts, inquiry=inquiry)
+                    if action == "DEFEND" and facts.get("refund_paid"):
+                        assert proof in t and "We refunded" in t, (kind, inquiry)
+                        t = t.replace(proof, "").replace("We refunded", "")
+                    assert not re.search(r"refund|money back|rimbors", t, re.I), (action, kind, inquiry, facts)
     assert "64.00 EUR" in moves.text("REFUND", "not_received", FACTS)
+
+
+def test_a_defence_after_a_paid_refund_says_what_paypal_gets():
+    t = moves.text("DEFEND", "not_received", {**FACTS, "refund_paid": True})
+    assert t.startswith("Hi Sophie,\n\nWe refunded order LP-90001 already") and "shipping record" not in t
+    assert "delivered" not in t and t.endswith("Linen & Paper")
+    assert moves.then("DEFEND", {**FACTS, "refund_paid": True}, inquiry=False) == (
+        "PayPal gets the proof of your refund and Sophie your reply. No money moves.")
+    assert "shipping record" in moves.then("DEFEND", FACTS, inquiry=False)
 
 
 def test_defence_text_claims_a_delivery_only_when_the_courier_recorded_one():

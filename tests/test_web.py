@@ -439,7 +439,11 @@ def test_a_handoff_for_another_answer_pre_fills_nothing_and_others_get_no_form()
         b.store.assign("X", "giulia", handoff={"from": "marta", "from_name": "Marta", "action": "DEFEND",
                                                "amount": 0.0, "message": "Defend it"})
         giulia = web.case_page("X", me="giulia")
-        assert "Defend it" not in giulia and ">Hello</textarea>" in giulia
+        ai_form, moves = giulia.split('<section class="moves">')
+        assert "Defend it" not in ai_form and ">Hello</textarea>" in ai_form      # the AI's own answer: not pre-filled
+        # the handoff's words go only in the move they were written for (the DEFEND move)
+        assert moves.split('value="DEFEND"')[0].split("<textarea")[-1].count("Defend it") == 1
+        assert moves.count("Defend it") == 1
         assert 'action="/d/X/approve"' not in web.case_page("X", me="marta")
 
 
@@ -1139,6 +1143,68 @@ def test_through_the_api_a_move_is_a_move_only_when_it_says_so():
         finally:
             srv.shutdown()
             srv.server_close()
+
+
+def _resave(b, ai="MESSAGE"):
+    """The review saved again on the case as it is now (records added before the review, not after it)."""
+    web._save("X", Decision(ai, [], Judgment(ai, 0.9, "why", draft_message="Hello"), False, []), seen=web._seen(b.case))
+
+
+REPEAT = {"buyer_history_counts": {"buyer_orders": 3, "buyer_disputes": 3, "shop_orders": 100, "shop_disputes": 2,
+                                   "earlier_disputes": 3}}
+
+
+def test_a_move_passed_to_the_head_keeps_its_words():
+    with approval_bench(action="MESSAGE", ai="MESSAGE") as b:
+        assert web.approve("X", "REFUND", "Marta's own words.", by="marta", move=True)[0] == 202
+        page = html.unescape(web.case_page("X", me="giulia"))
+        refund = page.split('<section class="moves">')[1].split('value="REFUND"')[0].split("<textarea")[-1]
+        assert "Marta's own words." in refund                      # the REFUND move's box holds her text
+        assert web.approve("X", "REFUND", None, by="giulia", move=True)[0] == 200    # the API, with no message
+        assert b.sent == ["REFUND"] and b.drafts == ["Marta's own words."]
+
+
+def test_a_pass_button_never_says_it_is_sending_to_paypal():
+    import re
+    with approval_bench(action="MESSAGE", ai="MESSAGE") as b:      # 45 EUR: over Marta's 30 EUR limit
+        page = web.case_page("X", me="marta")
+        forms = re.findall(r'<form class="send move"[^>]*>', page)
+        assert any('data-pass="1"' in f for f in forms) and any('data-pass="1"' not in f for f in forms)
+        scripts = re.findall(r"<script>(.*?)</script>", page, re.S)
+        sending = [x for x in scripts if "Sending to PayPal" in x]
+        assert sending and all('querySelectorAll(".send:not(.move)")' in x or 'querySelectorAll("form.move")' in x
+                               for x in sending)                    # never every .send form
+        move_lock = [x for x in scripts if 'querySelectorAll("form.move")' in x and "textContent" in x]
+        assert len(move_lock) == 1 and 'dataset.pass?"Passing it on…"' in move_lock[0]
+
+
+def test_a_defence_after_a_paid_refund_says_paypal_gets_the_refund_proof():
+    with approval_bench(action="MESSAGE", ai="MESSAGE") as b:
+        b.case["seller_records"].update({"refund_logged_on_case": "C1", "refunded_so_far": 45, "refund_paid": True})
+        _resave(b)
+        page = html.unescape(web.case_page("X", me="giulia"))
+        moves = page.split('<section class="moves">')[1].split("</section>")[0]
+        assert "Send your evidence" in moves and "Answer and refund" not in moves
+        assert "shared the proof of that refund with PayPal" in moves and "shipping record" not in moves
+        assert "PayPal gets the proof of your refund" in moves
+
+
+def test_a_move_the_rules_hold_back_is_refused_with_the_reason():
+    with approval_bench(action="MESSAGE", ai="MESSAGE", amount="25.00") as b:
+        b.case["seller_records"].update(REPEAT)
+        _resave(b)
+        assert "Answer and refund" not in web.case_page("X", me="giulia")
+        code, text = web.approve("X", "REFUND", "Your refund is on its way.", by="giulia", move=True)
+        assert code == 409 and "a buyer who disputes far more than usual" in text and b.sent == []
+
+
+def test_a_record_that_appears_between_the_page_and_the_click_refuses_the_move():
+    with approval_bench(action="MESSAGE", ai="MESSAGE", amount="25.00") as b:
+        mark = web.review_mark("X")
+        assert "Answer and refund 25.00 EUR" in web.case_page("X", me="giulia")
+        b.case["seller_records"].update(REPEAT)                    # not something the review saw: only the rules catch it
+        code, text = web.approve("X", "REFUND", "Your refund is on its way.", by="giulia", review=mark, move=True)
+        assert code == 409 and "a buyer who disputes far more than usual" in text and b.sent == []
 
 
 if __name__ == "__main__":

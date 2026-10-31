@@ -42,8 +42,12 @@ TEMPLATES = {
         "*": "Hi {first},\n\nWe're sorry for the trouble. We're sending you a replacement for {order}, and will write "
              "with its tracking number as soon as it ships.",
     },
-    # a delivery the courier recorded; without one the evidence is the shipping record, and the text says only that
-    "DEFEND": {"delivered": "Hi {first},\n\nOur records show your parcel was delivered{delivered}{tracking}. We've shared "
+    # a delivery the courier recorded; without one the evidence is the shipping record, and the text says only that.
+    # After a refund the records say was paid, PayPal gets that refund's proof (PROOF_OF_REFUND), and the text says so:
+    # the one text of a move that sends no money which speaks of a refund, one already paid.
+    "DEFEND": {"refund_paid": "Hi {first},\n\nWe refunded {order} already; we've shared the proof of that refund with "
+                              "PayPal. If something is still wrong, please write to us and we'll look into it.",
+               "delivered": "Hi {first},\n\nOur records show your parcel was delivered{delivered}{tracking}. We've shared "
                             "the courier's record with PayPal. If something is still wrong, please write to us and "
                             "we'll look again.",
                "*": "Hi {first},\n\nWe've shared our shipping record{tracking} with PayPal. If something is still "
@@ -67,6 +71,7 @@ THEN = {"MESSAGE": "{first} gets your reply. No money moves.",
                   "to confirm.",
         "REPLACE": "PayPal passes your offer to {first}; if they accept, you send the replacement.",
         "DEFEND": "PayPal gets your shipping record and {first} your reply. No money moves."}
+THEN_REFUND_PAID = "PayPal gets the proof of your refund and {first} your reply. No money moves."
 INQUIRY_THEN = {**THEN, "REFUND": "{first} gets your reply, and the refund of {amount} is logged on the case.",
                 "REPLACE": "{first} gets your reply; the replacement is logged for you to send."}
 
@@ -103,7 +108,7 @@ def text(action: str, kind: str, facts: dict, inquiry: bool = False) -> str:
     reply-only text)."""
     t = DISPUTE_TEMPLATES[action] if not inquiry and action in DISPUTE_TEMPLATES else TEMPLATES[action]
     if action == "DEFEND":
-        words = t["delivered"] if facts.get("delivered") else t["*"]
+        words = t["refund_paid"] if facts.get("refund_paid") else t["delivered"] if facts.get("delivered") else t["*"]
     else:
         words = t.get(kind) or t["*"]
     return _fill(words + SIGN, facts)
@@ -116,5 +121,8 @@ def label(action: str, inquiry: bool, facts: dict) -> str:
 
 def then(action: str, facts: dict, inquiry: bool) -> str:
     """What happens next, joined under the button."""
-    out = _fill((INQUIRY_THEN if inquiry else THEN)[action], facts, {**FACT_DEFAULTS, "first": "the customer"})
+    words = (INQUIRY_THEN if inquiry else THEN)[action]
+    if action == "DEFEND" and facts.get("refund_paid"):
+        words = THEN_REFUND_PAID        # what PayPal gets: the refund's proof, not a shipping record
+    out = _fill(words, facts, {**FACT_DEFAULTS, "first": "the customer"})
     return out[:1].upper() + out[1:]

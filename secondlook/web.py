@@ -1494,7 +1494,8 @@ def settle_suggestion(index: int, accept_as: str | None) -> None:
 
 
 # a send button works once: the first click locks it (PayPal refuses a second message anyway)
-LOCK = ('<script>document.querySelectorAll(".send").forEach(f=>f.addEventListener("submit",e=>{'
+# The AI's own form only: a move form (form.move) has its own lock, which knows a pass from a send (MOVE_LOCK).
+LOCK = ('<script>document.querySelectorAll(".send:not(.move)").forEach(f=>f.addEventListener("submit",e=>{'
         'const b=e.target.querySelector("button");b.disabled=true;b.textContent="Sending to PayPal…";}));</script>')
 # A "Pass to" button sends nothing to PayPal: its busy label must not say so.
 PASS_LOCK = LOCK.replace("Sending to PayPal…", "Passing it on…")
@@ -3684,16 +3685,24 @@ MOVE_WARN = ('<script>document.querySelectorAll("form.move[data-money=\'0\'] tex
              'w.hidden=!/refund|money back|rimbors/i.test(t.value);});});</script>')
 
 
-def _move_form(did: str, action: str, draft: str, button: str, then: str, me: str | None) -> str:
+# The moves' own busy label: a pass sends nothing to PayPal, so its button never says it does.
+MOVE_LOCK = ('<script>document.querySelectorAll("form.move").forEach(f=>f.addEventListener("submit",e=>{'
+             'const b=f.querySelector("button");b.disabled=true;b.textContent=f.dataset.pass?"Passing it on…":"SENDING";}));'
+             '</script>')
+
+
+def _move_form(did: str, action: str, draft: str, button: str, then: str, me: str | None, passing: bool = False) -> str:
     """One move: its fixed text in a draft box (editable), its button named for everything it sends, and what happens
-    next joined under it. Posts to the same approve as the AI's pick, marked as a catalog move."""
+    next joined under it. Posts to the same approve as the AI's pick, marked as a catalog move. `passing`: over this
+    person's limit, the button passes the case on (data-pass: MOVE_LOCK says "Passing it on…")."""
     by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
     mark = review_mark(did)
     by += f'<input type="hidden" name="review" value="{e(mark)}">' if mark else ""
     money = action in MONEY
     warn = "" if money else '<p class="warn" hidden>Your text mentions a refund, but this answer sends none.</p>'
+    pass_ = ' data-pass="1"' if passing else ""
     return (f'<details class="move"><summary>{e(button)}</summary>'
-            f'<form class="send move" method="post" action="/d/{e(did)}/approve" data-money="{1 if money else 0}">'
+            f'<form class="send move" method="post" action="/d/{e(did)}/approve" data-money="{1 if money else 0}"{pass_}>'
             f'<div class="draft-card"><span class="tag draft">draft · not sent</span>'
             f'<textarea name="message" aria-label="{e(button)}">{e(draft)}</textarea></div>{warn}'
             f'<input type="hidden" name="action" value="{e(action)}"><input type="hidden" name="move" value="1">{by}'
@@ -3714,6 +3723,10 @@ def other_moves(did: str, case: dict, me: str | None) -> str:
     facts = _move_facts(did, case, c)
     t = team_for(did)
     who = None if t.get("solo") else team_mod.person(t, me)
+    # a move a colleague passed to this person keeps the words they wrote for it (approve sends them too, unless edited)
+    held = None if t.get("solo") else (assignments_for(did).get(did) or {})
+    hand = held.get("handoff") if held and who and held.get("to") == who["id"] else None
+    hand = hand if isinstance(hand, dict) and hand.get("message") else None
     forms = []
     for a in _offered_moves(did, case, dec):
         kind_, to = outcome(dec, a, d, t, who, move_stops(a, dec.judgment, _policy(), d, case["seller_records"]))
@@ -3724,14 +3737,15 @@ def other_moves(did: str, case: dict, me: str | None) -> str:
             button, then = f"Pass to {to['name']}, with “{name.lower()}” suggested", _pass_says(a, dec, d, to["name"], t, me)
         else:
             button, then = name, moves_mod.then(a, facts, inquiry)
-        forms.append(_move_form(did, a, moves_mod.text(a, kind, facts, inquiry), button, then, me))
+        draft = hand["message"] if hand and hand.get("action") == a else moves_mod.text(a, kind, facts, inquiry)
+        forms.append(_move_form(did, a, draft, button, then, me, kind_ == "pass"))
     st = case_state(did, None if inquiry else d, c)
     u = st["until"]
     # the state box above already says what happens then: the deadline is said once (test_today)
     later = f'<p class="later"><b>Decide later</b>' + (f": until {u:%a} {u.day} {u:%b}." if u else ".") + '</p>'
     if not forms:
         return later
-    lock = LOCK.replace("Sending to PayPal…", _words(did)["sending"])
+    lock = MOVE_LOCK.replace("SENDING", _words(did)["sending"])
     return f'<section class="moves"><h3>Or another answer</h3>{"".join(forms)}</section>{later}{MOVE_WARN}{lock}'
 
 
@@ -3930,7 +3944,7 @@ def part_of_case(did: str) -> str:
 
 def _move_facts(did: str, case: dict, c: dict | None) -> dict:
     """What a move's text and button say about this case (moves.py): the customer's first name, the courier and its
-    tracking, the amount, the order, the shop's name."""
+    tracking, the amount, the order, the shop's name, and whether a refund on it was paid."""
     d, r = case["dispute"], case["seller_records"]
     buyer = ((d.get("disputed_transactions") or [{}])[0].get("buyer") or {}).get("name")
     name = ((c or {}).get("customer") or {}).get("name") or buyer or ""
@@ -3942,7 +3956,9 @@ def _move_facts(did: str, case: dict, c: dict | None) -> dict:
     return {"first": name.split(" ")[0], "carrier": carrier,
             "tracking": f' (tracking {tr["tracking_number"]})' if tr.get("tracking_number") else "",
             "amount": f'{float(amt["value"]):.2f} {amt.get("currency_code", "EUR")}',
-            "order": f'order {c["order_no"]}' if (c or {}).get("order_no") else None, "delivered": f" on {when.day} {when:%b}" if when else "", "shop": shop}
+            "order": f'order {c["order_no"]}' if (c or {}).get("order_no") else None, "delivered": f" on {when.day} {when:%b}" if when else "", "shop": shop,
+            # a refund the records say was paid: a defence then sends its proof (PROOF_OF_REFUND), and says so
+            "refund_paid": bool(r.get("refund_paid"))}
 
 
 BUCKET = {"your_move": "Needs you", "waiting_customer": "Waiting for the customer",
@@ -4284,6 +4300,15 @@ def _refused(dec: Decision | None, chosen: str, w: dict | None = None) -> str:
     return "This answer changed since you saw it, or it can't be sent as it is. Look again."
 
 
+def _move_refused(stops: list, w: dict) -> str:
+    """Why a catalog move can't be sent: the rules that hold it back on this case now (guard.move_stops), never the
+    AI's reasons for its own answer."""
+    held = [STOP_SAYS.get(s, s) for s in stops if s not in SIZE_STOPS]
+    if held:
+        return f"This answer is held back on this case: {', '.join(held)}. It can't be sent from here, by anyone. {w['decide']}"
+    return f"That answer can't be sent on this case from here. {w['decide']}"
+
+
 def outcome(dec: Decision, chosen: str, dispute: dict, t: dict, who: dict | None,
             move_stops_: list | None = None) -> tuple:
     """What approving `chosen` does for this person. The one decision behind approve() AND every button on the
@@ -4296,7 +4321,7 @@ def outcome(dec: Decision, chosen: str, dispute: dict, t: dict, who: dict | None
                if move_stops_ is not None
                else may_approve(dec.action, chosen, dec.judgment.action, dec.stops))
     if not allowed:
-        return "refused", _refused(dec, chosen, w)
+        return "refused", (_move_refused(move_stops_, w) if move_stops_ is not None else _refused(dec, chosen, w))
     need = required(chosen, dec, dispute)
     me = who["id"] if who else None
     if need and not team_mod.covers(t, me, need):
@@ -4412,6 +4437,12 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, 
     if _changes(did, case):
         rep["code"] = "case_changed"
         return 409, "Something changed since this review. Take a fresh look."
+    if message is None and not t.get("solo"):
+        # No message given (the API): the colleague who passed this case on edited the reply; send theirs.
+        # Before a move's checks: a move passed on is completed with its own words, still never the AI's draft.
+        hand = assignments_for(did).get(did)["handoff"]
+        if isinstance(hand, dict) and hand.get("action") == chosen and hand.get("message") is not None:
+            message = hand["message"]
     if move:
         # a catalog move: one this case offers now, with its own words, never the AI's draft for another answer
         # (a draft written for a refund promises it: DEMO-034, 21/10)
@@ -4446,11 +4477,6 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, 
                 else f"{ACTION.get(chosen, chosen).lower()} on a {need:.2f} {cur} dispute")
         rep.update(code="pass", what=what, limit=f"{cap:.2f} {cur}", to=to["name"])
         return 202, f"Passed to {to['name']}: {what} is over your {cap:.2f} {cur} limit. Nothing was sent."
-    if message is None and not t.get("solo"):
-        # No message given (the API): the colleague who passed this case on edited the reply; send theirs.
-        hand = assignments_for(did).get(did)["handoff"]
-        if isinstance(hand, dict) and hand.get("action") == chosen and hand.get("message") is not None:
-            message = hand["message"]
     recommended, drafted = dec.action, dec.judgment.draft_message
     is_ai = who["id"] == autopilot_mod.AI_ID
     dec.action = chosen  # "your call": a question, or the answer held back only for its size
