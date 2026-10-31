@@ -195,6 +195,11 @@ Walked in the demo shop (DEMO-039: Today → refund → Waiting for PayPal → T
   waiting for the customer or PayPal.
 - *Partial refund* is not a move a person chooses yet (it needs an amount the guard checks); the AI's own
   partial refunds work as before.
+- *`state.of` doesn't return `moves`*: web assembles them from `moves.py`, and offers and accepts them only
+  where the case page shows moves (`MOVES_SHOWN`). `page_offer` stays the source of the AI's pick and its
+  draft beside the state; it is not an input of `state.of`.
+- *The disputes inbox reads the state too*: each row's pill, its line and "N cases wait on you" come from
+  `case_state`, as on the case page, Today and the API (one out-of-date rule for all: `_out_of_date`).
 
 **Known and left for later:** the /c/ timeline shows stored UTC times beside local "Sent by" times; the /d/
 timeline strip still says "Your reply due" after the reply went; on a machine that re-transcribes Sophie's
