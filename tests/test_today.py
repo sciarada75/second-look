@@ -517,6 +517,24 @@ def test_a_view_of_today_does_not_look_for_a_case_file_per_dispute():
             web.find_case_of_dispute = kept
 
 
+def test_after_a_refund_today_says_so_and_the_demo_s_paypal_closes_it_labelled_simulated():
+    with morning():
+        web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="giulia")
+        page = web.today_page("demo", "giulia", done="DEMO-039")
+        assert "✓ Pablo García:" in page and "Now: Done" in page                          # the toast
+        assert "Done · 1" in page and "demo: simulated" in page
+        assert "Waiting for the customer · 1" in page and "closes itself on 23 Oct" in page   # Margot
+        assert "Today you handled 1 case, about 6 min." in page
+        assert web.today_page("demo", "sara").count('class="bucket') == 0                 # nothing of hers waits
+
+
+def test_a_case_waiting_for_the_customer_raises_no_not_taken_yet_alarm():
+    with morning():
+        listing = web.today_page("demo", "giulia").split('<ol class="see">')[1].split("</ol>")[0]
+        rows = [li for li in listing.split("<li>") if "DEMO-C004" in li]    # DEMO-041/042 are not in the see list; C004 waits for the customer
+        assert rows and all("not taken yet" not in li for li in rows)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

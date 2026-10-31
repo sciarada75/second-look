@@ -1336,6 +1336,8 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
     `dispute`, `c`: when the caller has them already (Today reads every case once). `out_of_date`: the case page's own
     finding (_changes); Today doesn't ask. Returns state.of's dict plus "decision_id"."""
     if cases_mod.is_case_id(did):
+        if c is NO_CASE:
+            c = None            # the sentinel is for disputes; an empty dict must never be read as a closed case
         src = shop_of_case(did)
         c = c if c is not None else case_store(src).get(did)
         if c is not None and c.get("dispute_id"):
@@ -2063,6 +2065,12 @@ table.compare tr.sub th,table.compare tr.sub td{{border-top:0;padding-top:0;colo
 @media (max-width:700px){{table.compare th,table.compare td{{padding:8px 6px;font-size:14px}}
   .xchart li{{grid-template-columns:1fr auto}} .xchart .x-label{{grid-column:1;grid-row:1}} .xchart b{{grid-column:2;grid-row:1}}
   .xchart .x-track{{grid-column:1/3;grid-row:2}} .xchart .t-sub{{grid-column:1/3;grid-row:3}}}}
+/* states (spec 2026-10-30): one pill per state, the same on Today and on the case page */
+.state-pill{{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#fff;vertical-align:1px}}
+.state-pill.your_move{{background:#B07A2A}} .state-pill.waiting_customer,.state-pill.waiting_paypal{{background:#3F5677}} .state-pill.done{{background:var(--pass)}}
+section.bucket{{background:#fff;border:1px solid var(--rule);border-left:4px solid #3F5677;padding:14px 20px;margin-top:16px}}
+section.bucket.done{{border-left-color:var(--pass)}}
+.toast{{background:#E8F0EA;border:1px solid #CFE3D4;padding:10px 16px;margin:0 0 14px}} .toast b{{color:var(--pass)}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
 @media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 /* a phone: the header wraps (brand, shop, who you are, then the nav) instead of making every page scroll sideways */
@@ -2791,6 +2799,8 @@ def today_view(src: str, me: str | None = None) -> dict:
                                    held.get(it["id"]) or cmap.get(it["id"]) or (NO_CASE if it["id"] in dmap else None),
                                    today=today)
               for it in items}
+    for r in see["rows"]:
+        r["state"] = states.get(r["decision_id"])     # None: a closed or history case, nobody's move to alarm about
     handled = autopilot_handled(src, today, rec)
     # Needs you: every answer nobody checked yet, however old (the since-yesterday list is the API's "autopilot")
     every_ai = autopilot_handled(src, today, rec, since=False)
@@ -3026,8 +3036,9 @@ def see_block(s: dict, q: str, phone: bool = False, pending: int = 0) -> str:
         order = f' · order {e(r["order_no"])}' if r["order_no"] else " · no order"
         # who has it; none on a row Second Look's AI answered on its own (its line says so): never a false alarm
         handled = ((r.get("review") or {}).get("text") or "").startswith("Handled by Second Look's AI")
+        mine = (r.get("state") or {}).get("state") in (None, "your_move")    # not taken yet is no alarm on a wait
         has = ("" if "has" not in r or handled else f'<span class="has">{e(r["has"])} has it</span>' if r["has"]
-               else '<span class="has none">not taken yet</span>')
+               else '<span class="has none">not taken yet</span>' if mine else "")
         rows.append(f'<li><a href="{e(r["link"])}{q}"><span class="chan">{e(icons)}</span>'
                     f'<span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · '
                     # the customer's own words, or Second Look's AI's reading of them: never one for the other
@@ -3096,10 +3107,52 @@ def team_block(mg: dict, head: bool, q: str) -> str:
             f'<a href="{e(link)}">not taken yet {free}</a></p></section>')
 
 
-def today_page(src: str, me: str | None = None) -> str:
+BUCKETS = (("waiting_customer", "Waiting for the customer", ""), ("waiting_paypal", "Waiting for PayPal", ""),
+           ("done", "Done", " done"))
+
+
+def _until_words(st: dict) -> str:
+    """The right-hand column of a waiting or done row: the date that matters, said for what it means."""
+    u = st.get("until")
+    if st["state"] == "done":
+        return "closed"
+    if st["state"] == "waiting_paypal":
+        return "PayPal's move"
+    if u and "closes itself" in st.get("then", ""):
+        return f"closes itself on {u.day} {u:%b}"
+    return f"until {u.day} {u:%b}" if u else "the customer's move"
+
+
+def bucket_block(rows: list, title: str, cls: str, q: str) -> str:
+    """One of Today's other buckets: a case once, in its state, with the last thing that happened and its date."""
+    if not rows:
+        return ""
+    lis = "".join(f'<li><a href="{e(r["link"])}{q}"><span class="what"><b>{e(r["who"] or "")}</b>, <i>customer</i> · '
+                  f'{e(r["summary"])}<span class="t-sub">{e(r["state"]["why"])}</span></span>'
+                  f'<span class="due soft">{e(_until_words(r["state"]))}</span></a></li>' for r in rows)
+    return (f'<section class="bucket{cls}"><h2>{e(title)} · {len(rows)}</h2>'
+            f'<ul class="needs-list">{lis}</ul></section>')
+
+
+def _toast(v: dict, done: str, q: str) -> str:
+    """After a move, back on Today: which case, what went, and the state it is in now."""
+    rows = [*v["needs"], *(r for k, _, _ in BUCKETS for r in v["waiting"][k])]
+    r = next((x for x in rows if x.get("id") == done), None)
+    sent = ((_raw(done) or {}).get("sent") or "").split(". Sent by ")[0].rstrip(".")
+    if not r or not sent:
+        return ""
+    now = (r.get("state") or {}).get("label") or "Your move"
+    return (f'<p class="toast"><b>✓ {e(r["who"] or "")}:</b> {e(sent)}. Now: {e(now)}. '
+            f'<a href="{e(r["link"])}{q}">Open the case</a></p>')
+
+
+def today_page(src: str, me: str | None = None, done: str = "") -> str:
     """The morning screen: what needs this person first, then what came in since yesterday, then who has the rest.
-    The figures are on Numbers. "I see, I manage, I know" is the idea behind it, not its layout (Claudia, 27/10)."""
+    The figures are on Numbers. "I see, I manage, I know" is the idea behind it, not its layout (Claudia, 27/10).
+    `done`: the case just acted on (the case page's way back says which): a toast names it and its state now."""
     demo = src == "demo"
+    if demo:
+        confirm_demo_refunds()          # the demo's PayPal "confirms" a refund at the next look (spec Part 4)
     v = today_view(src, me)
     q = "?shop=demo" if demo else ""
     t = v["team"]
@@ -3114,8 +3167,13 @@ def today_page(src: str, me: str | None = None) -> str:
     rule = ("Nothing goes out until a person approves it, each within their own limit." if not ours else
             "Nothing goes out until a person approves it, each within their own limit, except the kinds Second Look's AI "
             f"answers on its own under your setting: {'; '.join(ours)} (Your rules).")
-    body = (f'<div class="morning"><h1 class="page">{e(hello)}.</h1><p class="who">{e(line)}</p>'
-            f'{needs_block(v["needs"], q, me, src, bool(t.get("solo")))}'
+    h = v["handled"]
+    handled = (f'Today you handled {h["cases"]} case{"s" if h["cases"] != 1 else ""}, about {_hours(h["minutes"])}.'
+               if h["cases"] else "")
+    buckets = "".join(bucket_block(v["waiting"][k], title, cls, q) for k, title, cls in BUCKETS)
+    body = (f'<div class="morning">{_toast(v, done, q) if done else ""}<h1 class="page">{e(hello)}.</h1>'
+            f'<p class="who">{e(line)}</p>' + (f'<p class="t-sub">{e(handled)}</p>' if handled else "")
+            + f'{needs_block(v["needs"], q, me, src, bool(t.get("solo")))}{buckets}'
             f'<section class="new">{see_block(s, q, v["phone"], v["calls_pending"])}</section>'
             f'{team_block(v["manage"], v["head"], q)}<p class="t-sub rule-line">{e(rule)}</p></div>')
     return page("Today | Second Look", "PayPal sandbox", body, demo, me=me, here="today")
@@ -4485,7 +4543,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/today":
                 if src == "practice":
                     return self._redirect("/?practice=1")    # practice cases are a test bench, not a shop's morning
-                return self._send(today_page(src, me=me))
+                return self._send(today_page(src, me=me, done=(qs.get("done") or [""])[0]))
             if u.path == "/api/today":
                 v = today_view("live" if src == "live" else "demo", (qs.get("as") or [None])[0])
                 return self._json({"today": v["today"], "see": v["see"], "needs": v["needs"], "manage": v["manage"],
