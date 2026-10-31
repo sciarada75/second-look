@@ -552,6 +552,17 @@ def test_done_is_only_a_lookup_key_for_the_toast():
             assert "class=\"toast\"" not in page and "Good" in page
 
 
+def test_the_toast_keeps_a_sentence_s_own_brackets():
+    with morning():
+        _, o = web.receive("demo", {"channel": "email", "from": {"name": "", "email": "sami.l918@example.com"},
+                                    "text": "Order DEMOTX00001: I returned it and still have no refund.", "source_id": "q4:1"})
+        cid = o["case_id"]
+        assert web.run_review(cid).action == "REFUND"
+        assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
+        page = web.today_page("demo", "giulia", done=cid)
+        assert "(demo: nothing sent) and reply sent" in page.split('class="toast"')[1].split("</p>")[0]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

@@ -3143,7 +3143,7 @@ def _toast(v: dict, done: str, q: str) -> str:
     r = next((x for x in rows if x.get("id") == done), None)
     if not r:
         return ""            # `done` is only a lookup key: nothing is read for an id that is not on this page
-    sent = ((_raw(r["id"]) or {}).get("sent") or "").split(". Sent by ")[0].split(" (")[0].rstrip(".")
+    sent = ((_raw(r["id"]) or {}).get("sent") or "").split(". Sent by ")[0].split(". (")[0].rstrip(".")
     if not sent:
         return ""
     st = r.get("state") or {}
