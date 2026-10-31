@@ -1969,7 +1969,7 @@ header.top.demo{{--ctx:var(--kraft);--ctx-bg:#F6EDE0}} header.top.practice{{--ct
 .mode{{font-size:14px;font-weight:500;padding:3px 10px;border-left:3px solid var(--ctx);background:#fff;color:var(--ink)}}
 .count{{display:inline-block;margin-left:6px;padding:0 8px;border-radius:10px;background:var(--incon);color:#fff;font-size:12px;font-weight:700;text-decoration:none}}
 .pill{{display:inline-block;padding:2px 10px;border-radius:12px;font-size:13px;font-weight:700;margin-right:6px;vertical-align:1px}}
-.pill.you{{background:#F6E6C8;color:#7A4E0C}} .pill.buyer{{background:#DDEBE1;color:var(--pass)}}
+.pill.buyer{{background:#DDEBE1;color:var(--pass)}}
 .pill.paypal{{background:#E4E7EA;color:var(--soft)}} .pill.onclaim{{background:#EEDDE9;color:var(--fail)}}
 .filters{{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}}
 .tabs{{display:flex;gap:6px;margin:4px 0 14px}} .tabs a{{padding:7px 14px;border:1px solid var(--rule);text-decoration:none;font-size:15px}}

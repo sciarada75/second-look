@@ -11,6 +11,7 @@ from secondlook import web  # noqa: E402
 web.TRANSCRIBE = lambda wav: None
 # Cases are written to a temporary folder in every test here, never to this machine's .tmp/ (25/10).
 web.CASE_FILES = {"demo": Path(tempfile.mkdtemp()) / "cases-demo.json", "live": Path(tempfile.mkdtemp()) / "cases-live.json"}
+web.OUTBOX_LOGS = {"demo": Path(tempfile.mkdtemp()) / "actions-demo.jsonl", "live": Path(tempfile.mkdtemp()) / "actions-live.jsonl"}
 
 
 def case(buyer_messages=1, tracking=None):
