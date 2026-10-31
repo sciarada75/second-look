@@ -1020,6 +1020,11 @@ def test_the_next_button_for_an_ai_check_says_to_check_it():
     assert '<a class="next" href="/c/DEMO-C004?shop=demo">Check Second Look\'s AI\'s answer · Margot →</a>' in box
 
 
+def test_the_money_a_refund_moved_on_a_dispute_counts_in_its_case_s_cost():
+    assert web._dispute_money({"sent": "Refund accepted.", "chosen": "REFUND", "amount": 29.0}) == 29.0
+    assert web._dispute_money({"sent": "Reply sent.", "chosen": "MESSAGE"}) == 0.0
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

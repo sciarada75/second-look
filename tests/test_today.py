@@ -649,6 +649,15 @@ def test_on_a_phone_the_state_comes_first_and_the_case_before_the_button():
         assert 'class="state-mini"' not in web.case_page("PP-D-001")           # a practice case: no crumb, no line
 
 
+def test_on_a_phone_the_state_line_says_until_when_it_is_your_move():
+    with morning():
+        mini = web.case_page("DEMO-034", me="marta").split('class="state-mini"', 1)[1].split("</p>", 1)[0]
+        assert mini.endswith("Waiting for your answer. · answer by 8 Nov")
+        assert web.approve("DEMO-039", "REFUND", "Your refund of 29.00 EUR is on its way.", by="giulia")[0] == 200
+        after = web.case_page("DEMO-039", me="giulia").split('class="state-mini"', 1)[1].split("</p>", 1)[0]
+        assert "your_move" not in after and "answer by" not in after         # not their move: no answer-by date
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

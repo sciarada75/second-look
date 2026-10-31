@@ -830,6 +830,29 @@ def test_a_replacement_logged_on_the_case_is_held_against_the_paypal_dispute_tha
     assert apply_policy(Judgment("MESSAGE", 0.9, "x"), POLICY, shaped, goods).action == "MESSAGE"
 
 
+def test_a_dispute_s_case_shows_the_reply_sent_tracked_facts_and_the_money_it_moved():
+    with morning():
+        assert web.approve("DEMO-039", "REFUND", "Your refund of 29.00 EUR is on its way.", by="giulia")[0] == 200
+        d = web.DemoPayPal().get_dispute("DEMO-039")
+        tl = web._with_sent_reply(web.cases_mod.timeline({"timeline": [], "customer": {"name": "Pablo García"}}, d),
+                                  "DEMO-039")
+        sent = [x for x in tl if x["direction"] == "out"]
+        assert sent[-1]["text"] == "Your refund of 29.00 EUR is on its way." and sent[-1]["sent_with"] == "with the refund"
+        rows = web.tracked_rows(d, web._case("DEMO-039")["seller_records"], [], web._raw("DEMO-039"), None)
+        facts = [r[3] for r in rows]
+        assert any(f.startswith("Shipped with Local courier, LC01969IT") for f in facts)
+        assert any(f.startswith("Last scan: in transit") for f in facts)
+        assert any(f.startswith("Refund of 29.00 EUR sent to PayPal") for f in facts)
+        assert [r[0] for r in rows if r[3].startswith("Refund")] == ["◷"]
+
+
+def test_the_customer_s_words_and_the_shop_s_wear_different_voices():
+    with morning():
+        page = web.case_file_page("DEMO-C001", me="marta")
+        assert "What happened and what was said" in page and '<li class="buyer">' in page
+        assert 'class="tracked"' in page and "✓ = checked against" in page
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

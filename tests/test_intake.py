@@ -149,7 +149,7 @@ def test_the_case_page_shows_every_channel_every_role_and_the_cost_so_far():
         pablo = web.case_file_page("DEMO-C003", me="marta")
         assert "PayPal dispute" in pablo and "Pablo Martin, <i>customer</i>" in pablo
         assert "Marta, <i>Customer care assistant</i>, has this case." in pablo        # DEMO-034 is Marta's
-        assert "Everything said, every channel" in pablo and "✉️" in pablo and "PayPal dispute opened" in pablo
+        assert "What happened and what was said" in pablo and "✉️" in pablo and "PayPal dispute opened" in pablo
         assert "Cost so far" in pablo and "estimated" in pablo and "2 (1 by email, 1 by PayPal)" in pablo
         assert 'href="/d/DEMO-034"' in pablo and "Pass to Giulia" in pablo          # the dispute's own buttons, here
         sophie = web.case_file_page("DEMO-C001", me="marta")
