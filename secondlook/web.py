@@ -23,6 +23,7 @@ import re
 import sys
 import threading
 import time
+import dataclasses
 from dataclasses import asdict
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,7 +33,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from . import autopilot as autopilot_mod, books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, moves as moves_mod, sort as sort_mod, state as state_mod, team as team_mod, today as today_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
-from .guard import apply_policy, may_approve, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
+from .guard import apply_policy, may_approve, may_send_move, move_stops, paypal_can, money_out, held_for_size_only, CHECKS, MONEY, QUESTION_STOPS, SIZE_STOPS, Decision, Judgment
 from .paypal import MockPayPal, client_from_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -2142,6 +2143,11 @@ section.bucket.done{{border-left-color:var(--pass)}}
 .tracked .from{{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#3F5677;padding-top:3px}}
 .tracked .on{{color:var(--soft)}} .tracked-foot{{font-size:13px;color:var(--soft);margin:0 0 28px}}
 @media (max-width:700px){{.tracked li{{grid-template-columns:20px 1fr}} .tracked .from,.tracked .on,.tracked .fact{{grid-column:2}}}}
+/* the other moves: each a draft and a button, with what happens next joined under it */
+.moves{{margin-top:18px}} .moves h3{{font-size:15px;margin:0 0 6px;color:var(--soft)}}
+details.move{{border:1px solid var(--ink);margin:8px 0;background:#fff}} details.move>summary{{cursor:pointer;font-weight:700;padding:10px 14px}}
+details.move form{{padding:0 14px 12px}} p.warn{{color:#A8551F;font-weight:700;margin:6px 0 0}}
+p.later{{background:#FBEEE6;border-left:4px solid #A8551F;padding:10px 14px;margin:14px 0 0;font-size:15px}} p.later b{{color:#A8551F}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
 @media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} .state-mini{{display:block;margin:0 0 12px}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 /* a phone: the header wraps (brand, shop, who you are, then the nav) instead of making every page scroll sideways */
@@ -3657,6 +3663,78 @@ def held_action(did: str, dec: Decision, d: dict, t: dict, me: str | None) -> st
     return _send_form(did, o["label"], o["draft"], o["action"], o["button"], o["says"], me, o["outcome"] == "pass")
 
 
+def _offered_moves(did: str, case: dict, dec: Decision) -> list:
+    """The catalog's moves beside Second Look's AI's pick on this case (moves.others): the one list the page shows and
+    approve() accepts, so a move it refuses is never on screen and one not on screen is never sent.
+    None on a review that recorded `unknown_action` (the AI's output wasn't recognised, so its checks, which the rules
+    read again for a move, can't be trusted either) or `message_not_allowed` (PayPal takes nothing from the shop now:
+    every move sends words, and move_stops would refuse each one anyway)."""
+    if {"unknown_action", "message_not_allowed"} & set(dec.stops):
+        return []
+    inquiry = cases_mod.is_case_id(did)
+    c = case_store(shop_of_case(did)).get(did) if inquiry else find_case_of_dispute(did)
+    kind = moves_mod.kind_of(c, None if inquiry else case["dispute"])
+    pick = dec.judgment.action if dec.action == "ASK_SELLER" else dec.action
+    return moves_mod.others(kind, pick, None if inquiry else paypal_can(case["dispute"]), inquiry)
+
+
+# A reply that sends no money but whose words promise some: said under the box as it is typed (spec Part 2).
+MOVE_WARN = ('<script>document.querySelectorAll("form.move[data-money=\'0\'] textarea").forEach(t=>{'
+             'const w=t.form.querySelector(".warn");t.addEventListener("input",()=>{'
+             'w.hidden=!/refund|money back|rimbors/i.test(t.value);});});</script>')
+
+
+def _move_form(did: str, action: str, draft: str, button: str, then: str, me: str | None) -> str:
+    """One move: its fixed text in a draft box (editable), its button named for everything it sends, and what happens
+    next joined under it. Posts to the same approve as the AI's pick, marked as a catalog move."""
+    by = f'<input type="hidden" name="by" value="{e(me)}">' if me else ""
+    mark = review_mark(did)
+    by += f'<input type="hidden" name="review" value="{e(mark)}">' if mark else ""
+    money = action in MONEY
+    warn = "" if money else '<p class="warn" hidden>Your text mentions a refund, but this answer sends none.</p>'
+    return (f'<details class="move"><summary>{e(button)}</summary>'
+            f'<form class="send move" method="post" action="/d/{e(did)}/approve" data-money="{1 if money else 0}">'
+            f'<div class="draft-card"><span class="tag draft">draft · not sent</span>'
+            f'<textarea name="message" aria-label="{e(button)}">{e(draft)}</textarea></div>{warn}'
+            f'<input type="hidden" name="action" value="{e(action)}"><input type="hidden" name="move" value="1">{by}'
+            f'<div class="approve"><button>{e(button)}</button></div><p class="then">{e(then)}</p></form></details>')
+
+
+def other_moves(did: str, case: dict, me: str | None) -> str:
+    """The moves beside Second Look's AI's pick (moves.py), each with its own fixed text, never the AI's draft; over
+    this person's limit a move passes to the colleague who may send it, and says so. Only on a case reviewed and not
+    answered yet. "Decide later" closes the list: until when it can wait (the state box says what happens then)."""
+    saved = _saved(did)
+    if not saved or saved[1]:
+        return ""
+    dec, d = saved[0], case["dispute"]
+    inquiry = cases_mod.is_case_id(did)
+    c = case_store(shop_of_case(did)).get(did) if inquiry else find_case_of_dispute(did)
+    kind = moves_mod.kind_of(c, None if inquiry else d)
+    facts = _move_facts(did, case, c)
+    t = team_for(did)
+    who = None if t.get("solo") else team_mod.person(t, me)
+    forms = []
+    for a in _offered_moves(did, case, dec):
+        kind_, to = outcome(dec, a, d, t, who, move_stops(a, dec.judgment, _policy(), d, case["seller_records"]))
+        if kind_ == "refused":
+            continue
+        name = moves_mod.label(a, inquiry, facts)
+        if kind_ == "pass":
+            button, then = f"Pass to {to['name']}, with “{name.lower()}” suggested", _pass_says(a, dec, d, to["name"], t, me)
+        else:
+            button, then = name, moves_mod.then(a, facts, inquiry)
+        forms.append(_move_form(did, a, moves_mod.text(a, kind, facts, inquiry), button, then, me))
+    st = case_state(did, None if inquiry else d, c)
+    u = st["until"]
+    # the state box above already says what happens then: the deadline is said once (test_today)
+    later = f'<p class="later"><b>Decide later</b>' + (f": until {u:%a} {u.day} {u:%b}." if u else ".") + '</p>'
+    if not forms:
+        return later
+    lock = LOCK.replace("Sending to PayPal…", _words(did)["sending"])
+    return f'<section class="moves"><h3>Or another answer</h3>{"".join(forms)}</section>{later}{MOVE_WARN}{lock}'
+
+
 def page_offer(did: str, me: str | None, case: dict | None = None) -> dict:
     """What the case page offers this person, as data: the one decision behind the page's buttons AND the
     API's `for_person`, so a connected system shows exactly what the page would.
@@ -4114,7 +4192,9 @@ def review_column(did: str, case: dict, me: str | None, flash: str = "", plain_o
         action_part = ""
     ten = checks(j, w["checks"]) or (f'<p class="na-line">The rules baseline runs none of the ten checks: it looks only at '
                                      f'{w["rules_look"]}. Claude runs them.</p>' if judged == "rules" else "")
-    return f'{owner}{banner}{flash}{verdict}{action_part}{costs}<h2 style="margin-top:34px">The ten checks</h2>{ten}'
+    moves = other_moves(did, case, me) if via in ("form", "promise", "draft_refused", "no_draft") else ""
+    return (f'{owner}{banner}{flash}{verdict}{action_part}{moves}{costs}'
+            f'<h2 style="margin-top:34px">The ten checks</h2>{ten}')
 
 
 # ---------- one path for the page and for other systems ----------
@@ -4204,12 +4284,18 @@ def _refused(dec: Decision | None, chosen: str, w: dict | None = None) -> str:
     return "This answer changed since you saw it, or it can't be sent as it is. Look again."
 
 
-def outcome(dec: Decision, chosen: str, dispute: dict, t: dict, who: dict | None) -> tuple:
+def outcome(dec: Decision, chosen: str, dispute: dict, t: dict, who: dict | None,
+            move_stops_: list | None = None) -> tuple:
     """What approving `chosen` does for this person. The one decision behind approve() AND every button on the
     case page, so a button never promises what approve won't do.
-    ("refused", why) · ("pass", colleague) over their limit · ("send", None)."""
+    ("refused", why) · ("pass", colleague) over their limit · ("send", None).
+    `move_stops_`: for a catalog move, guard.move_stops of the chosen move on this case: every rule judged again for
+    it, never the AI's stops."""
     w = _words(dispute.get("dispute_id"))
-    if not may_approve(dec.action, chosen, dec.judgment.action, dec.stops):
+    allowed = (may_send_move(chosen, move_stops_, cases_mod.is_case_id(dispute.get("dispute_id")))
+               if move_stops_ is not None
+               else may_approve(dec.action, chosen, dec.judgment.action, dec.stops))
+    if not allowed:
         return "refused", _refused(dec, chosen, w)
     need = required(chosen, dec, dispute)
     me = who["id"] if who else None
@@ -4236,7 +4322,7 @@ _WORDS_NEEDED = ("MESSAGE", "REFUND", "PARTIAL_REFUND", "REPLACE")
 
 def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None,
             review: str | None = None, *, ai_signed: str | None = None, ai_kind: str | None = None,
-            report: dict | None = None) -> tuple[int, str]:
+            report: dict | None = None, move: bool = False) -> tuple[int, str]:
     """Send the answer a person chose. Returns (HTTP status, what happened).
     200 sent · 202 passed to a colleague (nothing sent) · 400 nobody named or no words · 409 changed or not allowed.
     `review`: the review_mark of the review they were shown; when given, a different review is refused.
@@ -4245,7 +4331,9 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
     case's lock it checks again that the case is nobody's and that `ai_kind` (required) is still on: a review takes
     seconds, and a person may take the case or switch the kind off meanwhile. `report` gets what happened as data:
     report["code"] ("sent", "unconfirmed", "pass", "over", "person", "off", "paypal", "already_sent",
-    "review_changed", "case_changed", "refused"), so its look never reads approve's sentences."""
+    "review_changed", "case_changed", "refused"), so its look never reads approve's sentences.
+    `move`: the person chose a move from the catalog (moves.py) with its own text: it must be one this case offers
+    now, and its text never the AI's draft for another answer."""
     from .__main__ import execute
     if chosen == "ASK_SELLER":
         # "your call" is what the review says when a person must choose; approving it would mark the review sent
@@ -4271,7 +4359,7 @@ def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str 
             no = _ai_may_not(did, shop_t, ai)
             if no:
                 return 409, no
-        return _approve(did, chosen, message, rule, t, who, execute, review, ai)
+        return _approve(did, chosen, message, rule, t, who, execute, review, ai, move)
 
 
 def _ai_handled(did: str, ai: dict, what: str) -> None:
@@ -4300,7 +4388,7 @@ def _ai_may_not(did: str, t: dict, ai: dict) -> str | None:
     return None
 
 
-def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) -> tuple[int, str]:
+def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, move=False) -> tuple[int, str]:
     rep = ai["report"] if ai else {}      # Second Look's AI's approval: what happened, as a code (approve)
     saved = _saved(did)
     if cases_mod.is_case_id(did) and not (saved and saved[1]):
@@ -4324,7 +4412,17 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
     if _changes(did, case):
         rep["code"] = "case_changed"
         return 409, "Something changed since this review. Take a fresh look."
-    kind, to = outcome(dec, chosen, case["dispute"], t, who)
+    if move:
+        # a catalog move: one this case offers now, with its own words, never the AI's draft for another answer
+        # (a draft written for a refund promises it: DEMO-034, 21/10)
+        if chosen not in _offered_moves(did, case, dec):
+            return 409, "That answer isn't one Second Look offers on this case now. Look again."
+        if not (message or "").strip():
+            return 400, "Write a message first."
+        if chosen != dec.judgment.action and autopilot_mod.same_words(message, dec.judgment.draft_message):
+            return 409, "That reply was written for another answer: send it with that one, or write this one's."
+    stops_now = move_stops(chosen, dec.judgment, _policy(), case["dispute"], case["seller_records"]) if move else None
+    kind, to = outcome(dec, chosen, case["dispute"], t, who, stops_now)
     if kind == "refused":
         return 409, to
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
@@ -4369,7 +4467,10 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
                      request_id=rid, autopilot=is_ai)
               if inquiry else _client(did))
     try:
-        result = execute(client, dec, case["dispute"], case["seller_records"])
+        run = dec
+        if move and chosen == "DEFEND":
+            run = dataclasses.replace(dec, judgment=dataclasses.replace(dec.judgment, reasoning=message))
+        result = execute(client, run, case["dispute"], case["seller_records"])
     except RefundRefused as err:
         return 409, str(err)
     except RefundNotConfirmed as err:
@@ -4731,6 +4832,12 @@ def api_open(src: str) -> list:
 
 # ---------- server ----------
 
+def _api_move(data: dict) -> bool:
+    """An API approval of a catalog move says "move": "1" or "true" (text, as every field). Anything else, "false"
+    included, is not a move: the approval then takes the AI's own answer's path."""
+    return str(data.get("move", "")).strip().lower() in ("1", "true")
+
+
 def api_body(raw: bytes, approving: bool) -> tuple:
     """A review or an approval through the API: (one JSON object, None), or (None, the 400's message).
     An empty body is {}; anything else must be one object, its fields text (never a crash, never a 500)."""
@@ -4921,7 +5028,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"case_id": cid, "error": str(err)}, 409)
             return self._json(api_case_of(cid))
         code, text = approve(decision, data.get("action", ""), data.get("message"), data.get("rule", ""),
-                             by=data.get("by"), review=data.get("review"))
+                             by=data.get("by"), review=data.get("review"), move=_api_move(data))
         return self._json({"case_id": cid, "decision_id": decision, "result": text}, code)
 
     def _same_site(self) -> bool:
@@ -5019,7 +5126,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._redirect(page_of(parts[1]))
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "approve":
                 code, text = approve(parts[1], form.get("action", [""])[0], form.get("message", [None])[0],
-                                     form.get("rule", [""])[0], by=me, review=form.get("review", [None])[0])
+                                     form.get("rule", [""])[0], by=me, review=form.get("review", [None])[0],
+                                     move=form.get("move", [""])[0] == "1")
                 return self._redirect(page_of(parts[1])) if code in (200, 202) else self._send(text, code)
             if len(parts) == 3 and parts[0] == "d" and parts[2] == "take":
                 code, text = take(parts[1], me)
@@ -5057,7 +5165,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(api_case(did))
                 # a connected system must say who approves ("by": a person id) in a team shop
                 code, text = approve(did, data.get("action", ""), data.get("message"), data.get("rule", ""),
-                                     by=data.get("by"), review=data.get("review"))
+                                     by=data.get("by"), review=data.get("review"), move=_api_move(data))
                 return self._json({"dispute_id": did, "result": text}, code)
             self._send("Not found", 404)
         except Exception as err:
