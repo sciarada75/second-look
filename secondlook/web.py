@@ -2070,6 +2070,7 @@ table.compare tr.sub th,table.compare tr.sub td{{border-top:0;padding-top:0;colo
 .state-pill.your_move{{background:#B07A2A}} .state-pill.waiting_customer,.state-pill.waiting_paypal{{background:#3F5677}} .state-pill.done{{background:var(--pass)}}
 section.bucket{{background:#fff;border:1px solid var(--rule);border-left:4px solid #3F5677;padding:14px 20px;margin-top:16px}}
 section.bucket.done{{border-left-color:var(--pass)}}
+@media (max-width:700px){{.needs-list li a{{grid-template-columns:1fr}} .needs-list .due{{white-space:normal}}}}
 .toast{{background:#E8F0EA;border:1px solid #CFE3D4;padding:10px 16px;margin:0 0 14px}} .toast b{{color:var(--pass)}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
 @media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
@@ -2810,7 +2811,7 @@ def today_view(src: str, me: str | None = None) -> dict:
     hv = ledger.overview(disputes, orders, today)["high_volume"]
     ai_ids = {h["id"] for h in every_ai}
     me_id = who["id"] if who else None
-    buckets = today_mod.waiting(me_id, head, items, assigned, t, states, ai_ids)
+    buckets = today_mod.waiting(me_id, head, items, assigned, t, states, ai_ids, skip={h["id"] for h in unchecked})
     in_done = {x["id"] for x in buckets["done"]}
     buckets["done"] += today_mod.closed_today(
         cases, orders, today,
@@ -3120,6 +3121,8 @@ def _until_words(st: dict) -> str:
         return "PayPal's move"
     if u and "closes itself" in st.get("then", ""):
         return f"closes itself on {u.day} {u:%b}"
+    if u and st.get("paypal"):
+        return f"PayPal closes it on {u.day} {u:%b}"
     return f"until {u.day} {u:%b}" if u else "the customer's move"
 
 
@@ -3138,10 +3141,15 @@ def _toast(v: dict, done: str, q: str) -> str:
     """After a move, back on Today: which case, what went, and the state it is in now."""
     rows = [*v["needs"], *(r for k, _, _ in BUCKETS for r in v["waiting"][k])]
     r = next((x for x in rows if x.get("id") == done), None)
-    sent = ((_raw(done) or {}).get("sent") or "").split(". Sent by ")[0].rstrip(".")
-    if not r or not sent:
+    if not r:
+        return ""            # `done` is only a lookup key: nothing is read for an id that is not on this page
+    sent = ((_raw(r["id"]) or {}).get("sent") or "").split(". Sent by ")[0].split(" (")[0].rstrip(".")
+    if not sent:
         return ""
-    now = (r.get("state") or {}).get("label") or "Your move"
+    st = r.get("state") or {}
+    now = st.get("label") or "Your move"
+    if "(demo: simulated)" in st.get("why", ""):
+        now += " (demo: simulated)"
     return (f'<p class="toast"><b>✓ {e(r["who"] or "")}:</b> {e(sent)}. Now: {e(now)}. '
             f'<a href="{e(r["link"])}{q}">Open the case</a></p>')
 
@@ -4545,6 +4553,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._redirect("/?practice=1")    # practice cases are a test bench, not a shop's morning
                 return self._send(today_page(src, me=me, done=(qs.get("done") or [""])[0]))
             if u.path == "/api/today":
+                if src != "live":
+                    confirm_demo_refunds()          # the page's look and this one agree: the demo's PayPal confirms
                 v = today_view("live" if src == "live" else "demo", (qs.get("as") or [None])[0])
                 return self._json({"today": v["today"], "see": v["see"], "needs": v["needs"], "manage": v["manage"],
                                    "waiting": v["waiting"], "handled": v["handled"], "autopilot": v["autopilot"],

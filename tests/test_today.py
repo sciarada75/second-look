@@ -463,7 +463,11 @@ def test_needs_you_holds_only_what_is_your_move_and_the_rest_waits_in_its_own_bu
     with morning():
         v = web.today_view("demo", "giulia")
         assert all(n["state"]["state"] == "your_move" for n in v["needs"] if n["kind"] == "case")
-        assert [x["id"] for x in v["waiting"]["waiting_customer"]] == ["DEMO-C004"]    # Margot: the AI answered
+        assert "DEMO-C004" in [n.get("id") for n in v["needs"]]                  # Margot: the AI answered, unchecked:
+        assert not v["waiting"]["waiting_customer"]                              # a check in Needs you, in no bucket
+        assert web.autopilot_looks_right("demo", "DEMO-C004", "giulia")[0] == 200
+        v = web.today_view("demo", "giulia")
+        assert [x["id"] for x in v["waiting"]["waiting_customer"]] == ["DEMO-C004"]
         assert web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
         v = web.today_view("demo", "giulia")
         assert [x["id"] for x in v["waiting"]["waiting_paypal"]] == ["DEMO-039"]
@@ -519,6 +523,8 @@ def test_a_view_of_today_does_not_look_for_a_case_file_per_dispute():
 
 def test_after_a_refund_today_says_so_and_the_demo_s_paypal_closes_it_labelled_simulated():
     with morning():
+        assert "Waiting for the customer" not in web.today_page("demo", "giulia")   # Margot's unchecked: a check
+        assert web.autopilot_looks_right("demo", "DEMO-C004", "giulia")[0] == 200
         web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="giulia")
         page = web.today_page("demo", "giulia", done="DEMO-039")
         assert "✓ Pablo García:" in page and "Now: Done" in page                          # the toast
@@ -528,11 +534,22 @@ def test_after_a_refund_today_says_so_and_the_demo_s_paypal_closes_it_labelled_s
         assert web.today_page("demo", "sara").count('class="bucket') == 0                 # nothing of hers waits
 
 
-def test_a_case_waiting_for_the_customer_raises_no_not_taken_yet_alarm():
+def test_see_block_raises_no_not_taken_yet_alarm_on_a_case_that_is_not_anyone_s_move():
+    def row(state):
+        return {"decision_id": "X", "link": "/c/X", "channels": ["email"], "days_left": None, "order_no": None,
+                "who": "Ann", "summary": "late", "amount": 1.0, "status": "open", "has": None,
+                "review": {"by": "ai", "text": "Refund in full"}, "state": {"state": state}}
+    def html(state):
+        return web.see_block({"counts": {}, "rows": [row(state)]}, "")
+    assert "not taken yet" not in html("waiting_customer")
+    assert "not taken yet" in html("your_move")
+
+
+def test_done_is_only_a_lookup_key_for_the_toast():
     with morning():
-        listing = web.today_page("demo", "giulia").split('<ol class="see">')[1].split("</ol>")[0]
-        rows = [li for li in listing.split("<li>") if "DEMO-C004" in li]    # DEMO-041/042 are not in the see list; C004 waits for the customer
-        assert rows and all("not taken yet" not in li for li in rows)
+        for bad in ("x" * 5000, "../../etc/passwd"):
+            page = web.today_page("demo", "giulia", done=bad)
+            assert "class=\"toast\"" not in page and "Good" in page
 
 
 if __name__ == "__main__":

@@ -292,16 +292,17 @@ def needs_you(me: str | None, head: bool, items: list, assigned: dict, team: dic
     return out
 
 
-def waiting(me: str | None, head: bool, items: list, assigned: dict, team: dict, states: dict, ai_ids=()) -> dict:
+def waiting(me: str | None, head: bool, items: list, assigned: dict, team: dict, states: dict, ai_ids=(), skip=()) -> dict:
     """Today's other buckets (spec 2026-10-30, Part 3): this person's cases that wait for the customer or for PayPal,
     or are done though still open in PayPal's list (the demo's simulated confirmation). The head of customer care also
-    sees what Second Look's AI answered (`ai_ids`): it answers for them. In a team of one, every case is the seller's.
+    sees what Second Look's AI answered (`ai_ids`): it answers for them. `skip`: ids shown elsewhere
+    (an AI answer nobody checked yet is a check in Needs you, not a row here). In a team of one, every case is the seller's.
     Each row is open_items' row with its "state"; the nearest date first."""
     solo = bool(team.get("solo"))
     out = {"waiting_customer": [], "waiting_paypal": [], "done": []}
     for it in items:
         st = states.get(it["id"])
-        if not st or st["state"] not in out:
+        if not st or st["state"] not in out or it["id"] in skip:
             continue
         if solo or (me and (assigned.get(it["id"]) or {}).get("to") == me) or (head and it["id"] in ai_ids):
             out[st["state"]].append({**it, "state": st})
