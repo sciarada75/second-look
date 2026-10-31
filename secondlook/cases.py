@@ -161,12 +161,13 @@ def channels(case: dict, dispute: dict | None = None) -> list:
     return seen
 
 
-def costs_so_far(case: dict, dispute: dict | None, policy: dict | None) -> dict:
+def costs_so_far(case: dict, dispute: dict | None, policy: dict | None, tl: list | None = None) -> dict:
     """What this case has cost so far. Staff time is an estimate: each written answer counts the shop's
     reply minutes, a call its own length; times the shop's hourly cost. Fees and money moved are recorded
-    on the case when they happen."""
+    on the case when they happen. `tl`: the timeline the page shows, when it holds more than timeline() (the
+    reply sent on a PayPal dispute, before PayPal's record has it)."""
     st = staff_time(policy)
-    tl = timeline(case, dispute)
+    tl = tl if tl is not None else timeline(case, dispute)
     contacts = [x for x in tl if x["direction"] in ("in", "out")]
     # a reply Second Look's AI sent on its own is a contact, but nobody's minutes
     replies = [x for x in contacts if x["direction"] == "out" and x["channel"] != "call" and not x.get("autopilot")]

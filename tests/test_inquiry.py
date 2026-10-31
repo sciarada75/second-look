@@ -67,7 +67,7 @@ def morning(ai_key=False, claude=None):
     tmp = Path(tempfile.mkdtemp())
     kept = (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
             sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], demo_mod.ACTION_LOG, judge.BACKENDS["claude"],
-            web.shop_orders)
+            web.shop_orders, web.shop_disputes)        # a test that swaps PayPal's disputes gets them back
     store = team_mod.Assignments(tmp / "assignments.json", seed=DemoPayPal().raw.get("assignments"))
     events = []
 
@@ -88,7 +88,7 @@ def morning(ai_key=False, claude=None):
     finally:
         (web.CASE_FILES, web.OUTBOX_LOGS, web.REVIEWS, web.SUGGESTED, web.assignments_for, web.has_ai_key, web.notify,
          sort_mod.read_with_ai, judge.INQUIRY_BACKENDS["claude"], demo_mod.ACTION_LOG, judge.BACKENDS["claude"],
-         web.shop_orders) = kept
+         web.shop_orders, web.shop_disputes) = kept
 
 
 def test_an_inquiry_is_reviewed_by_the_rules_without_a_key_and_lena_s_exchange_counts_its_postage():
@@ -840,8 +840,10 @@ def test_a_dispute_s_case_shows_the_reply_sent_tracked_facts_and_the_money_it_mo
         assert sent[-1]["text"] == "Your refund of 29.00 EUR is on its way." and sent[-1]["sent_with"] == "with the refund"
         rows = web.tracked_rows(d, web._case("DEMO-039")["seller_records"], [], web._raw("DEMO-039"), None)
         facts = [r[3] for r in rows]
-        assert any(f.startswith("Shipped with Local courier, LC01969IT") for f in facts)
-        assert any(f.startswith("Last scan: in transit") for f in facts)
+        # the demo's tracking is what the shop registered with PayPal: said so, never as the courier's own scan
+        assert any(f.startswith("Shipped (registered with PayPal): Local courier, LC01969IT") for f in facts)
+        assert any(f.startswith("Last update (registered with PayPal): in transit") for f in facts)
+        assert not any(r[1] == "Courier" for r in rows)
         assert any(f.startswith("Refund of 29.00 EUR sent to PayPal") for f in facts)
         assert [r[0] for r in rows if r[3].startswith("Refund")] == ["◷"]
 
@@ -851,6 +853,47 @@ def test_the_customer_s_words_and_the_shop_s_wear_different_voices():
         page = web.case_file_page("DEMO-C001", me="marta")
         assert "What happened and what was said" in page and '<li class="buyer">' in page
         assert 'class="tracked"' in page and "✓ = checked against" in page
+
+
+def _talk(page: str) -> list:
+    import re
+    block = page.split('<ol class="talk">', 1)[1].split("</ol>", 1)[0]
+    return re.findall(r'<li class="(\w+)">(.*?)</li>', block, re.S)
+
+
+def test_only_the_ai_s_own_answers_speak_in_its_voice():
+    with morning():
+        assert web.approve("DEMO-C001", "MESSAGE", None, by="marta")[0] == 200
+        mine = [cls for cls, li in _talk(web.case_file_page("DEMO-C001", me="marta")) if "out · Marta" in li]
+        assert mine == ["you"]          # a person approved it, even from Claude's draft: the shop's voice
+        theirs = [cls for cls, li in _talk(web.case_file_page("DEMO-C004", me="giulia")) if "out · Second Look" in li]
+        assert theirs == ["ai"]         # Second Look's AI sent it on its own
+
+
+def test_a_reply_that_wasn_t_sent_is_never_shown_as_sent():
+    with morning():
+        assert web.approve("DEMO-042", "DEFEND", "Our tracking shows delivery; see the evidence.", by="giulia")[0] == 200
+        raw = web._raw("DEMO-042")
+        assert "Reply not sent" in raw["sent"] and raw["reply_sent"] is False and not web._reply_went(raw)
+        d = web.DemoPayPal().get_dispute("DEMO-042")
+        tl = web._with_sent_reply(web.cases_mod.timeline({"timeline": [], "customer": {}}, d), "DEMO-042")
+        assert not any(x.get("sent_with") for x in tl)
+        assert not any(x["text"] == "Our tracking shows delivery; see the evidence." for x in tl)
+        conv = web.case_page("DEMO-042", me="giulia").split("<h2>What's been said</h2>", 1)[1].split("</ol>", 1)[0]
+        assert "Sent by Giulia" not in conv and "Our tracking shows delivery" not in conv and "Reply not sent" not in conv
+        # a review saved before the flag: its own sentence says whether the reply went; the flag wins when present
+        old = {"sent": "Evidence submitted. Reply not sent: PayPal is waiting.", "judgment": {"draft_message": "x"}}
+        assert not web._reply_went(old) and web._reply_went({**old, "sent": "Evidence submitted and reply sent."})
+        assert web._reply_went({**old, "reply_sent": True}) and not web._reply_went({**old, "judgment": {}})
+
+
+def test_the_cost_so_far_counts_the_reply_sent_on_the_dispute():
+    with morning():
+        assert web.approve("DEMO-034", "REFUND", None, by="giulia")[0] == 200
+        k = web.case_view("DEMO-C003")["costs"]
+        assert (k["contacts"], k["replies"]) == (3, 1) and k["staff_cost"] > 0
+        page = web.case_file_page("DEMO-C003", me="giulia")
+        assert "3 (1 by email, 2 by PayPal)" in page and "1 written answer ×" in page
 
 
 if __name__ == "__main__":

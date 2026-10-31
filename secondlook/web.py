@@ -171,11 +171,13 @@ def _saved_by(dispute_id: str) -> dict:
 
 
 def _save(dispute_id: str, d: Decision, sent=None, seen=None, by=None, at=None, judge=None, chosen=None,
-          amount=None, due=None) -> None:
+          amount=None, due=None, reply_sent=None) -> None:
     REVIEWS.mkdir(parents=True, exist_ok=True)
     extra = {"judge": judge} if judge else {}
     if chosen:      # what went out, the money it sent, and PayPal's answer-by date it went against (state.of: an
         extra.update(chosen=chosen, amount=amount, due=due)   # answer stops counting when PayPal asks again)
+    if reply_sent is not None:      # whether the written reply went with it (_reply_went)
+        extra["reply_sent"] = reply_sent
     (REVIEWS / f"{dispute_id}.json").write_text(json.dumps({**asdict(d), "sent": sent, "seen": seen,
                                                             "by": by, "at": at, **extra}, ensure_ascii=False))
 
@@ -815,9 +817,10 @@ def case_view(cid: str) -> dict | None:
     c = store.get(cid)
     d = next((x for x in disputes if x["dispute_id"] == c.get("dispute_id")), None)
     tl = cases_mod.timeline(c, d)
-    costs = cases_mod.costs_so_far(c, d, _policy())
     if d:
         tl = _with_sent_reply(tl, d["dispute_id"])
+    costs = cases_mod.costs_so_far(c, d, _policy(), tl)      # the reply sent on the dispute is a contact and an answer
+    if d:
         costs["money_moved"] = round(costs["money_moved"] + _dispute_money(_raw(d["dispute_id"])), 2)
     order = by_no.get(c.get("order_no"))
     decision = c.get("dispute_id") or cid          # whose review and whose assignment this case uses
@@ -841,12 +844,26 @@ def _with_sent_reply(tl: list, did: str) -> list:
     it yet (and the demo's never does), and a person must see what was said (Claudia, 28/10: the reply was missing)."""
     raw = _raw(did) or {}
     text = (raw.get("judgment") or {}).get("draft_message")
-    if not raw.get("sent") or not text or any(x["direction"] == "out" and x.get("text") == text for x in tl):
+    if not _reply_went(raw) or any(x["direction"] == "out" and x.get("text") == text for x in tl):
         return tl
     at = _utc_minute(raw["at"]) if raw.get("at") else (tl[-1]["at"] if tl else None)
-    sent = cases_mod.entry(at, "paypal", "out", text, raw.get("by") or "You",
-                           sent_with=SENT_WITH.get(raw.get("chosen"), ""))
+    by = raw.get("by") or "You"
+    # Second Look's AI signs what it sent on its own ("Second Look's AI, under Giulia's setting"): its voice, nobody's minutes
+    sent = cases_mod.entry(at, "paypal", "out", text, by, sent_with=SENT_WITH.get(raw.get("chosen"), ""),
+                           **({"ai": True, "autopilot": True} if by.startswith(autopilot_mod.AI_NAME) else {}))
     return sorted(tl + [sent], key=lambda x: x["at"])
+
+
+def _reply_went(raw: dict | None) -> bool:
+    """The reply written for a dispute went out with the answer. Not when PayPal was waiting for the buyer: the
+    evidence went, the words didn't (review of Task 8, 31/10). Saved as `reply_sent` since then; an older review's
+    own sentence says it ("Evidence submitted. Reply not sent: …")."""
+    raw = raw or {}
+    if not raw.get("sent") or not (raw.get("judgment") or {}).get("draft_message"):
+        return False
+    if "reply_sent" in raw:
+        return bool(raw["reply_sent"])
+    return "Reply not sent" not in str(raw["sent"])
 
 
 def _dispute_money(raw: dict | None) -> float:
@@ -2121,10 +2138,10 @@ section.bucket.done{{border-left-color:var(--pass)}}
 /* tracked and verified: what a record holds, one row each */
 .tracked{{list-style:none;padding:0;margin:0 0 8px;background:#fff;border:1px solid var(--rule);max-width:640px}}
 .tracked li{{display:grid;grid-template-columns:20px 110px 60px 1fr;gap:8px;padding:6px 14px;border-top:1px solid var(--rule);font-size:15px}}
-.tracked li:first-child{{border-top:0}} .tracked .mk{{color:var(--pass);font-weight:700}} .tracked .mk.wait{{color:#3F5677}}
+.tracked li:first-child{{border-top:0}} .tracked .mk{{color:var(--pass);font-weight:700}} .tracked .mk.wait{{color:#3F5677}} .tracked .mk.note{{color:var(--soft)}}
 .tracked .from{{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#3F5677;padding-top:3px}}
 .tracked .on{{color:var(--soft)}} .tracked-foot{{font-size:13px;color:var(--soft);margin:0 0 28px}}
-@media (max-width:700px){{.tracked li{{grid-template-columns:20px 1fr}} .tracked .from,.tracked .on{{grid-column:2}}}}
+@media (max-width:700px){{.tracked li{{grid-template-columns:20px 1fr}} .tracked .from,.tracked .on,.tracked .fact{{grid-column:2}}}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
 @media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} .state-mini{{display:block;margin:0 0 12px}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 /* a phone: the header wraps (brand, shop, who you are, then the nav) instead of making every page scroll sideways */
@@ -3304,9 +3321,10 @@ def timeline_block(v: dict) -> str:
         sort_line = (f'<span class="t-sub">{e(srt["how"])}'
                      + ('<span class="ai-tag">Second Look\'s AI</span>' if srt.get("by") == "ai" else "") + '</span>'
                      if srt.get("how") else "")
-        # one look per voice (spec Part 3): the customer, the shop, Second Look's AI, PayPal's and the shop's events
+        # one look per voice (spec Part 3): the customer, the shop, Second Look's AI on its own, PayPal's and the
+        # shop's events. Who drafted it is the header's "Second Look's AI" tag
         cls = ("buyer" if x["direction"] == "in" else "proof" if x["direction"] == "note"
-               else "ai" if x.get("ai") or x.get("autopilot") else "you")
+               else "ai" if x.get("autopilot") else "you")    # approved by a person: theirs, even from a draft
         if x.get("sent_with"):
             head = head.replace("</b>", f'<span class="tag sent">sent · {e(x["sent_with"])}</span></b>', 1)
         rows.append(f'<li class="{cls}">{head}{subject}{body}{sort_line}</li>')
@@ -3379,45 +3397,60 @@ TRACK_SAYS = {"DELIVERED": "delivered", "IN_TRANSIT": "in transit", "SHIPPED": "
 
 def tracked_rows(d: dict | None, records: dict, money: list, raw: dict | None, order: dict | None) -> list:
     """Tracked and verified (spec Part 3, slot 3): only what a record holds, one (mark, source, ISO date, fact) row
-    each, oldest first: the payment (PayPal, or the shop's own orders), the parcel (the courier), the dispute
-    (PayPal), the money logged on the case or sent to PayPal. ✓ is checked against that record; ◷ was sent and isn't
-    confirmed yet. What the customer says is never here: it is in the conversation, in their words."""
+    each, oldest first, each named for the record it comes from: the payment (the shop's orders, or PayPal's dispute),
+    the parcel (the courier's tracking, what the shop registered with PayPal, or the seller's own notes), the dispute
+    (PayPal), the money sent to PayPal or logged on the case. ✓ is checked against that record; ◷ was sent and isn't
+    confirmed yet; · is the shop's own word. What the customer says is never here: it is in the conversation."""
     rows = []
     if order and order.get("date"):
         amt = _num(order.get("amount"))
         items = ", ".join(i["name"] for i in order.get("items", []) if i.get("name"))
         paid = f"Paid: {amt:.2f} {order.get('currency') or 'EUR'}" if amt is not None else "Ordered"
-        rows.append(("✓", "PayPal" if order.get("paid_with") == "paypal" else "Your orders", str(order["date"])[:10],
-                     paid + (f", {items}" if items else "")))
+        rows.append(("✓", "Your orders", str(order["date"])[:10], paid + (f", {items}" if items else "")))
     elif d and records.get("order_date"):
         items = ", ".join(i["name"] for i in records.get("items", []) if i.get("name"))
         a = d["dispute_amount"]
-        rows.append(("✓", "PayPal", str(records["order_date"])[:10],
-                     f'Paid: {float(a["value"]):.2f} {a.get("currency_code", "EUR")}' + (f", {items}" if items else "")))
-    tr = (order or {}).get("tracking") or records.get("tracking") or {}
+        g = ((d.get("disputed_transactions") or [{}])[0] or {}).get("gross_amount") or {}
+        paid = (f'Paid: {float(g["value"]):.2f} {g.get("currency_code") or a.get("currency_code", "EUR")}' if g.get("value")
+                else f'Disputed: {float(a["value"]):.2f} {a.get("currency_code", "EUR")}')
+        rows.append(("✓", "PayPal", str(records["order_date"])[:10], paid + (f", {items}" if items else "")))
+    if (order or {}).get("tracking"):
+        tr, whose = order["tracking"], "Courier tracking"         # the courier's record of the shop's order
+    else:
+        tr, whose = records.get("tracking") or {}, str((records.get("sources") or {}).get("tracking") or "")
+    if whose.startswith("Courier"):
+        mark, src, shipped, last = "✓", "Courier", "Shipped with ", "Last scan: "
+    elif whose.startswith("PayPal tracking"):
+        mark, src, shipped, last = "✓", "PayPal", "Shipped (registered with PayPal): ", "Last update (registered with PayPal): "
+    else:
+        mark, src, shipped, last = "·", "Your notes", "Shipped (your notes): ", "Last update (your notes): "
     carrier = tr.get("carrier_name_other") or (tr.get("carrier") if tr.get("carrier") != "OTHER" else None) or "the courier"
     if tr.get("shipped_date"):
-        rows.append(("✓", "Courier", tr["shipped_date"][:10],
-                     f"Shipped with {carrier}" + (f', {tr["tracking_number"]}' if tr.get("tracking_number") else "")))
-    if tr.get("last_update"):
-        status = TRACK_SAYS.get(tr.get("status"), str(tr.get("status") or "").lower().replace("_", " "))
-        rows.append(("✓", "Courier", tr["last_update"][:10],
-                     f"Last scan: {status}" + (f', {tr["delivered_to"]}' if tr.get("delivered_to") else "")))
+        rows.append((mark, src, tr["shipped_date"][:10],
+                     f"{shipped}{carrier}" + (f', {tr["tracking_number"]}' if tr.get("tracking_number") else "")))
+    status = TRACK_SAYS.get(tr.get("status"), str(tr.get("status") or "").lower().replace("_", " "))
+    if tr.get("last_update") and status:
+        rows.append((mark, src, tr["last_update"][:10],
+                     f"{last}{status}" + (f', {tr["delivered_to"]}' if tr.get("delivered_to") else "")))
     if d:
         rows.append(("✓", "PayPal", str(d.get("create_time") or "")[:10],
                      f'Dispute opened: {ledger.REASON_SHORT.get(d.get("reason"), d.get("reason")).lower()}'))
         if _dispute_money(raw):
             confirmed = demo_confirmed().get(d["dispute_id"])
-            rows.append(("✓" if confirmed else "◷", "PayPal", str((raw or {}).get("at") or "")[:10],
+            said = ("confirmed (demo: simulated)" if confirmed else "confirmed by PayPal" if d.get("status") == "RESOLVED"
+                    else "waiting for PayPal to confirm")
+            rows.append(("◷" if said.startswith("waiting") else "✓", "PayPal", str((raw or {}).get("at") or "")[:10],
                          f'Refund of {_dispute_money(raw):.2f} {d["dispute_amount"].get("currency_code", "EUR")} sent to '
-                         "PayPal: " + ("confirmed (demo: simulated)" if confirmed else "waiting for PayPal to confirm")))
+                         f"PayPal: {said}"))
     for m in money:
-        kind = books_mod.KIND.get(m.get("kind"))
-        if kind:
-            rows.append(("✓" if m.get("status") == "paid" else "◷", "Your shop", str(m.get("at") or "")[:10],
-                         f'{kind.capitalize()} {float(m.get("amount") or 0):.2f} {m.get("currency") or "EUR"}: '
-                         f'{m.get("status") or "logged"}'))
-    return sorted(rows, key=lambda r: r[2])
+        kind = m.get("kind")
+        if kind not in ("refund", "partial_refund", "replace") or m.get("status") == "cancelled":
+            continue        # a fee is a cost, not a fact of the case; a cancelled refund moved nothing
+        mk = "·" if kind == "replace" else "✓" if m.get("status") == "paid" else "◷"
+        rows.append((mk, "Your shop", str(m.get("at") or "")[:10],
+                     f'{books_mod.KIND[kind].capitalize()} {float(m.get("amount") or 0):.2f} {m.get("currency") or "EUR"}: '
+                     f'{m.get("status") or "logged"}'))
+    return sorted(rows, key=lambda r: r[2] or "9999")      # a row with no date on record goes last
 
 
 def tracked_block(rows: list) -> str:
@@ -3426,11 +3459,14 @@ def tracked_block(rows: list) -> str:
     lis = []
     for mark, src, day, fact in rows:
         t = _t(day)
-        lis.append(f'<li><span class="mk{" wait" if mark == "◷" else ""}">{e(mark)}</span><span class="from">{e(src)}</span>'
-                   f'<span class="on">{e(f"{t.day} {t:%b}" if t else "")}</span><span>{e(fact)}</span></li>')
+        cls = {"◷": " wait", "·": " note"}.get(mark, "")
+        lis.append(f'<li><span class="mk{cls}">{e(mark)}</span><span class="from">{e(src)}</span>'
+                   f'<span class="on">{e(f"{t.day} {t:%b}" if t else "")}</span><span class="fact">{e(fact)}</span></li>')
+    marks = {r[0] for r in rows}
+    says = [("✓", "✓ = checked against PayPal's records, the courier's tracking or your orders."),
+            ("◷", "◷ = sent, not confirmed yet."), ("·", "· = your own record, not checked.")]
     return (f'<h2>Tracked and verified</h2><ul class="tracked">{"".join(lis)}</ul>'
-            '<p class="tracked-foot">✓ = checked against PayPal\'s records, the courier\'s tracking or your orders. '
-            '◷ = sent, not confirmed yet.</p>')
+            f'<p class="tracked-foot">{e(" ".join(t for m, t in says if m in marks))}</p>')
 
 
 def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
@@ -3440,6 +3476,7 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
     if v is None:
         return page("No such case | Second Look", "", '<h1 class="page">No case with that id in this shop.</h1>', is_demo(cid), me=me)
     c, d, o = v["case"], v["dispute"], v["order"]
+    dcase = _case(d["dispute_id"]) if d else None       # the dispute's case: its records and its review, read once
     cur = v["currency"]
     stage = f'<span class="pill {"shop" if c["stage"] == "inquiry" else "onclaim" if c["stage"] == "paypal_claim" else "paypal"}">' \
             f'{e(cases_mod.STAGE_LABEL[c["stage"]])}</span>'
@@ -3473,13 +3510,13 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
             f'<p class="who">{e(cust.get("name") or cust.get("email") or "")}, <i>customer</i> · {e(cust.get("email") or "")}<br>'
             f'{order_line} At stake: {v["at_stake"]:.2f} {e(cur)}.<br>Came in by: {came}</p>{check}{owner}{_related(c)}'
             f'{unconfirmed_note(_marks([c], cur), cid, me)}'
-            + tracked_block(tracked_rows(d, (_case(d["dispute_id"])["seller_records"] if d else {}), c.get("money", []),
+            + tracked_block(tracked_rows(d, dcase["seller_records"] if d else {}, c.get("money", []),
                                          _raw(d["dispute_id"]) if d else None, o))
             + f'{timeline_block(v)}')
     top = ""
     if d:
         # A PayPal dispute now: PayPal's rules, and the dispute's own review and buttons, right here.
-        top, side = side_box(d["dispute_id"], _case(d["dispute_id"]), c, me, plain_owner=False)
+        top, side = side_box(d["dispute_id"], dcase, c, me, plain_owner=False)
         right = (f'<div class="judged"><b>This case is a PayPal dispute now: {e(d["dispute_id"])}.</b> PayPal\'s rules '
                  f'apply, and the answer goes to PayPal. <a href="/d/{e(d["dispute_id"])}">The dispute\'s own page</a>.</div>'
                  + side)
@@ -3952,10 +3989,10 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     t = team_for(dispute_id)
     a = None if t.get("solo") else assignments_for(dispute_id).get(dispute_id)
     signed = None
-    if saved and saved[1]:
+    if saved and saved[1] and _reply_went(_raw(dispute_id)):
         sb = _saved_by(dispute_id)
         signed = {"by": sb.get("by") if a is not None else None, "at": sb.get("at"),
-                  "text": saved[0].judgment.draft_message or saved[1]}
+                  "text": saved[0].judgment.draft_message}
     card = (f'<p class="cardlink"><a href="/customer/{e(buyer)}{q}">This customer\'s record with you</a></p>'
             if buyer and not practice else "")
     # the stage only: whose move it is and until when is the state box's (one state per case, said once)
@@ -4389,7 +4426,9 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None) 
         # a message that lands while it is sent was never seen (re-reading the case here would count it).
         seen = {**seen, "amount": f"{max(0.0, float(seen['amount']) - amount):.2f}"}
     _save(did, dec, sent, seen, by=by_name, at=now.isoformat(timespec="minutes"), judge=judged, chosen=chosen,
-          amount=round(amount, 2) if amount else None, due=case["dispute"].get("seller_response_due_date"))
+          amount=round(amount, 2) if amount else None, due=case["dispute"].get("seller_response_due_date"),
+          reply_sent=not str(result.get("message", "")).startswith("not sent") if chosen in _WORDS_NEEDED + ("DEFEND",)
+          else None)
     if ai:
         _ai_handled(did, ai, sent)    # on its record and the list a person checks (its slot is taken already)
     if not t.get("solo") and not is_ai:

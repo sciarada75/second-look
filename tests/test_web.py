@@ -1025,6 +1025,55 @@ def test_the_money_a_refund_moved_on_a_dispute_counts_in_its_case_s_cost():
     assert web._dispute_money({"sent": "Reply sent.", "chosen": "MESSAGE"}) == 0.0
 
 
+def test_tracked_rows_name_the_record_they_come_from():
+    d = {"dispute_id": "X-1", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED", "status": "OPEN",
+         "create_time": "2026-10-19T10:00:00Z", "dispute_amount": {"value": "29.00", "currency_code": "EUR"},
+         "disputed_transactions": [{"gross_amount": {"value": "31.00", "currency_code": "EUR"}}]}
+    tr = {"carrier": "OTHER", "carrier_name_other": "Local courier", "tracking_number": "LC1",
+          "shipped_date": "2026-10-03", "status": "IN_TRANSIT", "last_update": "2026-10-05"}
+    # the seller's notes: their word, never a checked courier row
+    notes = web.tracked_rows(d, {"tracking": tr, "sources": {"tracking": "seller's notes"}}, [], None, None)
+    assert not any(r[1] == "Courier" for r in notes)
+    assert [(r[0], r[1]) for r in notes if "(your notes)" in r[3]] == [("·", "Your notes")] * 2
+    assert "Last update (your notes): in transit" in [r[3] for r in notes]
+    # registered with PayPal: PayPal's record, said as such; the payment from the disputed transaction
+    pp = web.tracked_rows(d, {"tracking": tr, "order_date": "2026-10-02", "sources": {"tracking": "PayPal tracking"}},
+                          [], None, None)
+    assert ("✓", "PayPal", "2026-10-02", "Paid: 31.00 EUR") in pp
+    assert ("✓", "PayPal", "2026-10-03", "Shipped (registered with PayPal): Local courier, LC1") in pp
+    assert ("✓", "PayPal", "2026-10-05", "Last update (registered with PayPal): in transit") in pp
+    no_gross = {**d, "disputed_transactions": [{}]}
+    assert web.tracked_rows(no_gross, {"order_date": "2026-10-02"}, [], None, None)[0][3] == "Disputed: 29.00 EUR"
+    # the courier's own tracking on the shop's order; the order is the shop's record even when paid by PayPal
+    order = {"date": "2026-10-01", "amount": "36.00", "paid_with": "paypal", "items": [{"name": "Napkins"}],
+             "tracking": {**tr, "status": "DELIVERED"}}
+    rows = web.tracked_rows(None, {}, [], None, order)
+    assert rows[0] == ("✓", "Your orders", "2026-10-01", "Paid: 36.00 EUR, Napkins")
+    assert ("✓", "Courier", "2026-10-05", "Last scan: delivered") in rows
+    # no status: no "Last scan: " with nothing after it
+    blank = web.tracked_rows(None, {}, [], None, {**order, "tracking": {**tr, "status": None}})
+    assert not any(r[3].startswith("Last") for r in blank)
+    # a refund on a dispute PayPal resolved is confirmed
+    raw = {"sent": "Refund accepted.", "chosen": "REFUND", "amount": 29.0, "at": "2026-10-20T10:00"}
+    done = web.tracked_rows({**d, "status": "RESOLVED"}, {}, [], raw, None)
+    assert ("✓", "PayPal", "2026-10-20", "Refund of 29.00 EUR sent to PayPal: confirmed by PayPal") in done
+    # money on the case: refunds and replacements only; a cancelled refund and a fee are no row
+    money = [{"kind": "refund", "amount": 10, "status": "cancelled", "at": "2026-10-20T10:00"},
+             {"kind": "fee", "amount": 14, "at": "2026-10-21T10:00"},
+             {"kind": "replace", "amount": 0, "at": "2026-10-22T10:00"},
+             {"kind": "refund", "amount": 5, "at": "2026-10-23T10:00"},
+             {"kind": "partial_refund", "amount": 4, "status": "paid", "at": "2026-10-24T10:00"}]
+    assert [(r[0], r[3]) for r in web.tracked_rows(None, {}, money, None, None)] == [
+        ("·", "Replacement 0.00 EUR: logged"), ("◷", "Refund 5.00 EUR: logged"), ("✓", "Partial refund 4.00 EUR: paid")]
+
+
+def test_a_tracked_fact_reads_on_lines_on_a_phone():
+    block = web.tracked_block([("✓", "Courier", "2026-10-05", "Last scan: delivered")])
+    assert '<span class="fact">Last scan: delivered</span>' in block
+    phone = next(r for r in web.PAGE.split("@media") if ".tracked li{{grid-template-columns:20px 1fr}}" in r)
+    assert ".tracked .fact{{grid-column:2}}" in phone
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
