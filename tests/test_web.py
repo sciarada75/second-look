@@ -974,19 +974,50 @@ def test_the_side_box_says_whose_move_and_after_a_move_what_went_and_that_nothin
 
 
 
-def test_the_flash_comes_above_the_state_box_and_the_done_line_is_the_first_sentence_sent():
+def test_the_flash_comes_above_the_state_box():
     with approval_bench():
         page = web.case_page("X", flash='<p class="flash">Saved.</p>', me="giulia")
         assert page.count('<p class="flash">Saved.</p>') == 1
         assert page.index('<p class="flash">Saved.</p>') < page.index('class="state-box')
-        kept = web._raw
-        try:
-            web._raw = lambda did: {"sent": "Refund (50.00 EUR) accepted and reply sent. Sent by Giulia. "
-                                            "Your rule suggestion was saved."}
-            page = web.case_page("X", me="giulia")
-        finally:
-            web._raw = kept
-        assert "✓ Done: Refund (50.00 EUR) accepted and reply sent</b>" in page
+
+
+WAITING = {"state": "waiting_paypal", "label": "Waiting for PayPal", "whose": "paypal", "why": "PayPal is deciding.",
+           "until": None, "then": "", "paypal": True}
+
+
+def _done_line(sent: str) -> str:
+    kept = (web._raw, web._saved_by)
+    try:
+        web._raw, web._saved_by = (lambda did: {"sent": sent}), (lambda did: {"by": "Giulia", "at": "2026-10-20T07:52"})
+        box = web.state_box(WAITING, "X", "live", [])
+    finally:
+        web._raw, web._saved_by = kept
+    return box.split("✓ Done: ", 1)[1].split("</b>")[0]
+
+
+def test_the_done_line_drops_only_what_the_page_says_elsewhere_never_what_qualifies_what_went():
+    assert _done_line("Refund accepted and reply sent. (Practice case: logged, not sent to PayPal.)") == \
+        "Refund accepted and reply sent. (Practice case: logged, not sent to PayPal.)"
+    assert "Reply not sent" in _done_line(
+        "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.")
+    assert _done_line("Refund accepted and reply sent. Sent by Giulia, 07:52. (Demo shop: logged, not sent to PayPal.)") \
+        == "Refund accepted and reply sent"                 # the who/when line and the demo line say the rest
+    assert _done_line("Reply sent. Sent by Giulia, 07:52. Your rule suggestion waits on Your rules for review.") \
+        == "Reply sent"
+    assert "(Logged in Second Look: your helpdesk sends the email" in _done_line(
+        "Reply sent. Sent by Giulia, 07:52. (Logged in Second Look: your helpdesk sends the email; money is not moved "
+        "from here.)")
+
+
+def test_the_next_button_for_an_ai_check_says_to_check_it():
+    kept = (web._raw, web._saved_by)
+    try:
+        web._raw, web._saved_by = (lambda did: {}), (lambda did: {})
+        box = web.state_box(WAITING, "X", "demo", [{"kind": "ai", "id": "DEMO-C004", "link": "/c/DEMO-C004",
+                                                     "who": "Margot", "what": "Reply sent by email"}])
+    finally:
+        web._raw, web._saved_by = kept
+    assert '<a class="next" href="/c/DEMO-C004?shop=demo">Check Second Look\'s AI\'s answer · Margot →</a>' in box
 
 
 if __name__ == "__main__":

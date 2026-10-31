@@ -638,11 +638,15 @@ def test_a_practice_case_has_no_crumb_and_its_state_says_only_what_and_why():
         assert 't-sub' not in box and "Answer by" not in box and "or back to Today" not in box
 
 
-def test_on_a_phone_the_side_box_comes_first():
+def test_on_a_phone_the_state_comes_first_and_the_case_before_the_button():
     with morning():
-        page = web.case_file_page("DEMO-C001", me="marta")
-        rule = next(r for r in page.split("@media") if r.startswith(" (max-width:1100px)"))
-        assert re.search(r"\.look\{[^}]*order:-1", rule)
+        for page in (web.case_file_page("DEMO-C001", me="marta"), web.case_page("DEMO-034", me="marta")):
+            assert page.count('class="state-mini"') == 1
+            assert page.index('class="state-mini"') < page.index('<div class="case">')     # under the crumb, on top
+            assert "order:-1" not in page                     # the send button never comes before the message
+            rule = next(r for r in page.split("@media") if r.startswith(" (max-width:1100px)"))
+            assert ".state-mini{display:block" in rule and ".state-mini{display:none}" in page
+        assert 'class="state-mini"' not in web.case_page("PP-D-001")           # a practice case: no crumb, no line
 
 
 if __name__ == "__main__":

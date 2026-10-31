@@ -2070,6 +2070,7 @@ table.compare tr.sub th,table.compare tr.sub td{{border-top:0;padding-top:0;colo
 /* states (spec 2026-10-30): one pill per state, the same on Today and on the case page */
 .state-pill{{display:inline-block;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#fff;vertical-align:1px}}
 .state-pill.your_move{{background:#B07A2A}} .state-pill.waiting_customer,.state-pill.waiting_paypal{{background:#3F5677}} .state-pill.done{{background:var(--pass)}}
+.state-mini{{display:none}}
 .crumb{{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:14px;color:var(--soft);margin:0 0 14px}} .crumb a{{color:var(--ink)}}
 .state-box{{background:#fff;border:1px solid var(--rule);padding:14px 18px;margin:0 0 18px}} .state-box p{{margin:0 0 6px}}
 .done-line{{background:#E8F0EA;border-left:4px solid var(--pass);padding:12px 16px;margin:0 0 12px}} .done-line b{{display:block;color:var(--pass)}}
@@ -2083,7 +2084,7 @@ section.bucket.done{{border-left-color:var(--pass)}}
 @media (max-width:700px){{.needs-list li a{{grid-template-columns:1fr}} .needs-list .due{{white-space:normal}}}}
 .toast{{background:#E8F0EA;border:1px solid #CFE3D4;padding:10px 16px;margin:0 0 14px}} .toast b{{color:var(--pass)}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
-@media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0;order:-1}} main,header.top{{padding-left:20px;padding-right:20px}}}}
+@media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} .state-mini{{display:block;margin:0 0 12px}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 /* a phone: the header wraps (brand, shop, who you are, then the nav) instead of making every page scroll sideways */
 @media (max-width:700px){{header.top{{flex-wrap:wrap;gap:12px 16px;padding:12px 16px}} main{{padding:24px 16px 60px}}
   .who-am-i{{flex-wrap:wrap;gap:10px 16px;min-width:0}} .shop{{padding-left:14px}} .brand small{{display:none}}
@@ -3771,8 +3772,12 @@ def state_box(st: dict, did: str, src: str, nxt: list, check_here: bool = False)
     raw, sb = _raw(did) or {}, _saved_by(did)
     done = ""
     if raw.get("sent"):
-        # the first sentence: what went (a sentence's own brackets stay; "Sent by", a rule suggestion, notes go)
-        what = re.split(r"\.\s", str(raw["sent"]), maxsplit=1)[0].rstrip(".")
+        # what went, with what qualifies it ("Reply not sent: …", a practice case's or a helpdesk's note); only what
+        # this box or the page says elsewhere goes: who and when (the line under it), a rule suggestion, the demo line
+        what = re.sub(r" Sent by [^.]*\.", "", str(raw["sent"]))
+        what = re.sub(r" Your rule suggestion waits on Your rules for review\.", "", what)
+        what = re.sub(r" \(Demo shop:[^)]*\)", "", what).strip()
+        what = what[:-1] if what.endswith(".") else what
         who = ", ".join(x for x in (sb.get("by"), _when(str(sb.get("at") or "")[:16])) if x)
         done = (f'<div class="done-line"><b>✓ Done: {e(what)}</b><span class="t-sub">{e(who)}</span></div>'
                 + ('<p class="demo-line">Demo shop: logged here. Nothing was really sent.</p>' if is_demo(did) else ""))
@@ -3789,9 +3794,10 @@ def state_box(st: dict, did: str, src: str, nxt: list, check_here: bool = False)
     nxt_html = ""
     if nxt:
         n = nxt[0]
-        what = n.get("summary") or n.get("what") or ""
+        label = (f"Check Second Look's AI's answer · {e(n.get('who') or '')}" if n.get("kind") == "ai" else
+                 f'{e(n.get("who") or "")} · {e(n.get("summary") or "")}')
         nxt_html = (f'<p class="band">Next in Needs you · {len(nxt)}</p>'
-                    f'<a class="next" href="{e(n["link"])}{q}">{e(n.get("who") or "")} · {e(what)} →</a>')
+                    f'<a class="next" href="{e(n["link"])}{q}">{label} →</a>')
     nxt_html += f'<a href="{e(_today_link(src, did))}">or back to Today</a>'
     return (done + f'<div class="state-box"><p>{pill} {e(st["why"])}</p>{f"<p>{said}</p>" if said else ""}'
             f'{nxt_html}</div>')
@@ -3814,7 +3820,11 @@ def side_box(did: str, case: dict, c: dict | None, me: str | None, flash: str = 
     col = review_column(did, case, me, "", plain_owner)
     if st["state"] != "your_move":
         col = f'<details class="fold"><summary>Second Look\'s review and the ten checks</summary>{col}</details>'
-    top = "" if src == "practice" else crumb(st, name, src, did, len(others), _whose_words(st, team_for(did), me))
+    # on a phone the side column comes after the case (the message before the button): the state's one line, on top
+    mini = (f'<p class="state-mini"><span class="state-pill {e(st["state"])}">{e(st["label"])}</span> '
+            f'{e(st["why"])}</p>')
+    where = _whose_words(st, team_for(did), me)
+    top = "" if src == "practice" else crumb(st, name, src, did, len(others), where) + mini
     return top, flash + state_box(st, did, src, others, check_here) + col
 
 
