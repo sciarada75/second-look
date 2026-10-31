@@ -703,6 +703,35 @@ def test_a_move_is_taken_only_where_the_page_shows_moves():
         assert not (web._raw(did) or {}).get("sent")                                        # ...nor sent
 
 
+def test_the_disputes_inbox_says_each_case_s_state_and_counts_only_your_move():
+    """The disputes inbox reads the one state (case_state), never PayPal's status alone, and loads no case per row
+    (final review, 31/10: inbox.py, Luca's refunded case still said "Your move" there)."""
+    def wait_on_you(html_):
+        m = re.search(r'What now</b><span>(\d+) cases? wait on you', html_)
+        return int(m.group(1)) if m else 0
+    with morning():
+        before = web.inbox_page("demo", "luca", "all")
+        assert web.approve("DEMO-039", "REFUND", "Your refund is on its way.", by="luca")[0] == 200
+        kept = web._case
+
+        def no_case(did):
+            raise AssertionError("a case loaded for one inbox row: " + did)
+        web._case = no_case
+        try:
+            for confirmed in (False, True):
+                if confirmed:
+                    web.confirm_demo_refunds()
+                html_ = web.inbox_page("demo", "luca", "all")
+                row = next(x for x in html_.split("<li>") if "/d/DEMO-039" in x)
+                assert "Your move" not in row and "Reply by" not in row
+                assert ('<span class="state-pill done">Done</span>' if confirmed else
+                        '<span class="state-pill waiting_paypal">Waiting for PayPal</span>') in row
+                assert wait_on_you(html_) == wait_on_you(before) - 1
+            assert '<span class="state-pill your_move">Your move</span>' in html_   # the others still wait on you
+        finally:
+            web._case = kept
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

@@ -2173,20 +2173,6 @@ p.later{{background:#FBEEE6;border-left:4px solid #A8551F;padding:10px 14px;marg
 <main>{body}</main></body></html>"""
 
 
-def pill_for_on(on: str, stage: str | None = None) -> str:
-    """Colour says whose move it is: amber = yours, green = the buyer's, grey = PayPal's, plum = a claim."""
-    if stage and stage != "INQUIRY":
-        return '<span class="pill onclaim">PayPal claim</span>'
-    cls, text = {"you": ("you", "Your move"), "the buyer": ("buyer", "Waiting for the buyer"),
-                 "PayPal": ("paypal", "PayPal reviewing")}.get(on, ("paypal", on))
-    return f'<span class="pill {cls}">{e(text)}</span>'
-
-
-def pill_for(d: dict) -> str:
-    on = {"WAITING_FOR_SELLER_RESPONSE": "you", "WAITING_FOR_BUYER_RESPONSE": "the buyer"}.get(d.get("status"), "PayPal")
-    return pill_for_on(on, d.get("dispute_life_cycle_stage"))
-
-
 # The shop's badge: initials on its own colour, so a glance says whose shop this is.
 BADGE_COLOURS = ["#3E6B57", "#6B4E7A", "#9A5B3C", "#3F5D7D", "#7A6A3A"]
 
@@ -2316,6 +2302,8 @@ def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
     for state in (["REQUIRED_ACTION"] if practice else ["REQUIRED_ACTION", "REQUIRED_OTHER_PARTY_ACTION"]):
         items += pp.list_disputes(state)
     seen, rows = set(), []
+    # the shop's cases, read once for the whole list: each row's state never loads its case (one state per case)
+    held = today_mod._dispute_of_case(case_store(src).all()) if src in CASE_FILES else {}
     for d in items:
         if d["dispute_id"] in seen:
             continue
@@ -2326,15 +2314,19 @@ def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
         owner = f' <span class="owner">{e(owner_tag(t, a))}</span>' if a is not None else ""
         full = d if practice or demo else pp.get_dispute(d["dispute_id"])
         msg = next((m["content"] for m in full.get("messages", []) if m.get("posted_by") == "BUYER"), "")
-        due = _t(full.get("seller_response_due_date"))
         left = ledger.days_left(full, today)
         claim = " PayPal claim." if full.get("dispute_life_cycle_stage") in ("CHARGEBACK", "PRE_ARBITRATION", "ARBITRATION") else ""
-        waiting = ("Waiting for the buyer" if full.get("status") == "WAITING_FOR_BUYER_RESPONSE" else
-                   f"Reply by {due:%d %b}" + (f" ({left} days left)" if left is not None and not practice else "") if due else "")
-        rows.append((full.get("status") != "WAITING_FOR_SELLER_RESPONSE", left if left is not None else 99,
+        # the case's one state, as its page and Today say it: the pill, the line under it and the count above
+        st = case_state(d["dispute_id"], full, held.get(d["dispute_id"]) or NO_CASE, today=today, fetch=False)
+        mine = st["state"] == "your_move"
+        u = st["until"]
+        waiting = ((f"Reply by {u:%d %b}" + (f" ({left} days left)" if left is not None and not practice else "")
+                    if u else "") if mine else st["why"])
+        pill = f'<span class="state-pill {e(st["state"])}">{e(st["label"])}</span>'
+        rows.append((not mine, left if left is not None else 99,
                      f'<li><a href="/d/{e(d["dispute_id"])}"><blockquote>{e(msg)}</blockquote>'
                      f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
-                     f'<span class="meta">{pill_for(full)} {e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}{owner}</span></a></li>'))
+                     f'<span class="meta">{pill} {e(REASON.get(full.get("reason"), full.get("reason", "")))}.{e(claim)} {e(waiting)}{owner}</span></a></li>'))
     ordered = sorted(rows, key=lambda r: (r[0], r[1])) if not practice else rows
     yours = [r for r in ordered if not r[0]]
     if practice:
