@@ -608,7 +608,7 @@ def test_a_case_page_reads_today_lightly_and_a_failing_today_never_breaks_it():
 def test_an_ai_answer_waiting_for_a_check_is_what_needs_you_on_its_page():
     with morning():
         page = _side(web.case_file_page("DEMO-C004", me="giulia"))
-        assert "Check Second Look" in page and "Nothing needs you" not in page
+        assert "<b>Check Second Look's AI's answer.</b>" in page and "Nothing needs you" not in page
         assert web.autopilot_looks_right("demo", "DEMO-C004", "giulia")[0] == 200
         assert "Nothing needs you." in _side(web.case_file_page("DEMO-C004", me="giulia"))
 

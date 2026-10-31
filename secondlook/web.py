@@ -3783,7 +3783,7 @@ def state_box(st: dict, did: str, src: str, nxt: list, check_here: bool = False)
     if move:
         then = f'<p class="t-sub">{e(st["then"])}</p>' if st["then"] else ""
         return done + f'<div class="state-box move"><p>{pill} {e(st["why"])}</p>{then}</div>'
-    nothing = ("<b>Check Second Look's AI's answer below.</b> " if check_here else
+    nothing = ("<b>Check Second Look's AI's answer.</b> " if check_here else
                "" if st["state"] == "done" else "<b>Nothing needs you.</b> ")
     said = f'{nothing}{e(st["then"])}'.strip()
     nxt_html = ""
