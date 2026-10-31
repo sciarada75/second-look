@@ -3737,7 +3737,10 @@ def other_moves(did: str, case: dict, me: str | None) -> str:
             button, then = f"Pass to {to['name']}, with “{name.lower()}” suggested", _pass_says(a, dec, d, to["name"], t, me)
         else:
             button, then = name, moves_mod.then(a, facts, inquiry)
-        draft = hand["message"] if hand and hand.get("action") == a else moves_mod.text(a, kind, facts, inquiry)
+        # never the AI's draft for another answer: approve would refuse it ("written for another answer")
+        theirs = (hand and hand.get("action") == a
+                  and not (a != dec.judgment.action and autopilot_mod.same_words(hand["message"], dec.judgment.draft_message)))
+        draft = hand["message"] if theirs else moves_mod.text(a, kind, facts, inquiry)
         forms.append(_move_form(did, a, draft, button, then, me, kind_ == "pass"))
     st = case_state(did, None if inquiry else d, c)
     u = st["until"]

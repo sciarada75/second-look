@@ -1207,6 +1207,16 @@ def test_a_record_that_appears_between_the_page_and_the_click_refuses_the_move()
         assert code == 409 and "a buyer who disputes far more than usual" in text and b.sent == []
 
 
+def test_a_move_box_is_never_pre_filled_with_the_ai_s_draft_for_another_answer():
+    # a big case: the AI's answer (a defence) held back for always_ask; Marta passes the AI's question, its draft unedited
+    with approval_bench(action="ASK_SELLER", ai="DEFEND", stops=["always_ask"], amount="240.00") as b:
+        assert web.approve("X", "MESSAGE", "Hello", by="marta")[0] == 202
+        assert b.store.get("X")["handoff"]["message"] == "Hello"
+        moves = html.unescape(web.case_page("X", me="giulia")).split('<section class="moves">')[1]
+        reply = moves.split('value="MESSAGE"')[0].split("<textarea")[-1]
+        assert ">Hello</textarea>" not in reply and "We're checking with" in reply     # the move's own template
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
