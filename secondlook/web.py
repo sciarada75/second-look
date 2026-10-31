@@ -3672,13 +3672,21 @@ def held_action(did: str, dec: Decision, d: dict, t: dict, me: str | None) -> st
     return _send_form(did, o["label"], o["draft"], o["action"], o["button"], o["says"], me, o["outcome"] == "pass")
 
 
-def _offered_moves(did: str, case: dict, dec: Decision) -> list:
+# Where the case page shows the moves beside the AI's pick (page_offer's `_via`): a case still to answer. Sent, out of
+# date, waiting for a colleague or kept while PayPal waits for the buyer show none, and approve() takes none there.
+MOVES_SHOWN = frozenset({"form", "promise", "draft_refused", "no_draft"})
+
+
+def _offered_moves(did: str, case: dict, dec: Decision, me: str | None) -> list:
     """The catalog's moves beside Second Look's AI's pick on this case (moves.others): the one list the page shows and
-    approve() accepts, so a move it refuses is never on screen and one not on screen is never sent.
+    approve() accepts, so a move it refuses is never on screen and one not on screen is never sent. `me`: who is looking
+    (or approving), as page_offer takes it: only where the page shows moves to them (MOVES_SHOWN).
     None on a review that recorded `unknown_action` (the AI's output wasn't recognised, so its checks, which the rules
     read again for a move, can't be trusted either) or `message_not_allowed` (PayPal takes nothing from the shop now:
     every move sends words, and move_stops would refuse each one anyway)."""
     if {"unknown_action", "message_not_allowed"} & set(dec.stops):
+        return []
+    if page_offer(did, me, case)["_via"] not in MOVES_SHOWN:
         return []
     inquiry = cases_mod.is_case_id(did)
     c = case_store(shop_of_case(did)).get(did) if inquiry else find_case_of_dispute(did)
@@ -3736,7 +3744,7 @@ def other_moves(did: str, case: dict, me: str | None) -> str:
     hand = held.get("handoff") if held and who and held.get("to") == who["id"] else None
     hand = hand if isinstance(hand, dict) and hand.get("message") else None
     forms = []
-    for a in _offered_moves(did, case, dec):
+    for a in _offered_moves(did, case, dec, me):
         kind_, to = outcome(dec, a, d, t, who, move_stops(a, dec.judgment, _policy(), d, case["seller_records"]))
         if kind_ == "refused":
             continue
@@ -4219,7 +4227,7 @@ def review_column(did: str, case: dict, me: str | None, flash: str = "", plain_o
         action_part = ""
     ten = checks(j, w["checks"]) or (f'<p class="na-line">The rules baseline runs none of the ten checks: it looks only at '
                                      f'{w["rules_look"]}. Claude runs them.</p>' if judged == "rules" else "")
-    moves = other_moves(did, case, me) if via in ("form", "promise", "draft_refused", "no_draft") else ""
+    moves = other_moves(did, case, me) if via in MOVES_SHOWN else ""
     return (f'{owner}{banner}{flash}{verdict}{action_part}{moves}{costs}'
             f'<h2 style="margin-top:34px">The ten checks</h2>{ten}')
 
@@ -4457,7 +4465,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, 
     if move:
         # a catalog move: one this case offers now, with its own words, never the AI's draft for another answer
         # (a draft written for a refund promises it: DEMO-034, 21/10)
-        if chosen not in _offered_moves(did, case, dec):
+        if chosen not in _offered_moves(did, case, dec, None if t.get("solo") else who["id"]):
             return 409, "That answer isn't one Second Look offers on this case now. Look again."
         if not (message or "").strip():
             return 400, "Write a message first."

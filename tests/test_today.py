@@ -685,6 +685,24 @@ def test_after_an_answer_went_a_later_change_never_makes_it_your_move_again_anyw
             web._changes = real
 
 
+def test_a_move_is_taken_only_where_the_page_shows_moves():
+    """One gate for moves (web.MOVES_SHOWN): a case waiting for the buyer shows none, so the API takes none either
+    (final review, 31/10: flow2.py, Marta's refund move on Ines's case passed to Giulia while PayPal waited)."""
+    with morning() as store:
+        did = "DEMO-042"
+        store.assign(did, "marta")
+        assert web.case_state(did)["state"] == "waiting_customer"
+        assert 'name="move"' not in web.case_page(did, me="marta")
+        case = web._case(did)
+        c = web.find_case_of_dispute(did)
+        kind = web.moves_mod.kind_of(c, case["dispute"])
+        txt = web.moves_mod.text("REFUND", kind, web._move_facts(did, case, c))
+        assert web.approve(did, "REFUND", txt, by="marta", move=True)[0] == 409
+        assert web.approve(did, "REFUND", txt, by="giulia", move=True)[0] == 409
+        assert store.get(did)["handoff"] is None and store.get(did)["to"] == "marta"       # nothing passed...
+        assert not (web._raw(did) or {}).get("sent")                                        # ...nor sent
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:
