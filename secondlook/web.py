@@ -28,7 +28,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from datetime import timedelta, timezone
-from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from . import autopilot as autopilot_mod, books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, moves as moves_mod, sort as sort_mod, state as state_mod, team as team_mod, today as today_mod
 from .demo import DemoPayPal, LABEL as DEMO_LABEL, is_demo
@@ -1330,17 +1330,19 @@ NO_CASE: dict = {}
 
 
 def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out_of_date: bool = False,
-               today=None) -> dict:
+               today=None, *, fetch: bool = True) -> dict:
     """The one state of a case (state.of), from what Second Look holds: the review and what was sent, who has the case,
     its shop case and its PayPal dispute. `did`: the decision id (the PayPal dispute's, else the shop case's).
     `dispute`, `c`: when the caller has them already (Today reads every case once). `out_of_date`: the case page's own
-    finding (_changes); Today doesn't ask. Returns state.of's dict plus "decision_id"."""
+    finding (_changes); Today doesn't ask. `fetch` False: a shop case holding a dispute nobody passed in is read as the
+    shop case (state.of: "check it in PayPal"), never by loading the dispute (a page must not wait on PayPal for it).
+    Returns state.of's dict plus "decision_id"."""
     if cases_mod.is_case_id(did):
         if c is NO_CASE:
             c = None            # the sentinel is for disputes; an empty dict must never be read as a closed case
         src = shop_of_case(did)
         c = c if c is not None else case_store(src).get(did)
-        if c is not None and c.get("dispute_id"):
+        if c is not None and c.get("dispute_id") and (dispute is not None or fetch):
             return case_state(c["dispute_id"], dispute, c, out_of_date, today)   # a dispute on it: PayPal's rules
     else:
         src = src_of_case(did, "live")
@@ -2081,7 +2083,7 @@ section.bucket.done{{border-left-color:var(--pass)}}
 @media (max-width:700px){{.needs-list li a{{grid-template-columns:1fr}} .needs-list .due{{white-space:normal}}}}
 .toast{{background:#E8F0EA;border:1px solid #CFE3D4;padding:10px 16px;margin:0 0 14px}} .toast b{{color:var(--pass)}}
 .api{{margin-top:40px}} .api code{{display:inline-block;background:#fff;border:1px solid var(--rule);padding:10px 14px;font-size:15px}}
-@media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0}} main,header.top{{padding-left:20px;padding-right:20px}}}}
+@media (max-width:1100px){{.barlist li{{grid-template-columns:140px 1fr 32px}} .case{{grid-template-columns:minmax(0,1fr)}} .look{{border:0;padding:0;order:-1}} main,header.top{{padding-left:20px;padding-right:20px}}}}
 /* a phone: the header wraps (brand, shop, who you are, then the nav) instead of making every page scroll sideways */
 @media (max-width:700px){{header.top{{flex-wrap:wrap;gap:12px 16px;padding:12px 16px}} main{{padding:24px 16px 60px}}
   .who-am-i{{flex-wrap:wrap;gap:10px 16px;min-width:0}} .shop{{padding-left:14px}} .brand small{{display:none}}
@@ -2778,17 +2780,19 @@ def _utc_minute(at) -> str:
     return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M")
 
 
-def today_view(src: str, me: str | None = None) -> dict:
+def today_view(src: str, me: str | None = None, look: bool = True) -> dict:
     """The morning screen as data (the page and GET /api/today show the same): what needs `me` (today.needs_you), what
-    came in since yesterday (each row says who has it), who has what. The figures are on Numbers (numbers_view)."""
+    came in since yesterday (each row says who has it), who has what. The figures are on Numbers (numbers_view).
+    `look` False: only read (a case page asking what needs you): no call is filed, no quiet case closed."""
     demo = src == "demo"
     today = shop_today(src)
     waiting, failed = 0, []
-    if CALL_BOXES.get(src):
+    if look and CALL_BOXES.get(src):
         file_calls(case_store(src), src)              # a call left in the box since the last look comes in now
         waiting = calls_waiting(case_store(src), src) if transcriber_on() else 0
         failed = calls_failed(case_store(src), src)
-    close_quiet(src)                                  # after the calls: one waiting in the box keeps its case open
+    if look:
+        close_quiet(src)                              # after the calls: one waiting in the box keeps its case open
     cases, disputes, orders = shop_cases(src), shop_disputes(src), shop_orders(src)
     t = team_for_src(src)
     solo = bool(t.get("solo"))
@@ -3721,68 +3725,97 @@ BUCKET = {"your_move": "Needs you", "waiting_customer": "Waiting for the custome
 
 
 def needs_after(src: str, me: str | None, did: str) -> list:
-    """What else needs this person (the same list as Today's), for the case page's way back and its "Next" button."""
+    """What needs this person (Today's own list, read only), for the case page's crumb, its "Next" button and an AI
+    answer waiting for a check. `did` is not taken out: the side box decides. A Today that fails never breaks a page."""
     if src not in ("demo", "live"):
         return []
-    return [n for n in today_view(src, me)["needs"] if n["kind"] == "case" and n["id"] != did]
+    try:
+        return today_view(src, me, look=False)["needs"]
+    except Exception as err:          # noqa: BLE001 - the page shows without the way on
+        print(f"Case page ({did}): Today couldn't be read: {err}", file=sys.stderr)
+        return []
 
 
 def _today_link(src: str, did: str) -> str:
     return "/today?" + urlencode({**({"shop": "demo"} if src == "demo" else {}), "done": did})
 
 
-def crumb(st: dict, name: str, src: str, did: str, more: int) -> str:
-    """Where you are (spec Part 3, slot 1): Today › the bucket this case is in › its customer; and the way back, which
-    says how many more need you and names this case, so Today can say what just happened to it."""
+def _whose_words(st: dict, t: dict, me: str | None) -> str:
+    """The crumb's middle, from this person's side: a case that is the shop's move is "Needs you" only when it is
+    theirs (or the shop is one person); else whose it is, or that nobody took it. Other states: their bucket."""
+    if st["state"] != "your_move":
+        return BUCKET[st["state"]]
+    whose = st.get("whose")
+    if t.get("solo") or (whose and whose == me):
+        return BUCKET["your_move"]
+    if not whose:
+        return "Not taken yet"
+    return f'{(team_mod.person(t, whose) or {}).get("name") or whose} has it'
+
+
+def crumb(st: dict, name: str, src: str, did: str, more: int, where: str = "") -> str:
+    """Where you are (spec Part 3, slot 1): Today › where this case is for you (_whose_words) › its customer; and the
+    way back, which says how many more need you and names this case, so Today can say what just happened to it."""
     q = "?shop=demo" if src == "demo" else ""
     left = f'{more} more need{"s" if more == 1 else ""} you' if more else "nothing else needs you"
-    return (f'<nav class="crumb"><span><a href="/today{q}">Today</a> › {e(BUCKET[st["state"]])} › <b>{e(name)}</b></span>'
-            f'<a href="{e(_today_link(src, did))}">← Back to Today · {e(left)}</a></nav>')
+    return (f'<nav class="crumb"><span><a href="/today{q}">Today</a> › {e(where or BUCKET[st["state"]])} › '
+            f'<b>{e(name)}</b></span><a href="{e(_today_link(src, did))}">← Back to Today · {e(left)}</a></nav>')
 
 
-def state_box(st: dict, did: str, src: str, nxt: list) -> str:
+def state_box(st: dict, did: str, src: str, nxt: list, check_here: bool = False) -> str:
     """The top of the side box (spec Part 3, slot 6): the state, until when, and what happens then. After a move, a
     "✓ Done" line says what went, who and when (in the demo: that nothing really went). When it isn't this person's
-    move: "Nothing needs you", and the next case that does."""
+    move: "Nothing needs you" (or the AI's answer to check, when that is what waits here), and the next case that
+    does. One deadline: the state's own words say it. A practice case: the state and why, nothing more."""
     q = "?shop=demo" if src == "demo" else ""
     raw, sb = _raw(did) or {}, _saved_by(did)
     done = ""
     if raw.get("sent"):
-        what = str(raw["sent"]).split(". Sent by ")[0].split(" (Demo shop")[0].rstrip(".")
+        # the first sentence: what went (a sentence's own brackets stay; "Sent by", a rule suggestion, notes go)
+        what = re.split(r"\.\s", str(raw["sent"]), maxsplit=1)[0].rstrip(".")
         who = ", ".join(x for x in (sb.get("by"), _when(str(sb.get("at") or "")[:16])) if x)
         done = (f'<div class="done-line"><b>✓ Done: {e(what)}</b><span class="t-sub">{e(who)}</span></div>'
                 + ('<p class="demo-line">Demo shop: logged here. Nothing was really sent.</p>' if is_demo(did) else ""))
     pill = f'<span class="state-pill {e(st["state"])}">{e(st["label"])}</span>'
-    u = st["until"]
-    if st["state"] == "your_move":
-        when = (f' Answer by <b>{u:%a} {u.day} {u:%b}</b>' if u else "" if st["paypal"] else " No PayPal deadline")
-        return (done + f'<div class="state-box move"><p>{pill}{when}</p>'
-                f'<p class="t-sub">{e(st["why"])} {e(st["then"])}</p></div>')
-    nothing = "" if st["state"] == "done" else "<b>Nothing needs you.</b> "
+    move = " move" if st["state"] == "your_move" else ""
+    if src == "practice":
+        return done + f'<div class="state-box{move}"><p>{pill} {e(st["why"])}</p></div>'
+    if move:
+        then = f'<p class="t-sub">{e(st["then"])}</p>' if st["then"] else ""
+        return done + f'<div class="state-box move"><p>{pill} {e(st["why"])}</p>{then}</div>'
+    nothing = ("<b>Check Second Look's AI's answer below.</b> " if check_here else
+               "" if st["state"] == "done" else "<b>Nothing needs you.</b> ")
+    said = f'{nothing}{e(st["then"])}'.strip()
     nxt_html = ""
     if nxt:
         n = nxt[0]
+        what = n.get("summary") or n.get("what") or ""
         nxt_html = (f'<p class="band">Next in Needs you · {len(nxt)}</p>'
-                    f'<a class="next" href="{e(n["link"])}{q}">{e(n["who"] or "")} · {e(n["summary"])} →</a>')
+                    f'<a class="next" href="{e(n["link"])}{q}">{e(n.get("who") or "")} · {e(what)} →</a>')
     nxt_html += f'<a href="{e(_today_link(src, did))}">or back to Today</a>'
-    return (done + f'<div class="state-box"><p>{pill} {e(st["why"])}</p><p>{nothing}{e(st["then"])}</p>'
+    return (done + f'<div class="state-box"><p>{pill} {e(st["why"])}</p>{f"<p>{said}</p>" if said else ""}'
             f'{nxt_html}</div>')
 
 
 def side_box(did: str, case: dict, c: dict | None, me: str | None, flash: str = "", plain_owner: bool = True) -> tuple:
     """(crumb, side box) for a case page: the state first, then the review. Off this person's move, the review and its
     checks fold away: what happened is above, what's left to do is said."""
-    src = src_of_case(did, "live") if not cases_mod.is_case_id(did) else shop_of_case(did)
+    shop_case = cases_mod.is_case_id(did)
+    src = shop_of_case(did) if shop_case else src_of_case(did, "live")
     saved = _saved(did)
-    st = case_state(did, case["dispute"] if not cases_mod.is_case_id(did) else None, c,
-                    out_of_date=bool(saved) and not saved[1] and bool(_changes(did, case)))
-    nxt = needs_after(src, me, did)
+    # a shop case's state never loads its PayPal dispute: the /c/ page shows the dispute only when PayPal listed it
+    st = case_state(did, None if shop_case else case["dispute"], c,
+                    out_of_date=bool(saved) and not saved[1] and bool(_changes(did, case)), fetch=not shop_case)
+    needs = needs_after(src, me, did)
+    check_here = any(n["kind"] == "ai" and n.get("id") == did for n in needs)
+    others = [n for n in needs if n.get("link") and n.get("id") != did]
     name = ((c or {}).get("customer") or {}).get("name") or \
         ((case["dispute"].get("disputed_transactions") or [{}])[0].get("buyer") or {}).get("name") or did
-    col = review_column(did, case, me, flash, plain_owner)
+    col = review_column(did, case, me, "", plain_owner)
     if st["state"] != "your_move":
         col = f'<details class="fold"><summary>Second Look\'s review and the ten checks</summary>{col}</details>'
-    return crumb(st, name, src, did, len(nxt)), state_box(st, did, src, nxt) + col
+    top = "" if src == "practice" else crumb(st, name, src, did, len(others), _whose_words(st, team_for(did), me))
+    return top, flash + state_box(st, did, src, others, check_here) + col
 
 
 def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
@@ -3792,7 +3825,6 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     amt = d["dispute_amount"]
     demo = is_demo(dispute_id)
     practice = not demo and isinstance(_client(dispute_id), MockPayPal)
-    today = DemoPayPal().today if demo else datetime.utcnow().date()
     q = "?shop=demo" if demo else ""
     buyer = ledger.buyer_of(d)
     saved = _saved(dispute_id)
@@ -3804,11 +3836,14 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
         signed = {"by": sb.get("by"), "at": sb.get("at"), "text": saved[0].judgment.draft_message or saved[1]}
     card = (f'<p class="cardlink"><a href="/customer/{e(buyer)}{q}">This customer\'s record with you</a></p>'
             if buyer and not practice else "")
-    nobody = "" if practice or d.get("status") == "RESOLVED" else f'<p class="nobody">{e(ledger.if_nobody_answers(d, today))}</p>'
+    # the stage only: whose move it is and until when is the state box's (one state per case, said once)
+    stage = cases_mod.stage_for(d)
+    stage_pill = (f'<span class="pill {"onclaim" if stage == "paypal_claim" else "paypal"}">'
+                  f'{e(cases_mod.STAGE_LABEL[stage])}</span>')
     left = (f'<a class="back" href="/{"?practice=1" if practice else q}">All disputes</a>'
-            f'{pill_for(d)}{part_of_case(dispute_id)}{case_refund_note(r)}<p class="claim quote">{e(msg)}</p>'
+            f'{stage_pill}{part_of_case(dispute_id)}{case_refund_note(r)}<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
-            f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>{nobody}'
+            f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>'
             f'{conversation(d, signed)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
     top, side = side_box(dispute_id, case, find_case_of_dispute(dispute_id) if not practice else None, me, flash)
     body = (f'{top}<div class="case"><section>{left}</section>'

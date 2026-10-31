@@ -958,9 +958,12 @@ def test_a_shop_case_with_a_dispute_goes_through_the_recursion_without_reading_t
 
 
 def test_the_side_box_says_whose_move_and_after_a_move_what_went_and_that_nothing_needs_you():
-    with approval_bench():
+    with approval_bench() as b:
         page = web.case_page("X", me="giulia")
-        assert 'class="state-pill your_move"' in page and 'class="crumb"' in page and "Today</a> › Needs you" in page
+        assert 'class="state-pill your_move"' in page and 'class="crumb"' in page and "Today</a> › Not taken yet" in page
+        b.store.assign("X", "giulia")
+        page = web.case_page("X", me="giulia")
+        assert "Today</a> › Needs you" in page
         assert '<p class="then"><b>What happens next:</b>' in page
         web.approve("X", "REFUND", "Here is your refund", by="giulia")
         page = web.case_page("X", me="giulia")
@@ -968,6 +971,22 @@ def test_the_side_box_says_whose_move_and_after_a_move_what_went_and_that_nothin
         assert 'class="state-pill waiting_paypal"' in page and "Nothing needs you." in page
         assert '<details class="fold">' in page and "Today</a> › Waiting for PayPal" in page
         assert "done=X" in page                                     # the way back names the case for Today's toast
+
+
+
+def test_the_flash_comes_above_the_state_box_and_the_done_line_is_the_first_sentence_sent():
+    with approval_bench():
+        page = web.case_page("X", flash='<p class="flash">Saved.</p>', me="giulia")
+        assert page.count('<p class="flash">Saved.</p>') == 1
+        assert page.index('<p class="flash">Saved.</p>') < page.index('class="state-box')
+        kept = web._raw
+        try:
+            web._raw = lambda did: {"sent": "Refund (50.00 EUR) accepted and reply sent. Sent by Giulia. "
+                                            "Your rule suggestion was saved."}
+            page = web.case_page("X", me="giulia")
+        finally:
+            web._raw = kept
+        assert "✓ Done: Refund (50.00 EUR) accepted and reply sent</b>" in page
 
 
 if __name__ == "__main__":

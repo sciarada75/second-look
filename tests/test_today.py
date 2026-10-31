@@ -1,6 +1,7 @@
 """The morning screen: I see (since yesterday, every channel), I manage (who has what), I know (this month).
 Run: python3 tests/test_today.py"""
 import json
+import re
 import sys
 import tempfile
 import threading
@@ -561,6 +562,87 @@ def test_the_toast_keeps_a_sentence_s_own_brackets():
         assert web.approve(cid, "REFUND", "Your refund is on its way.", by="giulia")[0] == 200
         page = web.today_page("demo", "giulia", done=cid)
         assert "(demo: nothing sent) and reply sent" in page.split('class="toast"')[1].split("</p>")[0]
+
+
+# ---------- the case page's side box (Task 7 review) ----------
+
+def _side(page: str) -> str:
+    """The case page's side column, up to the folded review (what the state box and the crumb say)."""
+    return page.split('<section class="look">', 1)[1].split('<details class="fold">')[0]
+
+
+def test_a_shop_case_page_never_fetches_its_paypal_dispute_for_the_state():
+    with morning():
+        real_sd, real_case = web.shop_disputes, web._case
+
+        def case_of(did):
+            if did == "DEMO-034":
+                raise RuntimeError("PayPal unreachable")
+            return real_case(did)
+        web.case_store("demo").update("DEMO-C003", lambda c: {**c, "dispute_id": "DEMO-034"})   # Pablo's case holds it
+        web.shop_disputes = lambda src: [d for d in real_sd(src) if d["dispute_id"] != "DEMO-034"]
+        web._case = case_of
+        try:
+            page = web.case_file_page("DEMO-C003", me="giulia")
+        finally:
+            web.shop_disputes, web._case = real_sd, real_case
+        assert "A PayPal dispute is on this case: check it in PayPal." in page
+
+
+def test_a_case_page_reads_today_lightly_and_a_failing_today_never_breaks_it():
+    with morning():
+        web.case_store("demo")                                              # the morning filed once, as any first look
+        kept = (web.close_quiet, web.file_calls, web.today_view)
+        touched = []
+        try:
+            web.close_quiet = lambda src: touched.append("close") or []
+            web.file_calls = lambda store, src, later=None: touched.append("calls") or 0
+            assert web.needs_after("demo", "marta", "DEMO-034")             # her list, the case itself included
+            assert touched == []                                            # a case page files no call, closes no case
+            web.today_view = lambda *a, **k: 1 / 0
+            assert web.needs_after("demo", "marta", "DEMO-034") == []
+        finally:
+            web.close_quiet, web.file_calls, web.today_view = kept
+
+
+def test_an_ai_answer_waiting_for_a_check_is_what_needs_you_on_its_page():
+    with morning():
+        page = _side(web.case_file_page("DEMO-C004", me="giulia"))
+        assert "Check Second Look" in page and "Nothing needs you" not in page
+        assert web.autopilot_looks_right("demo", "DEMO-C004", "giulia")[0] == 200
+        assert "Nothing needs you." in _side(web.case_file_page("DEMO-C004", me="giulia"))
+
+
+def test_the_crumb_says_whose_move_it_is_for_the_person_looking():
+    with morning():
+        assert "Today</a> › Marta has it ›" in web.case_page("DEMO-034", me="giulia")
+        page = web.case_page("DEMO-034", me="marta")
+        assert "Today</a> › Needs you ›" in page
+        side = _side(page)
+        assert side.count("Answer by") == 1                                 # one deadline, said once
+        assert 'class="nobody"' not in page and '<span class="pill paypal">PayPal dispute</span>' in page
+
+
+def test_a_shop_request_s_side_box_says_needs_you_and_no_paypal_deadline_once():
+    with morning():
+        page = web.case_file_page("DEMO-C001", me="marta")
+        assert "Today</a> › Needs you ›" in page and 'class="state-pill your_move"' in page
+        assert _side(page).count("No PayPal deadline") == 1
+
+
+def test_a_practice_case_has_no_crumb_and_its_state_says_only_what_and_why():
+    with morning():
+        page = web.case_page("PP-D-001")
+        assert 'class="crumb"' not in page and 'class="state-box' in page
+        box = page.split('<div class="state-box', 1)[1].split("</div>")[0]
+        assert 't-sub' not in box and "Answer by" not in box and "or back to Today" not in box
+
+
+def test_on_a_phone_the_side_box_comes_first():
+    with morning():
+        page = web.case_file_page("DEMO-C001", me="marta")
+        rule = next(r for r in page.split("@media") if r.startswith(" (max-width:1100px)"))
+        assert re.search(r"\.look\{[^}]*order:-1", rule)
 
 
 if __name__ == "__main__":
