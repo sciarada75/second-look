@@ -36,6 +36,7 @@ customer's history next to the case. That is what Second Look does, for small an
 one person with a few disputes a month, or a small team with a few thousand orders a quarter.
 
 Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). Runs on the PayPal sandbox.
+**[Watch the 3-minute film](https://youtu.be/oAGkMuZzkp8)**, or [try it in two commands](#try-it), no keys needed.
 
 ## The seller's limits and preferences
 
