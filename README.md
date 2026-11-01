@@ -36,7 +36,7 @@ customer's history next to the case. That is what Second Look does, for small an
 one person with a few disputes a month, or a small team with a few thousand orders a quarter.
 
 Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). Runs on the PayPal sandbox.
-**[Watch the 3-minute film](https://youtu.be/oAGkMuZzkp8)**, or [try it in two commands](#try-it), no keys needed.
+**[Watch the 3-minute film](https://youtu.be/oAGkMuZzkp8)**, **[open the public demo](https://second-look-4rrz.onrender.com/today?shop=demo)** (the first page can take about a minute to wake), or [run it in two commands](#try-it), no keys needed.
 
 ### PayPal and AI at a glance
 
@@ -51,7 +51,7 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/)
 | **Local whisper** | `secondlook/calls.py` | transcribes phone calls on the shop's own computer |
 | **Kokoro** (open-weight TTS) | `video/`, `demo/calls/` | the film's narration and the demo's phone call; both voices are synthetic |
 
-Everything runs on the PayPal sandbox. No sponsor tools (APIMatic, AG Grid, Render, Postman) were used.
+Everything runs on the PayPal sandbox. The public demo is hosted on Render's free plan. No other sponsor tools (APIMatic, AG Grid, Postman) were used.
 
 ## The seller's limits and preferences
 
@@ -476,6 +476,8 @@ PayPal Disputes API ──► judge (Claude) ──► guard (code, seller's pol
   reads `cases/` and logs actions, so everything runs without credentials.
 
 ## Try it
+
+The [public demo](https://second-look-4rrz.onrender.com/today?shop=demo) needs no install. It has the demo shop and the practice cases, on made-up data, and it's shared with other visitors. For the helpdesk, the books, your own keys and a demo of your own, run it yourself:
 
 Everything up to step 4 needs only Python 3.9 or newer: no packages, no keys, no PayPal account.
 Nothing in steps 1 to 3 reaches PayPal: the demo shop and the practice cases log what they would
