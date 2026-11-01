@@ -12,3 +12,4 @@ video/public/stills/
 video/public/captures/
 video/.capture-backup/
 .DS_Store
+video/.public-film/

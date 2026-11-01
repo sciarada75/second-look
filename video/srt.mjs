@@ -43,14 +43,14 @@ const timed = beats.map((b) => {
 function pieces(text) {
   const sentences = text.match(/[^.?!:]+[.?!:]*/g).map((s) => s.trim()).filter(Boolean);
   return sentences.flatMap((s) => {
-    if (s.length <= MAX_CUE) return [s];
+    if (wrap(s)) return [s];   // fits two rows as words fall, not only by length
     const parts = s.split(/(?<=,)\s+/);
     return parts.flatMap((p) => {
-      if (p.length <= MAX_CUE) return [p];
+      if (wrap(p)) return [p];
       const out = [];
       let cur = '';
       for (const w of p.split(/\s+/)) {
-        if (cur && (cur + ' ' + w).length > MAX_CUE) { out.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w;
+        if (cur && !wrap(cur + ' ' + w)) { out.push(cur); cur = w; } else cur = cur ? `${cur} ${w}` : w;
       }
       return cur ? [...out, cur] : out;
     });

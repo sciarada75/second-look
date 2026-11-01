@@ -1,18 +1,18 @@
 import React from 'react';
 import {AbsoluteFill, Audio, Composition, Sequence, staticFile} from 'remotion';
-import {Scenes3} from './Scenes3';
+import {Scenes4} from './Scenes4';
 import {Subtitles} from './Subtitles';
 import {FILM_DURATION, TIMED} from './timeline';
 import {FPS, HEIGHT, WIDTH, theme} from './theme';
 
-// Draft 3 (23/10): one morning, one journey (script-v3.md). The app scenes are built from screens
+// Draft 10 (01/11): every channel, one morning (script-v4.md). The app scenes are built from screens
 // captured by capture.mjs, so rendering needs no server. Subtitles are burned in over every scene
-// (Subtitles.tsx), from the same cues srt.mjs writes to the YouTube .srt. Drafts 1 and 2 keep their scenes
-// in Scenes.tsx and Scenes2.tsx, their lines in lines-v1.json and lines-v2.json; git history has their
-// compositions.
+// (Subtitles.tsx), from the same cues srt.mjs writes to the YouTube .srt. Earlier drafts keep their scenes
+// in Scenes.tsx, Scenes2.tsx and Scenes3.tsx (drafts 3-9), their lines in lines-v1/v2/v3.json; git history
+// has their compositions and captures.
 const Film: React.FC = () => (
   <AbsoluteFill style={{background: theme.paper}}>
-    <Scenes3 />
+    <Scenes4 />
     <Subtitles />
     {TIMED.map((t) => (
       <Sequence key={t.key} from={t.from} durationInFrames={t.next - t.from}>

@@ -161,9 +161,23 @@ export const Cursor: React.FC<{path: CursorPoint[]; cam: Cam; until: number}> = 
 // ---------- where you are ----------
 // Bottom-left, like a lower third: the top of every captured page is its own header (brand, who is signed
 // in, the made-up labels), and the chip must never cover it. The chip carries the made-up note itself.
-/** fadeIn/fadeOut 0: the label switches with a cut instead of blinking. */
-export const WhereLabel: React.FC<{text: string; sub?: string; from: number; to: number; live?: boolean; fadeIn?: number; fadeOut?: number}> = ({
-  text, sub, from, to, live, fadeIn = 8, fadeOut = 8,
+// Draft 10: the film's map (the flowchart of scene 3) rides in the chip, its step for this shot lit.
+export const MAP = ['Request', 'Second Look', 'Approve', 'Updated'];
+const MapRow: React.FC<{lit: number[]}> = ({lit}) => (
+  <div style={{display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8}}>
+    {MAP.map((m, i) => (
+      <React.Fragment key={m}>
+        {i ? <span style={{font: `500 15px ${theme.sans}`, color: theme.soft}}>›</span> : null}
+        <span style={{font: `${lit.includes(i) ? 700 : 500} 15px/1 ${theme.sans}`, padding: '5px 8px', whiteSpace: 'nowrap',
+          background: lit.includes(i) ? theme.kraftBg : 'transparent', color: lit.includes(i) ? '#6E4F27' : theme.soft,
+          border: `1px solid ${lit.includes(i) ? theme.kraft : theme.rule}`}}>{m}</span>
+      </React.Fragment>
+    ))}
+  </div>
+);
+/** fadeIn/fadeOut 0: the label switches with a cut instead of blinking. `map`: the steps of the film's map to light. */
+export const WhereLabel: React.FC<{text: string; sub?: string; from: number; to: number; live?: boolean; fadeIn?: number; fadeOut?: number; map?: number[]}> = ({
+  text, sub, from, to, live, fadeIn = 8, fadeOut = 8, map,
 }) => {
   const frame = useCurrentFrame();
   if (frame < from || frame >= to) return null;
@@ -173,6 +187,7 @@ export const WhereLabel: React.FC<{text: string; sub?: string; from: number; to:
     <div style={{position: 'absolute', left: 32, bottom: 32, opacity: o, background: '#fff', padding: '12px 22px 13px',
       border: `1px solid ${live ? theme.pass : theme.rule}`, borderLeft: `6px solid ${live ? theme.pass : theme.kraft}`,
       boxShadow: '0 6px 22px rgba(30,41,53,0.16)', color: theme.ink}}>
+      {map ? <MapRow lit={map} /> : null}
       <div style={{font: `500 26px/1.2 ${theme.sans}`, whiteSpace: 'nowrap'}}>
         {parts.map((p, i) => (
           <React.Fragment key={i}>

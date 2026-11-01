@@ -11,18 +11,18 @@ import {
   box, Box, camAt, camOn, camTop, Cam, CamKey, Cursor, CursorPoint, Screen, Spot, Spotlight, union, WhereLabel,
 } from './Stage';
 
-const EASE = Easing.bezier(0.4, 0, 0.2, 1);
-const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
+export const EASE = Easing.bezier(0.4, 0, 0.2, 1);
+export const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 /** A frame a fraction of the way through a line. */
-const at = (key: string, f: number) => {
+export const at = (key: string, f: number) => {
   const b = beat(key);
   return b.from + Math.round((b.to - b.from) * f);
 };
-const fadeIn = (frame: number, on: number, d = 10) => interpolate(frame, [on, on + d], [0, 1], {...clamp, easing: EASE});
+export const fadeIn = (frame: number, on: number, d = 10) => interpolate(frame, [on, on + d], [0, 1], {...clamp, easing: EASE});
 
 /** A scene: shown in [from, to), fades in over 8 frames from `under` (paper; ink for the dark scenes,
  *  so two dark scenes in a row never flash pale between them). */
-const Scene: React.FC<{from: number; to: number; children: React.ReactNode; bg?: string; under?: string}> = ({from, to, children, bg = theme.paper, under = theme.paper}) => {
+export const Scene: React.FC<{from: number; to: number; children: React.ReactNode; bg?: string; under?: string}> = ({from, to, children, bg = theme.paper, under = theme.paper}) => {
   const frame = useCurrentFrame();
   if (frame < from || frame >= to) return null;
   return (
@@ -33,8 +33,8 @@ const Scene: React.FC<{from: number; to: number; children: React.ReactNode; bg?:
 };
 
 // ---------- app shots ----------
-type Where = {text: string; sub?: string; live?: boolean};
-type ShotSpec = {
+export type Where = {text: string; sub?: string; live?: boolean; map?: number[]};
+export type ShotSpec = {
   id: string; from: number; to: number; cams: CamKey[]; spots?: Spot[]; cursor?: CursorPoint[];
   where: Where; labelIn?: boolean; labelOut?: boolean; strength?: number;
 };
@@ -51,17 +51,17 @@ const AppShot: React.FC<{s: ShotSpec}> = ({s}) => {
     </AbsoluteFill>
   );
 };
-const Shots: React.FC<{shots: ShotSpec[]}> = ({shots}) => <>{shots.map((s) => <AppShot key={`${s.id}-${s.from}`} s={s} />)}</>;
+export const Shots: React.FC<{shots: ShotSpec[]}> = ({shots}) => <>{shots.map((s) => <AppShot key={`${s.id}-${s.from}`} s={s} />)}</>;
 
 const MARTA_TB = {sub: 'Marta · a made-up helpdesk'};
 const MARTA_SL = {sub: 'Marta · demo shop, made-up data'};
 const GIULIA_SL = {sub: 'Giulia · demo shop, made-up data'};
-const CUT = 8; // frames between a click and the page it opens
+export const CUT = 8; // frames between a click and the page it opens
 /** On a Second Look case page: only the right column, zoomed so the left column (with the big buyer
  *  quote) stays entirely out of frame instead of being sliced at the edge. */
-const rightCol = (b: Box, z = 2.3): Cam => ({...camOn(b, z), x: 1536 - WIDTH / z});
+export const rightCol = (b: Box, z = 2.3): Cam => ({...camOn(b, z), x: 1536 - WIDTH / z});
 /** A measured box with room around it: the timeline's labels spill a little outside its own box. */
-const grow = (b: Box, px: number): Box => ({x: b.x - px, y: b.y - px, w: b.w + 2 * px, h: b.h + 2 * px});
+export const grow = (b: Box, px: number): Box => ({x: b.x - px, y: b.y - px, w: b.w + 2 * px, h: b.h + 2 * px});
 
 // The moments where one scene's last click opens the next scene's page.
 const click45 = () => beat('s5a').from + 6;          // "She opens the case."
@@ -75,7 +75,7 @@ const giuliaOpens = () => beat('s8a').from - 36;     // the case arrives in Giul
 // real"): cover-cropped, blurred, under a veil, with a slow push-in. Every clip used here was checked
 // frame by frame for logos (HANDOVER, Video). Text never sits on the picture itself: on white cards and
 // tiles, or in light type over a dark veil.
-const Backdrop: React.FC<{
+export const Backdrop: React.FC<{
   src: string; from: number; to: number; video?: boolean; startAt?: number; rate?: number;
   veil?: string; blur?: number; push?: number;
 }> = ({src, from, to, video, startAt = 0, rate = 1, veil = 'rgba(30,41,53,0.66)', blur = 10, push = 0.06}) => {
@@ -209,7 +209,7 @@ const Business: React.FC = () => {
 // ---------- 2c. So what helps? Second Look, before we meet the shop ----------
 // The product's own mark (two rings: kraft and ink) and name; then what it does, each item as the voice
 // names it; then "You approve", lit in kraft, on the last sentence.
-const MARK = (size: number) => (
+export const MARK = (size: number) => (
   <svg width={size * 30 / 22} height={size} viewBox="0 0 30 22" aria-hidden="true">
     <circle cx="11" cy="11" r="9" fill={theme.kraft} />
     <circle cx="19" cy="11" r="9" fill="none" stroke={theme.ink} strokeWidth={3} />

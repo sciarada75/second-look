@@ -5,17 +5,20 @@
 //
 //   cd video && node capture.mjs
 //
-// Needs Second Look on :8765 (started with SECONDLOOK_NOTIFY_URL=http://127.0.0.1:8766/hooks/secondlook)
-// and Ticketbook on :8766.
+// Draft 10 (script-v4.md). Best run against a fresh copy of the repo, as a judge would first open it
+// (the morning's state is the demo's first load): Second Look started with SECONDLOOK_NOTIFY_URL pointing
+// at Ticketbook's /hooks/secondlook and SECONDLOOK_BOOKS_URL at Bookbox's, Ticketbook pointed at Second
+// Look, Bookbox running. Where they run: SL, TB, BB (default :8765, :8766, :8767) and APP_ROOT, the
+// folder the apps run from (default this repo).
 //
-// It changes the demo state on purpose (Marta approves #2001, passes #2004, Giulia approves DEMO-034),
-// so it backs those files up first and puts them back at the end, checked by SHA-1. All three actions
-// are on the made-up demo shop: logged, never sent to PayPal. It never asks for an AI review: any POST
-// other than those three is blocked in the browser.
+// It changes the demo state on purpose (Marta answers and closes Sophie's case, defends DEMO-031 and
+// passes Pablo's case up; Giulia refunds it), so it backs up the apps' whole .tmp first and puts it back
+// at the end, checked by SHA-1. Every action is on the made-up demo shop: logged, never sent to PayPal.
+// It never asks for an AI review: any POST other than those is blocked in the browser.
 
 import {createHash} from 'node:crypto';
-import {copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
-import {dirname, join, relative} from 'node:path';
+import {cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {dirname, join, relative, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const PW = '/Users/claudiamauri/.npm/_npx/361ceb562f3b3235/node_modules/playwright/index.mjs';
@@ -23,64 +26,44 @@ const SHELL = '/Users/claudiamauri/Library/Caches/ms-playwright/chromium_headles
 const {chromium} = await import(PW);
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(HERE, '..');
+const ROOT = resolve(process.env.APP_ROOT ?? join(HERE, '..'));
 const OUT = join(HERE, 'public', 'captures');
 const BACKUP = join(HERE, '.capture-backup');
-const SL = 'http://127.0.0.1:8765';
-const TB = 'http://127.0.0.1:8766';
+const SL = process.env.SL ?? 'http://127.0.0.1:8765';
+const TB = process.env.TB ?? 'http://127.0.0.1:8766';
+const BB = process.env.BB ?? 'http://127.0.0.1:8767';
 
 // ---------- the demo state: back up, restore, verify ----------
-const STATE = [
-  '.tmp/reviews/DEMO-031.json',
-  '.tmp/reviews/DEMO-034.json',
-  '.tmp/assignments-demo.json',
-  '.tmp/helpdesk-events.jsonl',
-  '.tmp/actions-demo.jsonl',
-  '.tmp/actions.jsonl',
-  '.tmp/notify.log',
-];
 const sha1 = (f) => createHash('sha1').update(readFileSync(f)).digest('hex');
-
-// Every other file the apps could touch, to prove nothing else changed.
+// Every file the apps could touch, to prove nothing changed once the backup is back.
 const WATCH = ['.tmp', 'records', 'demo', 'helpdesk/tickets.json', 'policy.json'];
-const walk = (p) => {
+const walkFiles = (p) => {
   const abs = join(ROOT, p);
   if (!existsSync(abs)) return [];
   if (statSync(abs).isFile()) return [p];
-  return readdirSync(abs).flatMap((n) => walk(join(p, n)));
+  return readdirSync(abs).flatMap((n) => walkFiles(join(p, n)));
 };
-const snapshot = () => Object.fromEntries(WATCH.flatMap(walk).map((f) => [f, sha1(join(ROOT, f))]));
+const snapshot = () => Object.fromEntries(WATCH.flatMap(walkFiles).map((f) => [f, sha1(join(ROOT, f))]));
 
 function backup() {
   rmSync(BACKUP, {recursive: true, force: true});
   mkdirSync(BACKUP, {recursive: true});
-  const sums = {};
-  for (const f of STATE) {
-    const src = join(ROOT, f);
-    if (existsSync(src)) {
-      const dst = join(BACKUP, f.replaceAll('/', '__'));
-      copyFileSync(src, dst);
-      sums[f] = sha1(src);
-      if (sha1(dst) !== sums[f]) throw new Error(`backup of ${f} doesn't match the original`);
-    } else sums[f] = null; // didn't exist: delete it at the end
-  }
+  if (existsSync(join(ROOT, '.tmp'))) cpSync(join(ROOT, '.tmp'), join(BACKUP, 'tmp'), {recursive: true});
+  const sums = Object.fromEntries(walkFiles('.tmp').map((f) => [f, sha1(join(ROOT, f))]));
   writeFileSync(join(BACKUP, 'checksums.json'), JSON.stringify(sums, null, 2));
   return sums;
 }
 
 function restore(sums) {
-  for (const [f, sum] of Object.entries(sums)) {
-    const dst = join(ROOT, f);
-    if (sum === null) rmSync(dst, {force: true});
-    else copyFileSync(join(BACKUP, f.replaceAll('/', '__')), dst);
-  }
-  const bad = Object.entries(sums).filter(([f, sum]) =>
-    sum === null ? existsSync(join(ROOT, f)) : !existsSync(join(ROOT, f)) || sha1(join(ROOT, f)) !== sum);
-  if (bad.length) throw new Error(`restore failed for: ${bad.map(([f]) => f).join(', ')}`);
+  rmSync(join(ROOT, '.tmp'), {recursive: true, force: true});
+  if (existsSync(join(BACKUP, 'tmp'))) cpSync(join(BACKUP, 'tmp'), join(ROOT, '.tmp'), {recursive: true});
+  const now = Object.fromEntries(walkFiles('.tmp').map((f) => [f, sha1(join(ROOT, f))]));
+  const bad = [...new Set([...Object.keys(sums), ...Object.keys(now)])].filter((f) => sums[f] !== now[f]);
+  if (bad.length) throw new Error(`restore failed for: ${bad.join(', ')}`);
 }
 
 // ---------- the walk ----------
-const ALLOWED_POSTS = [/^\/t\/2001\/approve$/, /^\/t\/2004\/approve$/, /^\/d\/DEMO-034\/approve$/];
+const ALLOWED_POSTS = [/^\/d\/DEMO-C001\/approve$/, /^\/c\/DEMO-C001\/close$/, /^\/d\/DEMO-031\/approve$/, /^\/d\/DEMO-034\/approve$/];
 const result = {errors: {}};
 const missing = [];
 
@@ -112,131 +95,189 @@ async function shoot(page, id, spec) {
   await page.screenshot({path: join(OUT, `${id}.png`), fullPage: true});
   result[id] = {file: `captures/${id}.png`, width: size.w, height: size.h, boxes: b};
   const nulls = Object.entries(b).filter(([, v]) => !v).map(([k]) => k);
-  console.log(`  ${id.padEnd(16)} ${size.w}x${size.h}  ${Object.keys(b).length} boxes${nulls.length ? `  NULL: ${nulls.join(', ')}` : ''}`);
+  console.log(`  ${id.padEnd(18)} ${size.w}x${size.h}  ${Object.keys(b).length} boxes${nulls.length ? `  NULL: ${nulls.join(', ')}` : ''}`);
 }
 
 const go = async (page, url, timeout = 30000) => {
   const res = await page.goto(url, {waitUntil: 'load', timeout});
   if (!res || res.status() >= 400) throw new Error(`${url} answered ${res ? res.status() : 'nothing'}`);
 };
+/** Click a form's button and wait for the page it leads to. */
+const submit = async (page, button) => {
+  await Promise.all([page.waitForNavigation({waitUntil: 'load'}), button.click()]);
+};
 
 // Locators: by role or visible text wherever the page offers it.
 const css = (sel, hasText) => (p) => (hasText ? p.locator(sel, {hasText}) : p.locator(sel));
 const ev = (label) => (p) => p.locator('div.ev', {has: p.locator('dt', {hasText: new RegExp(`^${label}$`)})});
+const btn = (name) => (p) => p.getByRole('button', {name});
+const said = (hasText) => css('ol.talk > li', hasText);
+const tracked = (hasText) => css('ul.tracked > li', hasText);
+const caseBoxes = {
+  where: css('header.top'),
+  came: css('p', 'Came in by'),
+  tracked: css('ul.tracked'),
+  talk: css('ol.talk'),
+  state: css('div.state-box'),
+  verdict: css('section.verdict'),
+  reply: css('textarea'),
+};
 
 async function walkThrough(page) {
-  console.log('Ticketbook, as Marta');
-  await go(page, `${TB}/?as=marta&film=1`);
-  await shoot(page, 'tb-inbox', {'row-dario': css('a.row', 'Where is my apron?')});
+  const demo = 'shop=demo&film=1';
 
+  console.log('Second Look, Today, as Giulia');
+  await go(page, `${SL}/today?${demo}&as=giulia`);
+  await shoot(page, 'today', {
+    where: css('header.top'),
+    hello: css('h1.page'),
+    morning: css('div.morning'),
+    orders: css('p.who', 'new orders'),
+    chips: css('p.chips'),
+    new: css('section.new'),
+    list: css('section.new ol.see'),
+    'row-sophie': css('section.new ol.see > li', 'Sophie Durand'),
+    team: css('section.team'),
+    needs: css('section.needs'),
+    'ai-check': css('section.needs li.ai-check'),
+    'rules-nav': (p) => p.locator('header.top nav a', {hasText: 'Your rules'}),
+  });
+
+  await go(page, `${SL}/rules?${demo}&as=giulia`);
+  await shoot(page, 'rules', {
+    where: css('header.top'),
+    own: css('section.rules', "Second Look's AI on its own"),
+    intro: css('section.rules p', 'Everything it sends is signed'),
+    kind: css('section.rules li', '10 of the last 10'),
+    sure: css('section.rules li', 'at least 90% sure'),
+  });
+
+  console.log("Sophie's case, as Marta");
+  await go(page, `${SL}/c/DEMO-C001?${demo}&as=marta`);
+  await shoot(page, 'c001', {
+    ...caseBoxes,
+    call: said('Call in'),
+    email: said('Email in'),
+    neighbour: tracked('neighbour'),
+    approve: btn('Approve: reply only'),
+  });
+  await submit(page, page.getByRole('button', {name: 'Approve: reply only'}));
+  await go(page, `${SL}/c/DEMO-C001?${demo}&as=marta`);
+  await shoot(page, 'c001-sent', {
+    ...caseBoxes,
+    done: css('div.done-line'),
+    out: said('Email out'),
+    close: css('form[action$="/close"]'),
+    'close-btn': btn('Close it'),
+  });
+  await submit(page, page.getByRole('button', {name: 'Close it'}));
+  await go(page, `${SL}/c/DEMO-C001?${demo}&as=marta`);
+  await shoot(page, 'c001-closed', {...caseBoxes, done: css('div.done-line'), 'closed-tag': css('span', 'Closed: solved before any dispute')});
+
+  console.log("Ticketbook #2001, as Marta");
   await go(page, `${TB}/t/2001?as=marta&film=1`);
-  const tb2001 = {
+  await shoot(page, 'tb-2001', {
     email: css('article.msg'),
     panel: css('section.sl'),
     verdict: css('section.sl p.rec'),
-    approve: (p) => p.getByRole('button', {name: /^Approve as Marta/}),
     'open-sl': (p) => p.getByRole('link', {name: 'Open in Second Look'}),
-  };
-  await shoot(page, 'tb-2001', tb2001);
+  });
 
-  console.log('Second Look, as Marta');
-  await go(page, `${SL}/d/DEMO-031?as=marta&shop=demo&film=1`);
-  await shoot(page, 'sl-031', {
-    timeline: css('ol.ruler'),
+  console.log("Dario's dispute, as Marta");
+  await go(page, `${SL}/d/DEMO-031?${demo}&as=marta`);
+  await shoot(page, 'd031', {
+    ...caseBoxes,
+    delivered: tracked('delivered'),
     'ships-to': ev('Ships to'),
-    delivery: ev('Tracking'),
-    history: ev('This buyer'),
+    'paypal-address': css('li.check', "Delivered to the buyer's PayPal address"),
+    buyer: ev('This buyer'),
     costs: css('details.costs'),
-    where: css('header.top'),
+    approve: btn('Approve: defend with evidence'),
   });
+  await submit(page, page.getByRole('button', {name: 'Approve: defend with evidence'}));
+  await go(page, `${SL}/d/DEMO-031?${demo}&as=marta`);
+  await shoot(page, 'd031-sent', {...caseBoxes, done: css('div.done-line')});
 
-  console.log('Marta approves #2001 in Ticketbook');
-  await go(page, `${TB}/t/2001?as=marta&film=1`);
-  await Promise.all([page.waitForURL(/\/t\/2001\?.*flash=/), page.getByRole('button', {name: /^Approve as Marta/}).click()]);
-  await shoot(page, 'tb-2001-sent', {
-    flash: css('p.flash'),
-    'history-line': css('.history li', 'answer sent to PayPal by Marta'),
-    panel: css('section.sl'),
+  console.log("Pablo's case, as Marta, then Giulia");
+  await go(page, `${SL}/c/DEMO-C003?${demo}&as=marta`);
+  await shoot(page, 'c003', {
+    ...caseBoxes,
+    email: said('Email in'),
+    opened: said('PayPal dispute opened'),
+    'paypal-in': said('PayPal in'),
+    right: css('section.verdict p', 'The buyer is right'),
+    pass: btn('Pass to Giulia'),
+    'pass-row': css('div.approve', 'Pass to Giulia'),
   });
-
-  console.log('Marta passes #2004 to Giulia');
-  await go(page, `${TB}/t/2004?as=marta&film=1`);
-  await shoot(page, 'tb-2004', {
-    email: css('article.msg'),
-    'your-call': css('section.sl p.rec', 'Your call'),
-    'ai-says': css('section.sl p.soft', "The AI's own answer"),
-    pass: (p) => p.getByRole('button', {name: 'Pass to Giulia'}),
-    'pass-says': css('section.sl form p.note'),
-    panel: css('section.sl'),
-  });
-  await Promise.all([page.waitForURL(/\/t\/2004\?.*flash=/), page.getByRole('button', {name: 'Pass to Giulia'}).click()]);
-  await shoot(page, 'tb-2004-passed', {
-    flash: css('p.flash'),
-    'history-line': css('.history li', 'passed to Giulia by Marta'),
-    panel: css('section.sl'),
-  });
-
-  console.log('Second Look, as Giulia');
-  await go(page, `${SL}/?shop=demo&as=giulia&view=mine&film=1`);
-  const row034 = (p) => p.locator('li', {has: p.locator('a[href="/d/DEMO-034"]')});
-  await shoot(page, 'sl-list-giulia', {
-    'row-034': row034,
-    'owner-034': (p) => row034(p).locator('span.owner'),
-    where: css('header.top'),
-  });
-
-  await go(page, `${SL}/d/DEMO-034?as=giulia&film=1`);
-  const approve034 = (p) => p.getByRole('button', {name: 'Approve: refund in full (89.00 EUR)'});
-  await shoot(page, 'sl-034-giulia', {
-    note: css('section.look div.guard', 'Marta suggests'),
-    reply: css('textarea#reply'),
+  await submit(page, page.getByRole('button', {name: 'Pass to Giulia'}));
+  await go(page, `${SL}/c/DEMO-C003?${demo}&as=marta`);
+  await shoot(page, 'c003-passed', {...caseBoxes, done: css('div.done-line')});
+  await go(page, `${SL}/c/DEMO-C003?${demo}&as=giulia`);
+  const approve034 = btn('Approve: refund in full (89.00 EUR)');
+  await shoot(page, 'c003-giulia', {
+    ...caseBoxes,
     approve: approve034,
-    where: css('header.top'),
+    'approve-row': css('div.approve', 'Approve: refund in full'),
+    note: css('section.look div.guard', 'Marta'),
   });
-  console.log('Giulia approves DEMO-034');
-  await Promise.all([page.waitForURL(/\/d\/DEMO-034$/), approve034(page).click()]);
-  await go(page, `${SL}/d/DEMO-034?as=giulia&film=1`);
-  await shoot(page, 'sl-034-sent', {
-    sent: css('section.look div.sent', 'Sent by Giulia'),
+  await submit(page, approve034(page));
+  await go(page, `${SL}/c/DEMO-C003?${demo}&as=giulia`);
+  await shoot(page, 'c003-refunded', {...caseBoxes, done: css('div.done-line')});
+
+  console.log('Numbers, as Giulia');
+  await go(page, `${SL}/numbers?${demo}&as=giulia`);
+  const row = (t) => css('table.compare tr', t);
+  await shoot(page, 'numbers', {
+    where: css('header.top'),
+    table: css('table.compare'),
+    requests: row('Requests, every channel'),
+    solved: row('Solved before any PayPal dispute'),
+    staff: row('Staff time'),
+    money: row('Money given back'),
+    fees: row('PayPal dispute fees'),
+    export: css('a.export'),
   });
 
-  await go(page, `${SL}/overview?shop=demo&as=giulia&film=1`);
-  await shoot(page, 'sl-overview', {
-    exposure: css('section.exposure'),
-    meter: css('section.meter-box'),
-    where: css('header.top'),
+  console.log('Bookbox');
+  await page.waitForTimeout(1500);   // the books are posted in the background
+  await go(page, `${BB}/`);
+  await shoot(page, 'bookbox', {
+    head: css('header'),
+    title: css('h1'),
+    table: css('table'),
+    'row-1': css('tbody tr'),
   });
 
   console.log('Live: PayPal sandbox (up to 60 s)');
   try {
     await go(page, `${SL}/d/PP-R-UCT-10193281?shop=live&film=1`, 60000);
-    await shoot(page, 'sl-live', {
+    await shoot(page, 'live', {
       where: css('header.top'),
       mode: css('header.top span.mode'),
       said: css('ol.talk'),
       reply: css('ol.talk li.you'),
       proof: css('ol.talk li.proof'),
+      done: css('div.done-line'),
     });
   } catch (err) {
-    result.errors['sl-live'] = String(err.message || err);
-    console.log(`  sl-live ERROR: ${result.errors['sl-live']}`);
+    result.errors['live'] = String(err.message || err);
+    console.log(`  live ERROR: ${result.errors['live']}`);
   }
 }
 
 // ---------- run ----------
-for (const [port, name] of [[8765, 'Second Look'], [8766, 'Ticketbook']]) {
+for (const [url, name] of [[SL, 'Second Look'], [TB, 'Ticketbook'], [BB, 'Bookbox']]) {
   try {
-    await fetch(`http://127.0.0.1:${port}/`, {signal: AbortSignal.timeout(5000)});
+    await fetch(`${url}/`, {signal: AbortSignal.timeout(5000)});
   } catch {
-    console.error(`${name} isn't answering on :${port}. Start it first.`);
+    console.error(`${name} isn't answering on ${url}. Start it first.`);
     process.exit(2);
   }
 }
 
 const before = snapshot();
 const sums = backup();
-console.log('Backed up (SHA-1):');
-for (const [f, s] of Object.entries(sums)) console.log(`  ${s ?? '(absent)'.padEnd(40)}  ${f}`);
+console.log(`Backed up ${Object.keys(sums).length} files of ${relative(HERE, join(ROOT, '.tmp')) || '.tmp'} (SHA-1)`);
 mkdirSync(OUT, {recursive: true});
 
 let failed = null;
@@ -256,6 +297,7 @@ try {
     return route.continue();
   });
   const page = await ctx.newPage();
+  page.on('dialog', (d) => d.accept());
   await walkThrough(page);
 } catch (err) {
   failed = err;
