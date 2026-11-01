@@ -542,6 +542,19 @@ def test_every_agent_s_name_carries_their_role():
     assert {a["id"]: a["role"] for a in tickets["agents"]} == team       # Ticketbook names the team as the shop does
 
 
+
+def test_ticket_times_are_saved_in_utc_and_shown_on_the_shop_s_clock():
+    # 31/10, Claudia: Ticketbook said 07:41 where Second Look's signature said 09:41 for the same moment
+    from zoneinfo import ZoneInfo
+    from helpdesk import app as hd
+    rome = hd.zone("Europe/Rome")
+    assert rome == ZoneInfo("Europe/Rome") and hd.zone("Nowhere/Atlantis") is None and hd.zone(None) is None
+    assert hd.when("2026-10-20T07:41:00Z", rome) == "20 Oct, 09:41"
+    assert hd.when("2026-10-26T07:41:00Z", rome) == "26 Oct, 08:41"          # after the clocks went back
+    assert hd.when("not a time", rome) == "not a time" and hd.when(None) == ""
+    tickets = json.loads((Path(__file__).resolve().parent.parent / "helpdesk" / "tickets.json").read_text())
+    assert tickets["time_zone"] == "Europe/Rome"                              # the demo shop's own clock
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

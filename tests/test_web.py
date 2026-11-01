@@ -3,6 +3,7 @@ import html
 import json
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -663,50 +664,6 @@ def test_the_api_gives_each_check_its_group_and_label():
 
 
 
-def _marks(html_):
-    """(label, row, x%) for each mark of a rendered timeline."""
-    import re
-    rows = {"": 0, " lift": 1, " lift2": 2, " low": 3}
-    return [(lab, rows[lift], float(x)) for lift, x, lab in
-            re.findall(r'<li class="mark( lift2| lift| low|)(?: hot)?" style="left:([0-9.]+)%"><span class="lab"><b>([^<]+)</b>', html_)]
-
-
-def test_timeline_labels_that_would_touch_never_share_a_row():
-    # DEMO-031 on 23/10: "Paid" and "Delivered" were 10% apart on the same row, and their dates ran
-    # together ("09 Oct, 19:4013 Oct"), because only the previous mark was checked.
-    c = {"dispute": {"create_time": "2026-10-18T21:14:00Z", "seller_response_due_date": "2026-11-07T21:14:00Z",
-                     "disputed_transactions": [{"create_time": "2026-10-09T19:40:00Z"}]},
-         "seller_records": {"order_date": "2026-10-09T19:40:00Z",
-                            "tracking": {"shipped_date": "2026-10-10", "last_update": "2026-10-13", "status": "DELIVERED"}}}
-    marks = _marks(web.timeline(c))
-    assert [m[0] for m in marks] == ["Paid", "Shipped", "Delivered", "Dispute opened", "Your reply due"]
-    for i, a in enumerate(marks):
-        for b in marks[i + 1:]:
-            if abs(a[2] - b[2]) < web.LABEL_ROOM:
-                assert a[1] != b[1], (a, b)
-    assert {m[0]: m[1] for m in marks}["Paid"] == 0 and {m[0]: m[1] for m in marks}["Dispute opened"] == 0
-
-
-def test_label_rows_fill_from_below_and_share_the_last_row_only_when_all_are_taken():
-    assert web.label_row(50, ([], [], [], [])) == 0
-    assert web.label_row(50, ([45], [], [], [])) == 1
-    assert web.label_row(50, ([45], [48], [], [])) == 2
-    assert web.label_row(50, ([45], [48], [52], [])) == 3       # lower below the line
-    assert web.label_row(50, ([40], [48], [52], [49])) == 0     # all taken: the furthest neighbour (10 away)
-    assert web.label_row(90, ([45], [48], [52], [49])) == 0     # far from all: below the line
-
-
-def test_four_events_close_together_get_four_rows_and_a_deeper_ruler():
-    # DEMO-035: paid, shipped, last tracking and the dispute all inside 11% of the ruler.
-    c = {"dispute": {"create_time": "2026-10-18T08:12:00Z", "seller_response_due_date": "2026-11-07T08:12:00Z",
-                     "disputed_transactions": [{"create_time": "2026-10-15T19:54:00Z"}]},
-         "seller_records": {"order_date": "2026-10-15T19:54:00Z",
-                            "tracking": {"shipped_date": "2026-10-16", "last_update": "2026-10-17", "status": "IN_TRANSIT"}}}
-    html_ = web.timeline(c)
-    assert sorted(m[1] for m in _marks(html_)[:4]) == [0, 1, 2, 3] and 'class="ruler deep"' in html_
-    assert 'class="ruler deep"' not in web.timeline({**c, "dispute": {**c["dispute"], "create_time": "2026-10-25T08:12:00Z"}})
-
-
 def test_a_page_is_marked_with_the_section_it_says_not_one_guessed_from_its_text():
     # 23/10: the demo list's intro says "four people in customer care", and the page was marked Overview.
     def current(html_):
@@ -839,8 +796,7 @@ def test_the_header_wraps_on_a_phone_instead_of_making_the_page_scroll_sideways(
     html_ = web.page("Numbers | Second Look", "", "<p>x</p>", here="numbers")
     narrow = " ".join(re.findall(r"@media \(max-width:700px\)\{(.*?)\}\}", html_, re.S))
     for rule in (r"header\.top\{[^}]*flex-wrap:wrap", r"\.who-am-i\{[^}]*flex-wrap:wrap", r"header\.top nav\{[^}]*flex-wrap:wrap",
-                 r"\.ev\{grid-template-columns:minmax\(0,1fr\) auto\}",          # evidence: the source tag under, not off
-                 r"\.ruler \.mark:last-child \.lab\{[^}]*translateX\(-100%\)"):    # the timeline's last label ends inside
+                 r"\.ev\{grid-template-columns:minmax\(0,1fr\) auto\}"):         # evidence: the source tag under, not off
         assert re.search(rule, narrow), rule
     assert ".case{grid-template-columns:minmax(0,1fr)}" in html_        # a case page's one column shrinks to the screen
 
@@ -1250,6 +1206,59 @@ def test_a_record_that_appears_between_the_page_and_the_click_refuses_the_move()
         b.case["seller_records"].update(REPEAT)                    # not something the review saw: only the rules catch it
         code, text = web.approve("X", "REFUND", "Your refund is on its way.", by="giulia", review=mark, move=True)
         assert code == 409 and "a buyer who disputes far more than usual" in text and b.sent == []
+
+
+def test_a_fact_tracked_and_verified_shows_is_not_repeated_in_the_evidence():
+    # 31/10, Claudia: a dispute page said the order's dates three times (the verified box, a date strip, the table)
+    d = {"dispute_id": "X-1", "reason": "MERCHANDISE_OR_SERVICE_NOT_RECEIVED", "create_time": "2026-10-19T10:00:00Z",
+         "dispute_amount": {"value": "58.00", "currency_code": "EUR"}}
+    tr = {"carrier": "OTHER", "carrier_name_other": "Local courier", "tracking_number": "LC1",
+          "shipped_date": "2026-10-03", "status": "DELIVERED", "last_update": "2026-10-05"}
+    r = {"order_date": "2026-10-02T19:40:00Z", "items": [{"name": "Apron", "qty": 2}], "tracking": tr,
+         "ship_to": "Via Mazzini 14", "handling_time_promised": "ships within 2 business days",
+         "sources": {"tracking": "PayPal tracking", "ship_to": "PayPal Transaction Search"}}
+    said = web.tracked_says(d, r, None)
+    assert said == {"order_date", "items", "tracking"}
+    assert "Disputed: 58.00 EUR, Apron × 2" in [x[3] for x in web.tracked_rows(d, r, [], None, None)]   # the quantity moves with it
+    table = web.evidence(r, said=said)
+    assert "Via Mazzini 14" in table and "ships within 2 business days" in table
+    assert ">Ordered<" not in table and ">Items<" not in table and ">Tracking<" not in table
+    # tracking with nothing the box can say (no dates): the table still says it
+    assert "tracking" not in web.tracked_says(d, {**r, "tracking": {"tracking_number": "LC1"}}, None)
+    # nothing left: no table at all, so the page shows no empty heading
+    assert web.evidence({"order_date": "2026-10-02", "sources": {}}, said={"order_date"}) == ""
+    assert not hasattr(web, "timeline") and not hasattr(web, "label_row")      # the date strip is gone
+
+
+def test_every_time_shown_is_on_the_shop_s_clock_and_one_moment_reads_the_same_everywhere():
+    # 31/10, Claudia: one page said 07:41 (a saved UTC time, shown as it was) and 09:41 (the signature, the computer's
+    # clock) for the same moment. The demo shop is in Bologna: Rome, +2 until 25 Oct 2026, +1 after.
+    from secondlook import cases as cases_mod
+    assert web._when("2026-10-20T07:41", "demo") == "20 Oct, 09:41"                    # a timeline's UTC time
+    with cases_mod.clock("2026-10-20T07:41"):
+        now = web.shop_now("demo")
+        assert f"{now:%H:%M}" == "09:41"                                                 # "Sent by Marta, 09:41"
+        assert web._utc_minute(now.isoformat(timespec="minutes"), "demo") == "2026-10-20T07:41"   # its `at`, back
+    assert f'{web.on_shop_clock("2026-10-24T07:41:00Z", "demo"):%H:%M}' == "09:41"        # summer time
+    assert f'{web.on_shop_clock("2026-10-26T07:41:00.000Z", "demo"):%H:%M}' == "08:41"    # winter time, PayPal's millis
+    assert web._utc_minute("2026-10-26T08:41", "demo") == "2026-10-26T07:41"
+    assert web._utc_minute("2026-10-20T09:41+02:00", "demo") == "2026-10-20T07:41"        # its own offset wins
+    assert web.on_shop_clock("2026-10-13", "demo") == datetime(2026, 10, 13)               # a bare date: no hour to move
+    assert web.on_shop_clock("soon", "demo") is None and web._when("", "demo") == ""
+    # no setting, or a zone this computer can't read: the computer's clock, as before
+    kept = web._live_shop
+    try:
+        for terms in ({}, {"time_zone": "Nowhere/Atlantis"}):
+            web._live_shop = lambda terms=terms: terms
+            assert web.shop_zone("live") is None
+            mine = datetime(2026, 10, 20, 7, 41, tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+            assert web.on_shop_clock("2026-10-20T07:41", "live") == mine
+            assert web._utc_minute(mine.isoformat(timespec="minutes"), "live") == "2026-10-20T07:41"
+        web._live_shop = lambda: {"time_zone": "Europe/Rome"}
+        assert web._when("2026-10-20T07:41", "practice") == "20 Oct, 09:41"             # practice: the live shop's
+    finally:
+        web._live_shop = kept
+    assert web.shop_zone("demo").key == "Europe/Rome"
 
 
 def test_a_move_box_is_never_pre_filled_with_the_ai_s_draft_for_another_answer():

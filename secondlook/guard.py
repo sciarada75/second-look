@@ -324,7 +324,10 @@ def may_approve(recommended: str, chosen: str, drafted_for: str | None = None, s
 
 
 # The moves a person may choose from the catalog (moves.py). PARTIAL_REFUND isn't one: its amount is the AI's.
-CATALOG = ("MESSAGE", "REFUND", "REPLACE", "DEFEND")
+CATALOG = ("MESSAGE", "REFUND", "REPLACE", "DEFEND", "RETURN")
+# A move judged by the rules as another action: refund on return sends a reply now and no money (moves.py), so it is
+# judged as a reply; the money rules judge the refund later, when the item is back.
+JUDGED_AS = {"RETURN": "MESSAGE"}
 
 
 def move_stops(chosen: str, j: Judgment, policy: dict, dispute: dict, records: dict) -> list:
@@ -335,6 +338,7 @@ def move_stops(chosen: str, j: Judgment, policy: dict, dispute: dict, records: d
     it measures the AI's own answer, not a person's choice. Rule 4 is the shop's preference for the AI's own answer;
     re-run here it would turn the person's move into DEFEND and skip every money rule (found in review, 30/10).
     Run it at approval time, on the case as it is then."""
+    chosen = JUDGED_AS.get(chosen, chosen)
     return apply_policy(dataclasses.replace(j, action=chosen, confidence=1.0, partial_amount=None),
                         {**policy, "defend_if_delivered_to_paypal_address": False}, dispute, records).stops
 
@@ -345,5 +349,7 @@ def may_send_move(chosen: str, stops: Sequence[str], inquiry: bool = False) -> b
     any answer. Rule 4 (delivered to the PayPal address: defend) records no stop: a person may still choose to refund.
     `inquiry`: a shop request has no claim to defend, so DEFEND is refused there."""
     if chosen == "DEFEND" and inquiry:
+        return False
+    if chosen == "RETURN" and not inquiry:      # a PayPal dispute: PayPal runs its own returns
         return False
     return chosen in CATALOG and not (set(stops) - SIZE_STOPS)

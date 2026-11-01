@@ -78,5 +78,7 @@ tickets.sort(key=lambda t: t["messages"][0]["at"], reverse=True)
      # the shop's customer care team, with each person's role as the shop names it (demo/shop.json)
      "agents": [{"id": pid, "name": p["name"], "role": p["role"]} for pid in ("marta", "luca", "sara", "giulia")
                 for p in shop["shop"]["team"]["people"] if p["id"] == pid],
+     # the helpdesk account's clock, set to the shop's: ticket times are saved in UTC and shown on it
+     "time_zone": shop["shop"].get("time_zone"),
      "tickets": tickets}, indent=1, ensure_ascii=False) + "\n")
 print(f"tickets.json: {len(tickets)} tickets")

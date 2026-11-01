@@ -29,6 +29,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 from . import autopilot as autopilot_mod, books as books_mod, calls as calls_mod, cases as cases_mod, evidence as evidence_mod, judge as judge_mod, ledger, moves as moves_mod, sort as sort_mod, state as state_mod, team as team_mod, today as today_mod
@@ -847,7 +848,7 @@ def _with_sent_reply(tl: list, did: str) -> list:
     text = (raw.get("judgment") or {}).get("draft_message")
     if not _reply_went(raw) or any(x["direction"] == "out" and x.get("text") == text for x in tl):
         return tl
-    at = _utc_minute(raw["at"]) if raw.get("at") else (tl[-1]["at"] if tl else None)
+    at = _utc_minute(raw["at"], src_of_case(did, "live")) if raw.get("at") else (tl[-1]["at"] if tl else None)
     by = raw.get("by") or "You"
     # Second Look's AI signs what it sent on its own ("Second Look's AI, under Giulia's setting"): its voice, nobody's minutes
     sent = cases_mod.entry(at, "paypal", "out", text, by, sent_with=SENT_WITH.get(raw.get("chosen"), ""),
@@ -950,6 +951,40 @@ def _live_shop() -> dict:
     return json.loads(f.read_text()) if f.exists() else {}
 
 
+def _return_of(c: dict, o: dict | None) -> tuple:
+    """(the order's return record, it reached the shop, it is this case's own): the courier's record of the return, or
+    the shop's own; this case's when recorded against it, or sent or received from the day it opened (review 25/10)."""
+    ret = ((o or {}).get("return") or {})
+    to_shop = not ret.get("delivered_to") or "shop" in str(ret["delivered_to"]).lower()
+    returned = (ret.get("status") == "DELIVERED" and to_shop) or bool(ret.get("received_at_shop"))
+    when = str(ret.get("shipped_date") or ret.get("received_at_shop") or ret.get("last_update") or "")[:10]
+    tied = (ret.get("case_id") == c["id"] or ret.get("source_id") in {x.get("source_id") for x in c["timeline"] if x.get("source_id")}
+            or bool(when) and when >= str(c["opened"])[:10])
+    return ret, returned, tied
+
+
+def item_back(src: str, c: dict | None) -> bool:
+    """This shop request's own return is back at the shop (_return_of), read from the shop's orders."""
+    if not c or not c.get("order_no"):
+        return False
+    o = _raw_order(src, c["order_no"])
+    _, returned, tied = _return_of(c, sort_mod.order_view(o) if o else None)
+    return returned and tied
+
+
+def asked_return(c: dict | None) -> bool:
+    """The shop's last answer on this request asked for the item back (refund on return, moves.py RETURN)."""
+    outs = [x for x in (c or {}).get("timeline", []) if x.get("direction") == "out"]
+    return bool(outs) and outs[-1].get("action") == "ask_return"
+
+
+def _policy_days(src: str, pattern: str) -> int | None:
+    """A number of days the shop's returns policy says (shop terms, free text): its return window, its refund days."""
+    terms = DemoPayPal().shop if src == "demo" else _live_shop()
+    m = re.search(pattern, str(terms.get("return_policy") or ""))
+    return int(m.group(1)) if m else None
+
+
 def inquiry_case(cid: str) -> dict:
     """An inquiry as the review and the approval read a case: a "dispute" (the guard's input: the amount at stake
     and the customer's messages, which the guard reads for hidden instructions), its "seller_records" (the order,
@@ -988,12 +1023,7 @@ def inquiry_case(cid: str) -> dict:
     # courier's record of the return, or the shop's own); until then, and with no postage on record, full price.
     # Only for this case's own exchange (review 25/10): a wrong size, a return tied to this case (recorded against
     # it, or sent or received from the day it opened), delivered to the shop, and not yet used by a replacement.
-    ret = (o.get("return") or {}) if o else {}
-    to_shop = not ret.get("delivered_to") or "shop" in str(ret["delivered_to"]).lower()
-    returned = (ret.get("status") == "DELIVERED" and to_shop) or bool(ret.get("received_at_shop"))
-    when = str(ret.get("shipped_date") or ret.get("received_at_shop") or ret.get("last_update") or "")[:10]
-    tied = (ret.get("case_id") == cid or ret.get("source_id") in {x.get("source_id") for x in c["timeline"] if x.get("source_id")}
-            or bool(when) and when >= str(c["opened"])[:10])
+    ret, returned, tied = _return_of(c, o)
     shop = DemoPayPal().shop if v["src"] == "demo" else _live_shop()
     postage = _num((shop.get("costs") or {}).get("postage"))
     if ret:
@@ -1143,7 +1173,9 @@ class Outbox:
 
         def change(c):
             c["timeline"].append(cases_mod.entry(None, ch, "out", text, self.by, ai=self.ai, action=action,
-                                                 **({"autopilot": True} if self.autopilot else {})))
+                                                 **({"autopilot": True} if self.autopilot else {}),
+                                                 **({"sent_with": "asked for the item back"}
+                                                    if action == "ask_return" else {})))
             if money:
                 c["money"].append({**money, **sent, "at": cases_mod.minute(None), "by": self.by})
             if self.request_id:       # a retry PayPal confirmed: its "not confirmed" mark is answered
@@ -1162,6 +1194,10 @@ class Outbox:
 
     def message(self, did, text):
         return self._out("reply", text)
+
+    def ask_return(self, did, text):
+        # refund on return: words only; the refund is logged when a person sends it, once the item is back
+        return self._out("ask_return", text)
 
     def refund(self, did, note):
         return self._out("refund", note, {"kind": "refund", "amount": self.amount})
@@ -1358,7 +1394,7 @@ def confirm_demo_refunds() -> list:
             if not _sent_refund(raw):
                 continue
             # a confirmation belongs to the answer it confirmed: refunded again after a fresh review, it confirms again
-            sent_at = _utc_minute(raw["at"]) if raw.get("at") else ""
+            sent_at = _utc_minute(raw["at"], "demo") if raw.get("at") else ""
             if f.stem not in done or done[f.stem] < sent_at:
                 done[f.stem] = cases_mod.minute(None)
                 new.append(f.stem)
@@ -1376,13 +1412,13 @@ def confirm_demo_refunds() -> list:
 NO_CASE: dict = {}
 
 
-def _answered_at(raw: dict | None, dispute: dict | None) -> str | None:
-    """When the answer Second Look sent went (UTC minute), None if none did."""
+def _answered_at(raw: dict | None, dispute: dict | None, src: str) -> str | None:
+    """When the answer Second Look sent went (UTC minute), None if none did. `src`: the case's shop (its clock)."""
     raw = raw or {}
     if not raw.get("sent"):
         return None
     if raw.get("at"):
-        return _utc_minute(raw["at"])
+        return _utc_minute(raw["at"], src)
     if dispute:
         # sent before `at` was recorded: the answer counts only while the buyer hasn't written beyond what the
         # review saw (no time to compare, so the message count stands in for it)
@@ -1425,7 +1461,7 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
             c = find_case_of_dispute(did)
     raw = _raw(did) or {}
     seen = raw.get("seen") or {}
-    answered_at = _answered_at(raw, dispute)
+    answered_at = _answered_at(raw, dispute, src)
     t = team_for(did)
     a = None if t.get("solo") else assignments_for(did).get(did)
     hand = (a or {}).get("handoff") if isinstance((a or {}).get("handoff"), dict) and not raw.get("sent") else None
@@ -1435,10 +1471,16 @@ def case_state(did: str, dispute: dict | None = None, c: dict | None = None, out
         frm = (p or {}).get("name") or hand.get("from_name") or "a colleague"
     closes = cases_mod.closes_on(c, quiet_days()) if c is not None and dispute is None and not hand else None
     confirmed = _demo_confirmation(did, raw, answered_at)
+    # refund on return: waiting for the item, until the answer's day plus the shop's return window
+    asked = dispute is None and c is not None and bool(raw.get("sent")) and raw.get("chosen") == "RETURN"
+    window = _policy_days(src, r"within (\d+) days") if asked else None
+    on = _t(answered_at) if asked and answered_at else None
+    return_by = (on.date() + timedelta(days=window)) if on and window else None
     st = state_mod.of(c, dispute, today or shop_today(src if src in ("demo", "live") else "live"),
                       answered_at=answered_at, answered_stage=seen.get("stage") if dispute else None,
                       answered_due=raw.get("due"), money_sent=_sent_refund(raw), out_of_date=out_of_date,
-                      holder=(a or {}).get("to"), handoff_from=frm, closes_on=closes, confirmed_at=confirmed)
+                      holder=(a or {}).get("to"), handoff_from=frm, closes_on=closes, confirmed_at=confirmed,
+                      return_asked=asked, return_back=asked and item_back(src, c), return_by=return_by)
     return {**st, "decision_id": did}
 
 
@@ -1609,7 +1651,7 @@ def autopilot_block(src: str, me: str | None) -> str:
                   else f"{n} approved as advised in a row: it needs {s['window']}")
         later = autopilot_mod.split_kind(kind)[0] not in autopilot_mod.SWITCHABLE
         state = (autopilot_mod.NOT_YET if later
-                 else f"On, switched on by {sw.get('by')} on {_when(sw.get('at') or '')}" if k.get("on")
+                 else f"On, switched on by {sw.get('by')} on {_when(sw.get('at') or '', src)}" if k.get("on")
                  else "Ready: off until it is switched on" if ready
                  else "Off" + (f": {off['why']}" if off.get("why") else ""))
         switch = (f'<form method="post" action="/autopilot/switch"><input type="hidden" name="kind" value="{e(kind)}">'
@@ -1738,7 +1780,8 @@ CHANGED_INQUIRY = {"buyer_messages": "the customer wrote again", "stage": "the c
                    "tracking": "the courier's tracking changed", "ship_to": "the delivery address changed",
                    "who": "the case is now about another customer or order",
                    "words": "the customer's words changed (a call's transcript was updated)",
-                   "return": "the returned item reached the shop"}
+                   "return": "the returned item reached the shop",
+                   "returned": "the returned item is back at the shop"}
 
 
 def _seen(case: dict) -> dict:
@@ -1752,6 +1795,11 @@ def _seen(case: dict) -> dict:
         said = "\n".join(m.get("content") or "" for m in d.get("messages", []) if m.get("posted_by") == "BUYER")
         seen["words"] = hashlib.sha256(said.encode("utf-8")).hexdigest()[:16]
         seen["return"] = d.get("exchange_cost")             # the returned item reached the shop since
+        # refund on return (31/10): the item asked back reaching the shop brings the case back to a person
+        cid = case["inquiry"].get("case_id")
+        c = case_store(shop_of_case(cid)).get(cid) if cid else None
+        if asked_return(c) and item_back(shop_of_case(cid), c):
+            seen["returned"] = True
     if r.get("refund_logged_on_case"):   # only then: a dispute whose case logged no money sees exactly what it saw
         seen["case_refund"] = r.get("refunded_so_far")
         seen["case_refund_paid"] = bool(r.get("refund_paid"))
@@ -1780,6 +1828,8 @@ def _changes(dispute_id: str, case: dict) -> list:
     out = [k for k in words if seen.get(k) != now.get(k)]
     if "buyer_messages" in out and "words" in out:
         out.remove("words")                           # a new message: "the customer wrote again" says it
+    if "return" in out and "returned" in out:
+        out.remove("return")                          # one arrival, said once
     return [words[k] for k in out]
 
 
@@ -1797,68 +1847,15 @@ def _t(iso):
             return None
 
 
-def _gap(a: datetime, b: datetime) -> str:
-    s = (b - a).total_seconds()
-    if s < 3600:
-        return f"{max(1, round(s / 60))} minutes later"
-    if s < 2 * 86400:
-        return f"{round(s / 3600)} hours later"
-    return f"{round(s / 86400)} days later"
-
-
 # ---------- pieces ----------
 
-def timeline(case: dict) -> str:
-    d, r = case["dispute"], case["seller_records"]
-    tr = r.get("tracking") or {}
-    points = [("Paid", _t(r.get("order_date") or (d.get("disputed_transactions") or [{}])[0].get("create_time"))),
-              ("Dispute opened", _t(d.get("create_time"))),
-              ("Shipped", _t(tr.get("shipped_date"))),
-              ("Delivered" if tr.get("status") == "DELIVERED" else "Last tracking", _t(tr.get("last_update"))),
-              ("Your reply due", _t(d.get("seller_response_due_date")))]
-    points = sorted([p for p in points if p[1]], key=lambda p: p[1])
-    if len(points) < 2:
-        return ""
-    t0, t1 = points[0][1], points[-1][1]
-    span = max((t1 - t0).total_seconds(), 1)
-    marks, prev, rows = [], None, ([], [], [], [])
-    for label, t in points:
-        x = 3 + 94 * (t - t0).total_seconds() / span
-        level = label_row(x, rows)
-        rows[level].append(x)
-        lift = ["", " lift", " lift2", " low"][level]
-        gap = f'<span class="gap">{e(_gap(prev, t))}</span>' if prev and label == "Dispute opened" else ""
-        when = f"{t:%d %b}" if (t.hour, t.minute) == (0, 0) else f"{t:%d %b, %H:%M}"
-        marks.append(f'<li class="mark{lift}{" hot" if gap else ""}" style="left:{x:.2f}%">'
-                     f'<span class="lab"><b>{e(label)}</b><time>{when}</time>{gap}</span></li>')
-        prev = t
-    deep = " deep" if rows[3] else ""  # a fourth row, under the first: the ruler makes room for it
-    return f'<ol class="ruler{deep}" aria-label="Timeline">{"".join(marks)}</ol>'
-
-
-# A label is about 130 px wide on a ruler about 600 px wide: two labels closer than this (in % of the
-# ruler) would touch. Checking only the previous mark let a third label land on the first one's row
-# (DEMO-031: "Paid" and "Delivered" ran together).
-LABEL_ROOM = 24.0
-
-
-def label_row(x: float, rows: tuple) -> int:
-    """The first row (0 below the line, 1 above it, 2 higher above, 3 lower below) with no label within
-    LABEL_ROOM of x.
-    When every row is taken, the row whose nearest label is furthest away."""
-    def room(row):
-        return min((abs(x - other) for other in row), default=float("inf"))
-    for level, row in enumerate(rows):
-        if room(row) >= LABEL_ROOM:
-            return level
-    return max(range(len(rows)), key=lambda level: room(rows[level]))
-
-
-def evidence(r: dict, inquiry: bool = False) -> str:
+def evidence(r: dict, inquiry: bool = False, said: set = frozenset(), src: str = "live") -> str:
+    """The rest of the evidence, each fact tagged with its source. `said`: the facts Tracked and verified shows
+    (tracked_says), never repeated here. Empty when nothing is left."""
     src = r.get("sources", {})
     rows = []
     for k, label in EVIDENCE_LABEL.items():
-        if k not in r and k not in src:
+        if k in said or (k not in r and k not in src):
             continue
         v = r.get(k)
         if k == "items":
@@ -1868,7 +1865,7 @@ def evidence(r: dict, inquiry: bool = False) -> str:
             v = (f'{courier or "Courier"} {v.get("tracking_number")}, {v.get("status", "").lower()}'
                  + (f', {v["delivered_to"]}' if v.get("delivered_to") else "") if v else "none registered yet")
         elif k == "order_date":
-            t = _t(v)
+            t = on_shop_clock(v, src)
             v = f"{t:%d %b %Y, %H:%M}" if t else v
         tag = src.get(k, "practice case")
         tag = {"PayPal Transaction Search": "PayPal order", "seller's notes": "Your notes",
@@ -1883,6 +1880,8 @@ def evidence(r: dict, inquiry: bool = False) -> str:
                     f'<dd class="tag"><span class="src {kind}">{e(tag)}</span></dd></div>')
     for k, why in (r.get("unavailable") or {}).items():
         rows.append(f'<div class="ev missing"><dt>{e(EVIDENCE_LABEL.get(k, k))}</dt><dd>{e(why)}</dd></div>')
+    if not rows:
+        return ""
     legend = ('<p class="legend"><span class="src paypal">PayPal</span> PayPal\'s own records '
               '<span class="src shop">Your shop terms</span> what you published '
               '<span class="src notes">Your notes</span> your word only</p>')
@@ -2021,15 +2020,6 @@ h1.page{{font-size:36px;line-height:1.2;margin:0 0 6px}}
 .case{{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:64px;align-items:start}}
 .claim{{margin:0 0 6px;font-size:44px;line-height:1.15}} .claim::before{{content:"\\201C"}} .claim::after{{content:"\\201D"}}
 .who{{color:var(--soft);margin:0 0 34px}} .case .pill{{margin-bottom:10px}}
-.ruler{{position:relative;list-style:none;margin:30px 0 30px;padding:0;height:190px}}
-.ruler::before{{content:"";position:absolute;left:0;right:0;top:95px;border-top:2px solid var(--ink)}}
-.mark{{position:absolute;top:89px;width:0}}
-.mark::before{{content:"";position:absolute;left:-7px;top:0;width:14px;height:14px;border-radius:50%;background:var(--ink)}}
-.mark .lab{{position:absolute;left:0;top:24px;transform:translateX(-50%);width:170px;text-align:center}}
-.mark.lift .lab{{top:auto;bottom:16px}} .mark.lift2 .lab{{top:auto;bottom:56px}} .mark.low .lab{{top:92px}}
-.ruler.deep{{height:265px}}
-.mark b{{display:block;font-size:15px}} .mark time{{display:block;font-size:14px;color:var(--soft)}}
-.mark.hot::before{{background:var(--incon);box-shadow:0 0 0 5px #F3E3C4}}
 .gap{{display:block;margin-top:2px;font-family:Newsreader,serif;font-style:italic;font-size:19px;color:var(--incon)}}
 h2{{font-size:19px;margin:0 0 14px}}
 .evidence{{margin:0}} .ev{{display:grid;grid-template-columns:150px 1fr 150px;gap:12px;padding:10px 0;border-top:1px solid var(--rule)}}
@@ -2175,9 +2165,7 @@ p.later{{background:#FBEEE6;border-left:4px solid #A8551F;padding:10px 14px;marg
   .who-am-i{{flex-wrap:wrap;gap:10px 16px;min-width:0}} .shop{{padding-left:14px}} .brand small{{display:none}}
   header.top nav{{flex-wrap:wrap;gap:4px}} header.top nav a{{padding:6px 10px}} header.top nav .mode{{margin-left:0}}
   .shop-menu{{left:0;min-width:0;width:calc(100vw - 32px);max-width:300px}}
-  .ev{{grid-template-columns:minmax(0,1fr) auto}} .ev dd:not(.tag){{grid-column:1/3}} .ev dd.tag{{grid-column:1/3;text-align:left}}
-  .ruler .mark .lab{{width:120px}} .ruler .mark:first-child .lab{{transform:none;text-align:left}}
-  .ruler .mark:last-child .lab{{transform:translateX(-100%);text-align:right}}}}
+  .ev{{grid-template-columns:minmax(0,1fr) auto}} .ev dd:not(.tag){{grid-column:1/3}} .ev dd.tag{{grid-column:1/3;text-align:left}}}}
 @media (prefers-reduced-motion:no-preference){{.verdict,.checks{{animation:in .5s ease-out}} @keyframes in{{from{{opacity:0}}}}}}
 </style></head><body>
 <header class="top {context}"><div class="who-am-i"><a class="brand" href="/today">{mark}Second Look<small>Sell without fear.</small></a>{shop}</div>{nav}</header>
@@ -2778,7 +2766,7 @@ def money_block(v: dict, me: str | None) -> str:
             continue
         status = m.get("status") or "logged"
         line = (f'<b>{e(kind.capitalize())} {float(m.get("amount") or 0):.2f} {e(m.get("currency") or cur)}</b> · {e(str(m.get("by") or ""))} · '
-                f'{e(_when(m.get("at") or ""))} · {e(status)}'
+                f'{e(_when(m.get("at") or "", v["src"]))} · {e(status)}'
                 + (f' {e(PAID_WITH.get(m.get("paid_with"), ""))}' if status == "paid" else "")
                 + (f' · {e(m["via"])}' if m.get("via") else ""))
         form = ""
@@ -2844,17 +2832,56 @@ def sent_answers(src: str) -> list:
             continue
         raw = _raw(did) or {}
         if raw.get("sent") and raw.get("at"):
-            out.append(_utc_minute(raw["at"]))
+            out.append(_utc_minute(raw["at"], src))
     return out
 
 
-def _utc_minute(at) -> str:
-    """A review's `at` (an approval's local time, as it is shown: "Sent by Giulia, 11:47") in UTC, as every other
-    time here is ("2026-10-19T08:52"); one with its own offset is converted from it."""
+# ---------- the shop's clock ----------
+# Second Look saves times in UTC ("2026-10-20T07:41"), except an answer's `at` and a handoff's, saved on the shop's
+# clock as they are signed ("Sent by Giulia, 09:41"). Every time a page shows is on the shop's clock: its terms'
+# "time_zone" (demo/shop.json, shop.json), else the computer's (no setting, or no time-zone data on this computer:
+# Python on Windows has none without the tzdata package). Claudia, 31/10: one page said 07:41 and 09:41 for one moment.
+
+def shop_zone(src: str):
+    """The shop's time zone, or None: the computer's clock. `src`: "demo", or the live shop's (live, practice)."""
+    name = (DemoPayPal().shop if src == "demo" else _live_shop()).get("time_zone")
+    try:
+        return ZoneInfo(name) if name else None
+    except (KeyError, ValueError, OSError):      # ZoneInfoNotFoundError is a KeyError
+        return None
+
+
+def shop_now(src: str) -> datetime:
+    """Now on the shop's clock, as an answer is signed: the demo morning's when its clock is set."""
+    return cases_mod.now().replace(tzinfo=timezone.utc).astimezone(shop_zone(src)).replace(tzinfo=None)
+
+
+def on_shop_clock(at, src: str) -> datetime | None:
+    """A saved UTC time ("2026-10-20T07:41", "…:00Z", or one with its own offset) on the shop's clock, to show.
+    A bare date has no hour to move: as it is. None: unreadable."""
+    s = str(at or "").strip()
+    if len(s) <= 10:
+        return _t(s)
+    try:
+        t = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        t = _t(s)
+        if t is None:
+            return None
+    t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    return t.astimezone(shop_zone(src)).replace(tzinfo=None)
+
+
+def _utc_minute(at, src: str) -> str:
+    """An answer's or a handoff's `at` (the shop's clock, as signed: "Sent by Giulia, 09:41") in UTC, as every other
+    time here is ("2026-10-20T07:41"); one with its own offset is converted from it."""
     try:
         t = datetime.fromisoformat(str(at)[:25])
     except ValueError:
         return cases_mod.minute(at)
+    if t.tzinfo is None:
+        z = shop_zone(src)
+        t = t.replace(tzinfo=z) if z else t.astimezone()    # no zone: the computer's clock, as it was signed
     return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M")
 
 
@@ -2906,10 +2933,10 @@ def today_view(src: str, me: str | None = None, look: bool = True) -> dict:
     buckets["done"] += today_mod.closed_today(
         cases, orders, today,
         lambda i: i not in in_done and (solo or (assigned.get(i) or {}).get("to") == me_id or (head and i in ai_ids)))
-    # today you handled: the answers this person sent today (the computer's day: the demo's clicks are real), at the
+    # today you handled: the answers this person sent today (the shop's day: the demo's clicks are real), at the
     # shop's reply minutes each, the same estimate as a case's cost
     name = (who or {}).get("name")
-    day, sent_today = _local_now().date().isoformat(), set()
+    day, sent_today = shop_now(src).date().isoformat(), set()
     for i in [*states, *(x["id"] for x in buckets["done"])]:
         raw = _raw(i) or {}
         by = raw.get("by")
@@ -3255,7 +3282,7 @@ def today_page(src: str, me: str | None = None, done: str = "") -> str:
     q = "?shop=demo" if demo else ""
     t = v["team"]
     person = None if t.get("solo") else team_mod.person(t, me)
-    hour = 9 if demo else datetime.now().hour          # the demo's clock is a morning
+    hour = 9 if demo else shop_now(src).hour           # the demo's clock is a morning
     hello = ("Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening") + \
         (f", {person.get('name') or person['id']}" if person else "")
     d, s = v["today"], v["see"]
@@ -3305,8 +3332,9 @@ def _channel(ch: str, capital: bool = False) -> str:
     return e(icon) if icon.lower() == label.lower() else f"{e(icon)} {e(shown)}"
 
 
-def _when(at: str) -> str:
-    t = _t(at)
+def _when(at: str, src: str) -> str:
+    """A saved UTC time as a page shows it, on the shop's clock: "20 Oct, 09:41"."""
+    t = on_shop_clock(at, src)
     return f"{t:%d %b, %H:%M}" if t else ""
 
 
@@ -3328,7 +3356,7 @@ def timeline_block(v: dict) -> str:
         # the channel's name after its icon, unless the icon is the name (PayPal): "✉️ Email in", "PayPal in"
         said = " ".join(w for w in ("" if icon.lower() == label.lower() else label[:1].upper() + label[1:], what) if w)
         head = (f'<b><span class="chan" title="{e(label)}">{e(icon)}</span>{" " + e(said) if said else ""} · {who} · '
-                f'{e(_when(x["at"]))}{ai}</b>')
+                f'{e(_when(x["at"], v["src"]))}{ai}</b>')
         subject = f'<span class="t-sub">{e(x["subject"])}</span>' if x.get("subject") else ""
         if x["channel"] == "call" and x.get("minutes"):
             # a call: how long it was (its staff time), and whose words these are: local whisper's, or shipped
@@ -3413,6 +3441,22 @@ TRACK_SAYS = {"DELIVERED": "delivered", "IN_TRANSIT": "in transit", "SHIPPED": "
               "ON_HOLD": "on hold", "RETURNED": "returned to sender"}
 
 
+def _items(items) -> str:
+    return ", ".join(i["name"] + (f' × {i["qty"]}' if (i.get("qty") or 1) > 1 else "") for i in items or [] if i.get("name"))
+
+
+def tracked_says(d: dict | None, records: dict, order: dict | None) -> set:
+    """The evidence facts (EVIDENCE_LABEL keys) tracked_rows shows, with the same arguments: the evidence table
+    leaves them out, so each fact is on the page once."""
+    said = set()
+    if (order and order.get("date")) or (d and records.get("order_date")):
+        said |= {"order_date", "items"}
+    tr = (order or {}).get("tracking") or records.get("tracking") or {}
+    if tr.get("shipped_date") or (tr.get("last_update") and tr.get("status")):
+        said.add("tracking")
+    return said
+
+
 def tracked_rows(d: dict | None, records: dict, money: list, raw: dict | None, order: dict | None) -> list:
     """Tracked and verified (spec Part 3, slot 3): only what a record holds, one (mark, source, ISO date, fact) row
     each, oldest first, each named for the record it comes from: the payment (the shop's orders, or PayPal's dispute),
@@ -3422,11 +3466,11 @@ def tracked_rows(d: dict | None, records: dict, money: list, raw: dict | None, o
     rows = []
     if order and order.get("date"):
         amt = _num(order.get("amount"))
-        items = ", ".join(i["name"] for i in order.get("items", []) if i.get("name"))
+        items = _items(order.get("items"))
         paid = f"Paid: {amt:.2f} {order.get('currency') or 'EUR'}" if amt is not None else "Ordered"
         rows.append(("✓", "Your orders", str(order["date"])[:10], paid + (f", {items}" if items else "")))
     elif d and records.get("order_date"):
-        items = ", ".join(i["name"] for i in records.get("items", []) if i.get("name"))
+        items = _items(records.get("items"))
         a = d["dispute_amount"]
         g = ((d.get("disputed_transactions") or [{}])[0] or {}).get("gross_amount") or {}
         paid = (f'Paid: {float(g["value"]):.2f} {g.get("currency_code") or a.get("currency_code", "EUR")}' if g.get("value")
@@ -3454,7 +3498,7 @@ def tracked_rows(d: dict | None, records: dict, money: list, raw: dict | None, o
         rows.append(("✓", "PayPal", str(d.get("create_time") or "")[:10],
                      f'Dispute opened: {ledger.REASON_SHORT.get(d.get("reason"), d.get("reason")).lower()}'))
         if _dispute_money(raw):
-            confirmed = _demo_confirmation(d["dispute_id"], raw, _answered_at(raw, d))
+            confirmed = _demo_confirmation(d["dispute_id"], raw, _answered_at(raw, d, src_of_case(d["dispute_id"], "live")))
             said = ("confirmed (demo: simulated)" if confirmed else "confirmed by PayPal" if d.get("status") == "RESOLVED"
                     else "waiting for PayPal to confirm")
             rows.append(("◷" if said.startswith("waiting") else "✓", "PayPal", str((raw or {}).get("at") or "")[:10],
@@ -3542,7 +3586,9 @@ def case_file_page(cid: str, me: str | None = None, flash: str = "") -> str:
         right = _pick_form(cid, me, c["sorted"]["how"] or "")
     else:
         case = _case(cid)
-        left += f'<h2>What the evidence says</h2>{evidence(case["seller_records"], inquiry=True)}' if o else ""
+        ev = evidence(case["seller_records"], inquiry=True, src=v["src"],
+                      said=tracked_says(d, dcase["seller_records"] if d else {}, o)) if o else ""
+        left += f'<h2>What the evidence says</h2>{ev}' if ev else ""
         top, side = side_box(cid, case, c, me, plain_owner=False)
         right = (ai_check_form(v["src"], cid, me, f"/c/{cid}") + side
                  + (_close_form(cid, me) if c["status"] == "open" else ""))
@@ -3585,9 +3631,9 @@ EVIDENCE_KIND = {"PROOF_OF_FULFILLMENT": "proof of shipment or delivery", "PROOF
                  "PROOF_OF_RETURN": "proof of return"}
 
 
-def conversation(d: dict, signed: dict | None = None) -> str:
+def conversation(d: dict, signed: dict | None = None, src: str = "live") -> str:
     """Everything said and sent on this case, in order: a seller must see whether they already answered.
-    In a team, `signed` ({"by", "at", "text"}) names who sent the answer from here."""
+    In a team, `signed` ({"by", "at", "text"}) names who sent the answer from here. Times on `src`'s shop clock."""
     items = [(m.get("time_posted") or "", "buyer" if m.get("posted_by") == "BUYER" else "you",
               "Buyer" if m.get("posted_by") == "BUYER" else "You", m.get("content", "")) for m in d.get("messages", [])]
     if signed and signed.get("text"):
@@ -3596,7 +3642,7 @@ def conversation(d: dict, signed: dict | None = None) -> str:
         if mine:  # PayPal already shows the message: sign it
             items[mine[-1]] = items[mine[-1]][:2] + (who,) + items[mine[-1]][3:]
         else:     # not in PayPal's record (yet, or a practice/demo case): show what was sent
-            items.append((signed.get("at") or "~", "you", who, signed.get("text") or ""))
+            items.append((_utc_minute(signed["at"], src) if signed.get("at") else "~", "you", who, signed.get("text") or ""))
     for ev in d.get("evidences", []):
         if ev.get("source") == "SUBMITTED_BY_SELLER":
             kind = EVIDENCE_KIND.get(ev.get("evidence_type"), str(ev.get("evidence_type", "evidence")).lower().replace("_", " "))
@@ -3604,8 +3650,8 @@ def conversation(d: dict, signed: dict | None = None) -> str:
     if not items:
         return ""
     rows = []
-    for when, cls, who, text in sorted(items, key=lambda x: x[0]):
-        t = _t(when)
+    for when, cls, who, text in sorted(items, key=lambda x: x[0]):      # all UTC now, so in order as text
+        t = on_shop_clock(when, src)
         stamp = f", {t:%d %b, %H:%M}" if t else ""
         body = f"<q>{e(text)}</q>" if cls != "proof" else f"<span>{e(text)}</span>"
         rows.append(f'<li class="{cls}"><b>{e(who)}{stamp}</b>{body}</li>')
@@ -3695,13 +3741,18 @@ def _offered_moves(did: str, case: dict, dec: Decision, me: str | None) -> list:
     c = case_store(shop_of_case(did)).get(did) if inquiry else find_case_of_dispute(did)
     kind = moves_mod.kind_of(c, None if inquiry else case["dispute"])
     pick = dec.judgment.action if dec.action == "ASK_SELLER" else dec.action
-    return moves_mod.others(kind, pick, None if inquiry else paypal_can(case["dispute"]), inquiry)
+    return moves_mod.others(kind, pick, None if inquiry else paypal_can(case["dispute"]), inquiry,
+                            returned=inquiry and item_back(shop_of_case(did), c))
 
 
 # A reply that sends no money but whose words promise some: said under the box as it is typed (spec Part 2).
+# Refund on return promises the refund for later: said only when the words claim it went.
 MOVE_WARN = ('<script>document.querySelectorAll("form.move[data-money=\'0\'] textarea").forEach(t=>{'
              'const w=t.form.querySelector(".warn");t.addEventListener("input",()=>{'
-             'w.hidden=!/refund|money back|rimbors/i.test(t.value);});});</script>')
+             'w.hidden=!/refund|money back|rimbors/i.test(t.value);});});'
+             'document.querySelectorAll("form.move[data-money=\'later\'] textarea").forEach(t=>{'
+             'const w=t.form.querySelector(".warn");t.addEventListener("input",()=>{'
+             'w.hidden=!/refunded|(we\'re|we are|we have|we\'ve) refund/i.test(t.value);});});</script>')
 
 
 # The moves' own busy label: a pass sends nothing to PayPal, so its button never says it does.
@@ -3718,10 +3769,14 @@ def _move_form(did: str, action: str, draft: str, button: str, then: str, me: st
     mark = review_mark(did)
     by += f'<input type="hidden" name="review" value="{e(mark)}">' if mark else ""
     money = action in MONEY
-    warn = "" if money else '<p class="warn" hidden>Your text mentions a refund, but this answer sends none.</p>'
+    later = action == "RETURN"          # its own text promises the refund for when the item is back: honest
+    warn = "" if money else ('<p class="warn" hidden>Your text says the refund went, but this answer sends none: it '
+                             'follows when the item is back.</p>' if later else
+                             '<p class="warn" hidden>Your text mentions a refund, but this answer sends none.</p>')
     pass_ = ' data-pass="1"' if passing else ""
     return (f'<details class="move"><summary>{e(button)}</summary>'
-            f'<form class="send move" method="post" action="/d/{e(did)}/approve" data-money="{1 if money else 0}"{pass_}>'
+            f'<form class="send move" method="post" action="/d/{e(did)}/approve" '
+            f'data-money="{1 if money else "later" if later else 0}"{pass_}>'
             f'<div class="draft-card"><span class="tag draft">draft · not sent</span>'
             f'<textarea name="message" aria-label="{e(button)}">{e(draft)}</textarea></div>{warn}'
             f'<input type="hidden" name="action" value="{e(action)}"><input type="hidden" name="move" value="1">{by}'
@@ -3982,7 +4037,12 @@ def _move_facts(did: str, case: dict, c: dict | None) -> dict:
             "amount": f'{float(amt["value"]):.2f} {amt.get("currency_code", "EUR")}',
             "order": f'order {c["order_no"]}' if (c or {}).get("order_no") else None, "delivered": f" on {when.day} {when:%b}" if when else "", "shop": shop,
             # a refund the records say was paid: a defence then sends its proof (PROOF_OF_REFUND), and says so
-            "refund_paid": bool(r.get("refund_paid"))}
+            "refund_paid": bool(r.get("refund_paid")),
+            # refund on return, in the shop's own terms; and a refund once this request's item is back says so
+            "window": f" within {w} days" if (w := _policy_days(src_of_case(did, "live"), r"within (\d+) days")) else "",
+            "refund_days": f" within {n} days" if (n := _policy_days(src_of_case(did, "live"),
+                                                                   r"refund within (\d+) days")) else "",
+            "returned": cases_mod.is_case_id(did) and item_back(shop_of_case(did), c)}
 
 
 BUCKET = {"your_move": "Needs you", "waiting_customer": "Waiting for the customer",
@@ -4042,7 +4102,7 @@ def state_box(st: dict, did: str, src: str, nxt: list, check_here: bool = False)
         what = re.sub(r" Your rule suggestion waits on Your rules for review\.", "", what)
         what = re.sub(r" \(Demo shop:[^)]*\)", "", what).strip()
         what = what[:-1] if what.endswith(".") else what
-        who = ", ".join(x for x in (sb.get("by"), _when(str(sb.get("at") or "")[:16])) if x)
+        who = ", ".join(x for x in (sb.get("by"), _when(_utc_minute(sb["at"], src), src) if sb.get("at") else "") if x)
         done = (f'<div class="done-line"><b>✓ Done: {e(what)}</b><span class="t-sub">{e(who)}</span></div>'
                 + ('<p class="demo-line">Demo shop: logged here. Nothing was really sent.</p>' if is_demo(did) else ""))
     pill = f'<span class="state-pill {e(st["state"])}">{e(st["label"])}</span>'
@@ -4101,6 +4161,7 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
     amt = d["dispute_amount"]
     demo = is_demo(dispute_id)
     practice = not demo and isinstance(_client(dispute_id), MockPayPal)
+    here = src_of_case(dispute_id, "live")          # whose clock its times are on
     q = "?shop=demo" if demo else ""
     buyer = ledger.buyer_of(d)
     saved = _saved(dispute_id)
@@ -4121,7 +4182,9 @@ def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:
             f'{stage_pill}{part_of_case(dispute_id)}{case_refund_note(r)}<p class="claim quote">{e(msg)}</p>'
             f'<p class="who">{e(REASON.get(d["reason"], d["reason"]))}. {e(amt["value"])} {e(amt["currency_code"])}'
             f'{", ".join([""] + [i["name"] for i in r.get("items", [])])}</p>'
-            f'{tracked_block(tracked_rows(d, r, [], _raw(dispute_id), None))}{conversation(d, signed)}{timeline(case)}<h2>What the evidence says</h2>{evidence(r)}{card}')
+            f'{tracked_block(tracked_rows(d, r, [], _raw(dispute_id), None))}{conversation(d, signed, here)}'
+            + (f'<h2>What the evidence says</h2>{ev}' if (ev := evidence(r, said=tracked_says(d, r, None), src=here)) else "")
+            + card)
     top, side = side_box(dispute_id, case, find_case_of_dispute(dispute_id) if not practice else None, me, flash)
     body = (f'{top}<div class="case"><section>{left}</section>'
             f'<section class="look">{side}</section></div>')
@@ -4368,7 +4431,7 @@ def required(chosen: str, dec: Decision, dispute: dict) -> float:
 
 
 # Actions whose text reaches the buyer or PayPal: an emptied box must not fall back to the AI's draft or reasoning.
-_WORDS_NEEDED = ("MESSAGE", "REFUND", "PARTIAL_REFUND", "REPLACE")
+_WORDS_NEEDED = ("MESSAGE", "REFUND", "PARTIAL_REFUND", "REPLACE", "RETURN")
 
 
 def approve(did: str, chosen: str, message: str | None, rule: str = "", by: str | None = None,
@@ -4485,7 +4548,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, 
     cur = case["dispute"]["dispute_amount"].get("currency_code", "EUR")
     amount = money_out(chosen, dec.judgment, case["dispute"])
     need = required(chosen, dec, case["dispute"])
-    now = _local_now()
+    now = shop_now(src_of_case(did, "live"))
     if kind == "pass" and ai and ai["solo"]:
         # A team of one: over its own limit, the seller decides; no handoff (nobody would ever clear one).
         cap = team_mod.limit(t, who["id"]) or 0.0
@@ -4551,7 +4614,8 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, 
     sent = {"MESSAGE": ("Question" if asked else "Reply") + f" sent {how}.",
             "REFUND": f"Refund of {amount:.2f} {cur} {via} and reply sent {how}.",
             "PARTIAL_REFUND": f"Partial refund of {amount:.2f} {cur} {via} and reply sent {how}.",
-            "REPLACE": f"Exchange or replacement logged and reply sent {how}."}.get(dec.action, "Done.") if inquiry else {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
+            "REPLACE": f"Exchange or replacement logged and reply sent {how}.",
+            "RETURN": f"Reply sent {how}, asking for the item back; no refund yet."}.get(dec.action, "Done.") if inquiry else {"DEFEND": "Evidence submitted and reply sent." if not str(result.get("message", "")).startswith("not sent")
             else "Evidence submitted. Reply not sent: PayPal is waiting for the buyer to answer your last message.",
             "MESSAGE": "Question sent." if asked else "Reply sent.",
             "REFUND": "Refund accepted and reply sent.", "PARTIAL_REFUND": "Partial refund offered.",
@@ -4593,7 +4657,7 @@ def _approve(did, chosen, message, rule, t, who, execute, review=None, ai=None, 
     if not is_ai and (judged or "claude") == "claude":    # a review saved before judges were recorded is Claude's
         _record_decision(did, case, recommended, chosen, message, drafted, who, now)
     if not inquiry and chosen in ("REFUND", "PARTIAL_REFUND") and amount:
-        d, at, name = case["dispute"], now.strftime("%Y-%m-%dT%H:%M"), who["name"]
+        d, at, name = case["dispute"], cases_mod.minute(None), who["name"]      # UTC, as every other row of the books
         post_books(lambda: _dispute_refund_row(did, d, at, round(amount, 2), cur, name))
     return 200, sent
 
@@ -4696,13 +4760,6 @@ def _ai_steps_back(src: str, did: str, c: dict | None, kind: str | None, why: st
                                                      ai=True, autopilot=True))
         case_store(src).update(c["id"], note)
     return {"did": did, "kind": kind, "handled": False, "why": why}
-
-
-def _local_now() -> datetime:
-    """Now in local time, as an approval shows it ("Sent by Giulia, 11:47"): the demo morning's when its clock is set."""
-    if cases_mod.CLOCK.at:
-        return cases_mod.now().replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
-    return datetime.now()
 
 
 def _a_person_s(did: str, t: dict, c: dict | None, d: dict | None) -> str | None:

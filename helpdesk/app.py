@@ -20,6 +20,7 @@ import secrets
 import threading
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlparse
@@ -130,11 +131,21 @@ h1{font-size:22px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
 """
 
 
-def when(iso: str) -> str:
+def zone(name: str | None):
+    """The helpdesk account's clock (tickets.json "time_zone", the shop's), or None: the computer's."""
     try:
-        return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").strftime("%-d %b, %H:%M")
+        return ZoneInfo(name) if name else None
+    except (KeyError, ValueError, OSError):      # no time-zone data on this computer (Windows without tzdata)
+        return None
+
+
+def when(iso: str, tz=None) -> str:
+    """A ticket's UTC time ("2026-10-19T08:52:00Z") on the account's clock: "19 Oct, 10:52"."""
+    try:
+        t = datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except (TypeError, ValueError):
         return iso or ""
+    return t.astimezone(tz).strftime("%-d %b, %H:%M")
 
 
 def initials(name: str) -> str:
@@ -343,7 +354,7 @@ class Helpdesk:
 
     def inbox_page(self, agent_id: str | None) -> str:
         me = self.agent(agent_id)
-        rows = []
+        rows, tz = [], zone(self.tickets().get("time_zone"))
         for t in self.tickets().get("tickets", []):
             first = (t.get("messages") or [{}])[0]
             status = t.get("status", "open")
@@ -352,7 +363,7 @@ class Helpdesk:
                         f'<span class="subj">{e(t.get("subject", ""))}<small>{e(first.get("text", ""))}</small></span>'
                         f'<span><span class="chip {e(status)}">{e(status.capitalize())}</span>'
                         f'{"<span class=chip>Web form</span>" if t.get("source") == "form" else ""}</span>'
-                        f'<time>{e(when(first.get("at")))}</time></a>')
+                        f'<time>{e(when(first.get("at"), tz))}</time></a>')
         body = (f'<h1>Inbox</h1><p class="meta">Emails to Linen &amp; Paper customer care, newest first.</p>'
                 f'<div class="list">{"".join(rows) or "<p class=row>No tickets.</p>"}</div>')
         return self._page("Inbox | Ticketbook", "Ticketbook › <b>Inbox</b>", me, body)
@@ -363,10 +374,11 @@ class Helpdesk:
         if not t:
             return self._page("Not found | Ticketbook", 'Ticketbook › <a href="/">Inbox</a>', me,
                               f'<h1>No ticket #{int(ticket_id)}</h1><p><a href="/">Back to the inbox</a></p>')
+        tz = zone(self.tickets().get("time_zone"))
         thread = "".join(
             f'<article class="msg"><header>{avatar(t.get("from_name", "") if m.get("from") == "customer" else me["name"])}'
             f'<span><b>{e(t.get("from_name", "") if m.get("from") == "customer" else m.get("from", ""))}</b>'
-            f'<small>{e(when(m.get("at")))}</small></span></header><p>{e(m.get("text", ""))}</p></article>'
+            f'<small>{e(when(m.get("at"), tz))}</small></span></header><p>{e(m.get("text", ""))}</p></article>'
             for m in t.get("messages", []))
         status = t.get("status", "open")
         note = f'<p class="flash{"" if ok else " err"}" role="status">{e(flash)}</p>' if flash else ""

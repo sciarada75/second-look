@@ -121,6 +121,8 @@ def execute(pp, d: Decision, dispute: dict, records: dict) -> dict:
         return pp.replace(did, note)
     if d.action == "MESSAGE":
         return pp.message(did, d.judgment.draft_message)
+    if d.action == "RETURN":                # a shop request only (guard.may_send_move): its Outbox records the ask
+        return pp.ask_return(did, d.judgment.draft_message)
     return {"status": "NOT_EXECUTED", "reason": "ASK_SELLER: decide, then approve a specific action"}
 
 

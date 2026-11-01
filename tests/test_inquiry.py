@@ -114,8 +114,9 @@ def test_the_case_page_reviews_an_inquiry_in_its_own_words_and_disputes_read_as_
         assert o["outcome"] == "send" and o["action"] == "MESSAGE" and o["says"] == "Sends exactly this to the customer."
         page = web.case_file_page("DEMO-C001", me="marta")
         assert "Rules baseline, not the AI." in page and "Approve: reply only" in page and "Sending…" in page
-        assert "What the evidence says" in page and "Local courier LC90001IT, delivered, left with a neighbour" in page
-        assert '<span class="src shop">Courier tracking</span>' in page and "Paid with" in page
+        assert "What the evidence says" in page and "Paid with" in page        # the rest of the evidence
+        assert "Last scan: delivered, left with a neighbour" in page                # the courier's line: once, verified
+        assert '<span class="src shop">Courier tracking</span>' not in page
         assert "Your reply to the customer" in page
         assert web._words("DEMO-034")["to"] == "to PayPal" and web._words("DEMO-C001")["to"] == "to the customer"
         assert "Approve: defend with evidence" in web.case_page("DEMO-031", me="marta")
@@ -758,6 +759,65 @@ def test_a_return_counts_only_when_it_is_this_case_s_and_reached_the_shop():
     with morning():                                                            # Lena's own: still Marta's
         web.run_review("DEMO-C002")
         assert web.page_offer("DEMO-C002", "marta")["outcome"] == "send"
+
+
+def test_refund_on_return_asks_for_the_item_waits_for_it_then_the_refund_is_a_person_s():
+    # 31/10, Claudia: Lena's wrong size, before her shirt is back. The shop's terms refund after the return.
+    with morning() as b:
+        web.case_store("demo")
+        web.shop_orders = lena_s_return(None)
+        dec = web.run_review("DEMO-C002")
+        assert "RETURN" in web._offered_moves("DEMO-C002", web._case("DEMO-C002"), dec, "giulia")
+        page = web.case_file_page("DEMO-C002", me="giulia")
+        assert "Ask for it back, refund when it arrives" in page and 'data-money="later"' in page
+        text = web.moves_mod.text("RETURN", "wrong_size", web._move_facts("DEMO-C002", web._case("DEMO-C002"),
+                                                                           web.case_store("demo").get("DEMO-C002")), True)
+        assert "within 14 days" in text and "we'll refund 89.00 EUR within 5 days" in text
+        code, said = web.approve("DEMO-C002", "RETURN", text, by="giulia", move=True)
+        assert code == 200 and "asking for the item back" in said and "no refund yet" in said, said
+        c = web.case_store("demo").get("DEMO-C002")
+        assert c["money"] == [] and c["timeline"][-1]["sent_with"] == "asked for the item back"
+        assert web._raw("DEMO-C002")["chosen"] == "RETURN"
+        [logged] = [x for x in map(json.loads, (b.tmp / "actions-demo.jsonl").read_text().splitlines())
+                    if x["case_id"] == "DEMO-C002"]
+        assert (logged["case_id"], logged["action"], "money" in logged) == ("DEMO-C002", "ask_return", False)
+        assert web.cases_mod.closes_on(c, web.quiet_days()) is None          # never closes itself while it waits
+        st = web.case_state("DEMO-C002")
+        assert (st["state"], st["why"]) == ("waiting_customer", "Asked Lena to send it back. Waiting for the return.")
+        assert "sent · asked for the item back" in web.case_file_page("DEMO-C002", me="giulia")
+        # the shirt reaches the shop: the case is a person's again, and a fresh look may refund it
+        web.shop_orders = lena_s_return("DELIVERED", delivered_to="the shop", last_update="2026-10-21T10:00:00Z")
+        st = web.case_state("DEMO-C002")
+        assert (st["state"], st["why"]) == ("your_move", "The return is back: refund Lena now.")
+        assert "the returned item is back at the shop" in web._changes("DEMO-C002", web._case("DEMO-C002"))
+        dec = web.run_review("DEMO-C002")
+        offered = web._offered_moves("DEMO-C002", web._case("DEMO-C002"), dec, "giulia")
+        assert "RETURN" not in offered and ("REFUND" in offered or dec.judgment.action == "REFUND")
+        back = web.moves_mod.text("REFUND", "wrong_size", web._move_facts("DEMO-C002", web._case("DEMO-C002"),
+                                                                           web.case_store("demo").get("DEMO-C002")), True)
+        assert "it has reached us" in back
+        assert web.approve("DEMO-C002", "REFUND", back, by="giulia", move=dec.judgment.action != "REFUND")[0] == 200
+        assert [(m["kind"], m["amount"]) for m in web.case_store("demo").get("DEMO-C002")["money"]] == [("refund", 89.0)]
+        # money once: a fresh look after Lena writes again holds a second refund
+        _ask("lena.vogel@example.com", "Order LP-90002: and the postage back too?", "qa:ret")
+        dec = web.run_review("DEMO-C002")
+        assert dec.action != "REFUND"                                       # never the answer again (rule 9)
+        assert web.approve("DEMO-C002", "REFUND", "Again.", by="giulia")[0] == 409
+        assert len(web.case_store("demo").get("DEMO-C002")["money"]) == 1
+
+
+def test_refund_on_return_is_never_offered_or_sent_on_a_paypal_dispute_or_once_the_item_is_back():
+    with morning():
+        web.case_store("demo")
+        dec = web.run_review("DEMO-C002")                     # Lena's shirt is back in the demo's own data
+        assert "RETURN" not in web._offered_moves("DEMO-C002", web._case("DEMO-C002"), dec, "giulia")
+        assert web.approve("DEMO-C002", "RETURN", "Send it back.", by="giulia", move=True)[0] == 409
+        dec = web.run_review("DEMO-033")                      # a PayPal dispute: PayPal runs its own returns
+        assert "RETURN" not in web._offered_moves("DEMO-033", web._case("DEMO-033"), dec, "giulia")
+        assert web.approve("DEMO-033", "RETURN", "Send it back.", by="giulia", move=True)[0] == 409
+    for cid in ("DEMO-C001", "DEMO-C002", "DEMO-C004"):        # the shipped reviews still read as current
+        with morning():
+            assert web._changes(cid, web._case(cid)) == [], cid
 
 
 def test_a_closed_inquiry_is_never_reviewed_or_answered_again():

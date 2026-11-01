@@ -100,12 +100,18 @@ nobody defends or pays on broken evidence unseen.
 ## The seller's screen
 
 `python3 -m secondlook serve` opens a small local web app. The inbox lists open disputes by the
-buyer's own words. A dispute opens as a case file: the claim, a timeline drawn to scale (the gap
-between payment and dispute is labelled), and the evidence, each fact tagged with where it came
-from (PayPal dispute, PayPal order, PayPal tracking, your shop terms). "Take a second look" runs
+buyer's own words. A dispute opens as a case file: the claim, "Tracked and verified" (payment,
+shipping, delivery and the dispute, each dated and checked against a record), and the rest of the
+evidence, each fact tagged with where it came from (PayPal order, PayPal history, your shop terms).
+Each fact is on the page once. "Take a second look" runs
 the ten checks; the page then shows the recommendation, any change your limits made and why, the
 reply (editable), and one Approve button that sends exactly what is on screen. Practice cases are
 one click away and never reach PayPal.
+
+Every time on every page, and in Ticketbook, is on the shop's own clock: `"time_zone"` in
+`shop.json` (the demo shop's is Europe/Rome, in `demo/shop.json`). Times are saved in UTC; a shop
+with no time zone set, or a computer without time-zone data (Python on Windows needs the `tzdata`
+package), shows the computer's clock instead.
 
 - **Today** (`/today`), the shop's first page, answers one question for the person looking: *what needs
   me?* **Needs you** first: their cases, nearest PayPal deadline first (a handoff says who passed it),
@@ -134,6 +140,12 @@ one click away and never reach PayPal.
   person chooses is judged by every rule as if it were the answer (an order already refunded, a refund
   not confirmed, a repeat buyer, injected text, broken evidence): it is neither offered nor sent past them,
   and over the person's limit it passes to the head with its words.
+- **Refund on return** (a shop request about a wrong size or an item not as described). *Ask for it back,
+  refund when it arrives* sends the customer a reply in the shop's own terms (its return window, its refund
+  days) and moves no money. The case then waits for the return and never closes itself meanwhile. When the
+  courier's record (or the shop's) shows the item back at the shop, it is a person's move again: a fresh look,
+  and the refund, whose text says the item came back. Second Look's AI never picks it and never sends that
+  refund on its own. Not on a PayPal dispute: PayPal runs its own returns.
 - **The demo shop's PayPal "confirms" a refund** at the next look at Today, labelled *demo: simulated*, so a
   case can be shown reaching Done. Never on the sandbox or a live shop.
 - **Numbers** (`/numbers`; `/overview` still leads there): every figure beside the same days of the

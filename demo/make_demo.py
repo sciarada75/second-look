@@ -29,6 +29,7 @@ SHOP = {
     "about": "Demo shop, made-up data: handmade linen and art prints from Bologna, about 2,000 orders a month, "
              "four people in customer care.",
     "records_from": HISTORY_FROM.isoformat(),
+    "time_zone": "Europe/Rome",       # the shop's clock: every time a page shows is on it (saved times are UTC)
     "team": {
         "currency": "EUR",
         "roles": {"Head of customer care": {"refund_up_to": None},

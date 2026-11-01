@@ -195,15 +195,36 @@ Walked in the demo shop (DEMO-039: Today → refund → Waiting for PayPal → T
   waiting for the customer or PayPal.
 - *Partial refund* is not a move a person chooses yet (it needs an amount the guard checks); the AI's own
   partial refunds work as before.
+- *Refund on return* (31/10, Claudia) is built, as a person's move on a shop request only (`RETURN` in
+  `moves.py`; wrong size and not as described, before a refund in FITS): a reply in the shop's terms, no money
+  (the guard judges it as a reply: `guard.JUDGED_AS`), executed by `Outbox.ask_return`, tagged "sent · asked for
+  the item back". The case waits for the return (`state.of` `return_asked`/`return_back`/`return_by`: the
+  answer's day plus the return window), never closes itself meanwhile (`cases.closes_on`), and comes back to
+  Your move when the item is back at the shop (`web.item_back`, the rule exchanges already used, now
+  `_return_of`), or when the window passes, or the customer writes. The arrival is a new `seen` key
+  (`returned`, set only on a case that asked), so no review made before reads as out of date; the refund after it
+  says the item came back. Not offered once the item is back, nor on a PayPal dispute (PayPal runs its own
+  returns). The AI never picks it; the autopilot never answers a case a person answered.
 - *`state.of` doesn't return `moves`*: web assembles them from `moves.py`, and offers and accepts them only
   where the case page shows moves (`MOVES_SHOWN`). `page_offer` stays the source of the AI's pick and its
   draft beside the state; it is not an input of `state.of`.
 - *The disputes inbox reads the state too*: each row's pill, its line and "N cases wait on you" come from
   `case_state`, as on the case page, Today and the API (one out-of-date rule for all: `_out_of_date`).
 
-**Known and left for later:** the /c/ timeline shows stored UTC times beside local "Sent by" times; the /d/
-timeline strip still says "Your reply due" after the reply went; on a machine that re-transcribes Sophie's
-call locally her shipped review reads as out of date (also on main); a refund logged on an order's shop
+- *Each fact once* (31/10, Claudia): the /d/ date strip is gone (every date in it is in Tracked and verified,
+  the deadline in the side box), and "What the evidence says" leaves out what Tracked and verified shows
+  (`tracked_says`), on /d/ and /c/ alike; a quantity over 1 moves into the verified row.
+
+- *One clock* (31/10, Claudia): every time shown is on the shop's clock, its terms' `time_zone` (demo: Europe/Rome),
+  else the computer's (`web.shop_zone`, `on_shop_clock`, `shop_now`); Ticketbook reads the same zone from
+  `helpdesk/tickets.json`. Saved times stay UTC; an answer's and a handoff's `at` stay on the shop's clock as signed,
+  and `_utc_minute(at, src)` reads them back with that shop's zone. The books' PayPal-refund row is now stamped in UTC
+  like every other row.
+
+**Known and left for later:** ~~the /c/ timeline shows stored UTC times beside local "Sent by" times~~ (one clock,
+31/10); ~~the /d/
+timeline strip still says "Your reply due" after the reply went~~ (strip removed 31/10); ~~on a machine that re-transcribes Sophie's
+call locally her shipped review reads as out of date (also on main)~~ (fixed 31/10: the shipped transcript is whisper's words); a refund logged on an order's shop
 request and one on its PayPal dispute at the same instant are under different locks; a dispute PayPal
 resolved today with no shop case shows in no Today bucket; Ticketbook shows the state only through the API.
 

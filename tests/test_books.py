@@ -566,7 +566,8 @@ def test_a_refund_paypal_turns_out_to_have_made_reaches_the_books_too():
 
 
 def test_the_month_s_books_export_as_csv_with_the_earlier_cases_and_paypal_s_outcomes():
-    with morning():
+    # on the demo morning's clock: the refund is October's whatever day the test runs (it failed from 1 Nov 2026)
+    with morning(), web.cases_mod.clock("2026-10-20T07:41"):
         _refunded_paypal_order("b6:1")
         rows = books.for_month(web.books_rows("demo"), "2026-10")
         kinds = {r["kind"] for r in rows}

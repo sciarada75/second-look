@@ -29,16 +29,15 @@ def test_the_demo_call_box_holds_sophie_s_call_as_a_phone_system_leaves_it():
     with wave.open(str(rec["wav"])) as w:                # small: 16 kHz, mono, 16-bit, its length as the record says
         assert (w.getframerate(), w.getnchannels(), w.getsampwidth()) == (16000, 1, 2)
         assert round(w.getnframes() / 16000) == rec["seconds"] == 34
-    shipped = rec["txt"].read_text()
-    assert shipped.startswith("Marta (customer care assistant): Linen and Paper") and "order LP-90001" in shipped
-    assert "Sophie (customer):" in shipped
+    shipped = rec["txt"].read_text()                     # what local whisper heard, so a re-transcription files the same
+    assert shipped.startswith("Linen and paper, this is Marta.") and "Order LP 90001." in shipped
 
 
 def test_local_whisper_first_then_the_shipped_transcript_labelled_then_nothing():
     [rec] = calls.recordings(BOX)
     assert calls.transcript(rec, lambda wav: "Hello, this is Sophie.") == ("Hello, this is Sophie.", calls.WHISPERED)
     text, how = calls.transcript(rec, lambda wav: None)
-    assert how == "transcript shipped with the demo" and text.startswith("Marta (customer care assistant):")
+    assert how == "transcript shipped with the demo" and text.startswith("Linen and paper, this is Marta.")
     box = Path(tempfile.mkdtemp())
     shutil.copy(rec["wav"], box / "a.wav")
     (box / "a.json").write_text(json.dumps({"recording": "a.wav", "from_phone": "+39 051 555 0142",

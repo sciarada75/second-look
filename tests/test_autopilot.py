@@ -425,7 +425,7 @@ def test_the_rules_page_shows_each_kind_its_record_the_numbers_and_the_switch_fo
         no_record(on())
         page = web.rules_page(demo=True, me="giulia")
         for words in ("Second Look's AI on its own", "Shop inquiry · Says it never arrived · Reply only",
-                      "10 of the last 10 approved as advised · On, switched on by Giulia on 17 Oct, 09:00",
+                      "10 of the last 10 approved as advised · On, switched on by Giulia on 17 Oct, 11:00",
                       'action="/autopilot/switch"', "Switch off", "at least 90% sure (a person&#x27;s approval needs 75%)",
                       "At most 20 cases of one kind a day.", "up to 0.00 EUR. Over that it passes the case to a person"):
             assert words in page, words
@@ -888,7 +888,7 @@ def test_the_demo_s_first_load_has_second_look_s_ai_answer_margot_and_step_back_
         assert [k for k, x in rec["kinds"].items() if x["on"]] == [KIND] and autopilot.ready(rec["kinds"][KIND], 10)
         assert sorted(rec["cases"]) == ["DEMO-C001", "DEMO-C004"]          # Lena's and Pablo's: nothing on there
         assert "Second Look's AI answered 1 on its own: check it" in web.today_page("demo", "giulia")
-        assert ("10 of the last 10 approved as advised · On, switched on by Giulia on 17 Oct, 09:00"
+        assert ("10 of the last 10 approved as advised · On, switched on by Giulia on 17 Oct, 11:00"
                 in web.rules_page(demo=True, me="giulia"))
         # a judge with no key who posts a new request of that kind sees the step back, honest
         assert stepped_back(marco())[0] == "the review came from the rules baseline (no AI key, or the model failed)"
@@ -1003,7 +1003,11 @@ def test_the_demo_s_first_load_answers_on_the_demo_morning_s_clock():
         assert web.case_store("demo").get("DEMO-C001")["timeline"][-1]["at"] == "2026-10-20T07:41"  # Sophie's step back
         log = [json.loads(x) for x in (b.tmp / "actions-demo.jsonl").read_text().splitlines()]
         assert [x["ts"] for x in log] == ["2026-10-20T07:41"]
-        assert web._utc_minute(web._raw("DEMO-C004")["at"]) == "2026-10-20T07:41"
+        assert web._utc_minute(web._raw("DEMO-C004")["at"], "demo") == "2026-10-20T07:41"
+        # one moment, one time: its signature and the case page's timeline both on the shop's clock (Rome, 09:41)
+        assert web._raw("DEMO-C004")["sent"].split(". (")[0].endswith(", 09:41")
+        page = web.case_file_page("DEMO-C001", me="marta")
+        assert "20 Oct, 09:41" in page and "20 Oct, 07:41" not in page
     assert cases_mod.CLOCK.at is None                                          # the clock goes back after the first load
 
 

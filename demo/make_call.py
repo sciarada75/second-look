@@ -10,6 +10,8 @@ What it writes, in demo/calls/ (the demo's "call box", as a shop's phone system 
 Run once, with Kokoro's own Python (it lives outside the repo, in ~/.local/share/kokoro):
   ~/.local/share/kokoro/venv/bin/python demo/make_call.py
 The words are fixed below, so the transcript never depends on the voice. The recording is committed.
+The shipped transcript is what local whisper heard in this recording (HEARD), not the script: a computer that
+transcribes the call again then files the same words, and Sophie's shipped review doesn't go out of date (31/10).
 """
 import json
 import os
@@ -34,10 +36,11 @@ LINES = [
     ("Sophie", "af_nicole", "en-us", "Thank you. I'll send you an email too, with the order number."),
     ("Marta", "bf_emma", "en-gb", "Perfect. Have a good day, Sophie."),
 ]
-# How the transcript writes what was said (the spoken order number written as the shop writes it)
-WRITTEN = {"order L P nine zero zero zero one": "order LP-90001"}
-# Who each voice is, as every screen names a person: with their role (Decision 7)
-SPEAKER = {"Marta": "Marta (customer care assistant)", "Sophie": "Sophie (customer)"}
+# What local whisper (mlx-community/whisper-large-v3-turbo) heard in the recording, word for word: no speakers' names
+HEARD = ("Linen and paper, this is Marta. How can I help? Hello, this is Sophie Durand. I ordered a linen tablecloth. "
+         "Order LP 90001. And it still hasn't arrived. The tracking says delivered. But I have nothing. I'm sorry to hear "
+         "that. Let me look into it and I'll write to you by email today. Thank you. I'll send you an email too. With the "
+         "order number. Perfect. Have a good day, Sophie.")
 
 
 def resample(audio, sr):
@@ -51,14 +54,10 @@ def main():
     k = Kokoro(str(home / "model" / "kokoro-v1.0.onnx"), str(home / "model" / "voices-v1.0.bin"),
                espeak_config=EspeakConfig(data_path=str(home / "espeak-ng-data")))
     pause = np.zeros(int(0.5 * RATE))
-    parts, script = [], []
+    parts = []
     for who, voice, lang, words in LINES:
         audio, sr = k.create(words, voice=voice, speed=1.0, lang=lang)
         parts += [resample(np.asarray(audio, dtype=np.float64), sr), pause]
-        said = words
-        for spoken, written in WRITTEN.items():
-            said = said.replace(spoken, written)
-        script.append(f"{SPEAKER[who]}: {said}")
     audio = np.concatenate(parts)
     pcm = (np.clip(audio, -1, 1) * 32767).astype("<i2")
     (HERE / "calls").mkdir(exist_ok=True)
@@ -71,7 +70,7 @@ def main():
     (HERE / "calls" / f"{NAME}.json").write_text(json.dumps(
         {"_comment": "Demo shop, made up: what the shop's phone system knows about one call. Written by demo/make_call.py.",
          "recording": f"{NAME}.wav", "from_phone": CALLER, "time": WHEN, "seconds": seconds}, indent=1) + "\n")
-    (HERE / "calls" / f"{NAME}.txt").write_text("\n".join(script) + "\n")
+    (HERE / "calls" / f"{NAME}.txt").write_text(HEARD + "\n")
     print(f"{NAME}.wav: {seconds} s, {len(pcm) * 2 // 1024} KB")
 
 

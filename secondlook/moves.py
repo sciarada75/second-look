@@ -1,6 +1,7 @@
 """The moves: everything a shop can do on a case now, defined once (spec docs/specs/2026-10-30-case-states-and-moves-
 design.md, Part 2). Moves are Second Look's actions: MESSAGE (reply only), REFUND, REPLACE (exchange or replace),
-DEFEND (send your evidence). "Decide later" and "pass to a colleague" send nothing and need no entry here.
+DEFEND (send your evidence), and one only a person chooses: RETURN (refund on return: ask for the item back, the refund
+follows once it is at the shop; a shop request only, PayPal runs its own returns). "Decide later" and "pass to a colleague" send nothing and need no entry here.
 
 Second Look's AI recommends one; a person may choose another that fits the cause and that PayPal (on a dispute)
 allows. Every move but the AI's own pick comes with a fixed text filled with the case's facts, never the AI's draft:
@@ -13,9 +14,10 @@ REASON_KIND = {"MERCHANDISE_OR_SERVICE_NOT_RECEIVED": "not_received",
                "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED": "not_as_described",
                "CREDIT_NOT_PROCESSED": "refund_missing"}
 # Which moves fit each cause, most likely first (the spec's table). The keys are cases.KINDS.
+# RETURN comes before a refund where it fits: the shop's own terms refund after the return (Claudia, 31/10).
 FITS = {"not_received": ("MESSAGE", "DEFEND", "REFUND", "REPLACE"),
-        "not_as_described": ("MESSAGE", "REFUND", "REPLACE"),
-        "wrong_size": ("REPLACE", "REFUND", "MESSAGE"),
+        "not_as_described": ("MESSAGE", "RETURN", "REFUND", "REPLACE"),
+        "wrong_size": ("REPLACE", "RETURN", "REFUND", "MESSAGE"),
         "refund_missing": ("MESSAGE", "REFUND"),
         "question": ("MESSAGE",)}
 OTHERS = 2      # at most two moves beside the AI's pick: more is a menu, not a decision
@@ -34,8 +36,18 @@ TEMPLATES = {
         "question": "Hi {first},\n\nThank you for your message. We're looking into it and will write to you again soon.",
     },
     # a shop request: the refund is logged now and paid by the shop, so the text never says it already arrived
-    "REFUND": {"*": "Hi {first},\n\nWe're sorry for the trouble. We're refunding {amount} for {order}. You'll see it "
+    "REFUND": {"returned": "Hi {first},\n\nThank you for sending it back: it has reached us. We're refunding "
+                           "{amount} for {order}. You'll see it back on your account in a few days.",
+               "*": "Hi {first},\n\nWe're sorry for the trouble. We're refunding {amount} for {order}. You'll see it "
                     "back on your account in a few days."},
+    # refund on return: nothing moves now, so the text promises the refund only once the item is back, in the shop's
+    # own terms (its return window and refund days, when the terms say them)
+    "RETURN": {"wrong_size": "Hi {first},\n\nWe're sorry the size isn't right. Please send it back to us{window}: reply "
+                             "to this message and we'll send you the return address. As soon as it's back with us, "
+                             "we'll refund {amount}{refund_days}.",
+               "*": "Hi {first},\n\nWe're sorry it isn't what you expected. Please send it back to us{window}: reply to "
+                    "this message and we'll send you the return address. As soon as it's back with us, we'll refund "
+                    "{amount}{refund_days}."},
     "REPLACE": {
         "wrong_size": "Hi {first},\n\nWe're sorry the size isn't right. Reply with the size you need and we'll tell you "
                       "how to send this one back; the right one leaves as soon as it's on its way to us.",
@@ -62,10 +74,10 @@ DISPUTE_TEMPLATES = {
 }
 # When the case has no such fact, the words a text falls back on.
 FACT_DEFAULTS = {"first": "there", "carrier": "the courier", "tracking": "", "amount": "the full amount",
-                 "order": "your order", "delivered": "", "shop": "the shop"}
+                 "order": "your order", "delivered": "", "shop": "the shop", "window": "", "refund_days": ""}
 LABEL = {"MESSAGE": "Reply only", "REFUND": "Answer and refund {amount}", "REPLACE": "Offer a replacement",
          "DEFEND": "Send your evidence"}
-INQUIRY_LABEL = {**LABEL, "REPLACE": "Answer and exchange"}
+INQUIRY_LABEL = {**LABEL, "REPLACE": "Answer and exchange", "RETURN": "Ask for it back, refund when it arrives"}
 THEN = {"MESSAGE": "{first} gets your reply. No money moves.",
         "REFUND": "{first} gets your reply and {amount} back. PayPal closes the dispute; the case waits for PayPal "
                   "to confirm.",
@@ -73,7 +85,9 @@ THEN = {"MESSAGE": "{first} gets your reply. No money moves.",
         "DEFEND": "PayPal gets your shipping record and {first} your reply. No money moves."}
 THEN_REFUND_PAID = "PayPal gets the proof of your refund and {first} your reply. No money moves."
 INQUIRY_THEN = {**THEN, "REFUND": "{first} gets your reply, and the refund of {amount} is logged on the case.",
-                "REPLACE": "{first} gets your reply; the replacement is logged for you to send."}
+                "REPLACE": "{first} gets your reply; the replacement is logged for you to send.",
+                "RETURN": "{first} gets your reply. No money moves now: the refund of {amount} is yours to send when "
+                          "the return reaches you."}
 
 
 def _fill(words: str, facts: dict, defaults: dict = FACT_DEFAULTS) -> str:
@@ -89,13 +103,16 @@ def kind_of(case: dict | None, dispute: dict | None) -> str:
     return k if k in FITS else "question"
 
 
-def others(kind: str, pick: str | None, paypal: set | None, inquiry: bool) -> list:
+def others(kind: str, pick: str | None, paypal: set | None, inquiry: bool, returned: bool = False) -> list:
     """The moves to offer beside the AI's pick, in FITS order: ones that fit the cause, that PayPal allows on a dispute
     (`paypal`: guard.paypal_can, None when PayPal didn't say), never a defence on a shop request (there is no claim to
-    defend), never the pick itself. At most OTHERS."""
+    defend), never a refund on return on a dispute or once the item is back (`returned`), never the pick itself.
+    At most OTHERS."""
     out = []
     for a in FITS.get(kind, FITS["question"]):
         if a == pick or (inquiry and a == "DEFEND") or (not inquiry and paypal is not None and a not in paypal):
+            continue
+        if a == "RETURN" and (not inquiry or returned):
             continue
         out.append(a)
     return out[:OTHERS]
@@ -106,9 +123,13 @@ def text(action: str, kind: str, facts: dict, inquiry: bool = False) -> str:
     It says only what is true: a dispute and a shop request differ on refunds and replacements, a defence claims a
     delivery only when the courier recorded one, and an unknown action raises KeyError (a money move must never get a
     reply-only text)."""
+    if action == "RETURN" and not inquiry:
+        raise KeyError("RETURN is a shop request's move: PayPal runs its own returns")
     t = DISPUTE_TEMPLATES[action] if not inquiry and action in DISPUTE_TEMPLATES else TEMPLATES[action]
     if action == "DEFEND":
         words = t["refund_paid"] if facts.get("refund_paid") else t["delivered"] if facts.get("delivered") else t["*"]
+    elif action == "REFUND" and inquiry and facts.get("returned"):
+        words = t["returned"]           # the item asked back is at the shop: the refund it was promised
     else:
         words = t.get(kind) or t["*"]
     return _fill(words + SIGN, facts)

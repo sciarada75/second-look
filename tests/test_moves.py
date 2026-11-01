@@ -20,7 +20,7 @@ def test_the_cause_comes_from_paypal_s_reason_else_the_shop_s_case():
 def test_at_most_two_others_that_fit_never_the_pick_never_a_defence_on_a_shop_request():
     assert moves.others("not_received", "REFUND", None, inquiry=False) == ["MESSAGE", "DEFEND"]
     assert moves.others("not_received", "MESSAGE", None, inquiry=True) == ["REFUND", "REPLACE"]
-    assert moves.others("wrong_size", "REPLACE", None, inquiry=True) == ["REFUND", "MESSAGE"]
+    assert moves.others("wrong_size", "REPLACE", None, inquiry=True) == ["RETURN", "REFUND"]
     assert moves.others("question", "MESSAGE", None, inquiry=True) == []
 
 
@@ -104,6 +104,42 @@ def test_each_button_says_everything_it_sends_and_what_happens_next():
     assert moves.label("MESSAGE", False, FACTS) == "Reply only"
     assert moves.then("MESSAGE", FACTS, inquiry=True) == "Sophie gets your reply. No money moves."
     assert "PayPal" in moves.then("REFUND", FACTS, inquiry=False)
+
+
+def test_refund_on_return_is_a_shop_request_s_move_and_never_once_the_item_is_back():
+    # 31/10, Claudia: the shop's terms refund after the return, so "send it back first" comes before a refund
+    assert moves.others("not_as_described", "MESSAGE", None, inquiry=True) == ["RETURN", "REFUND"]
+    assert moves.others("wrong_size", "REPLACE", None, inquiry=True, returned=True) == ["REFUND", "MESSAGE"]
+    for kind in moves.FITS:                                      # PayPal runs its own returns: never on a dispute
+        for pick in ("MESSAGE", "REFUND", "REPLACE", "DEFEND"):
+            assert "RETURN" not in moves.others(kind, pick, None, inquiry=False), (kind, pick)
+            assert "RETURN" not in moves.others(kind, pick, {"REFUND", "REPLACE", "DEFEND"}, inquiry=False)
+    assert not any("RETURN" in moves.others(k, "MESSAGE", None, inquiry=True)
+                   for k in ("not_received", "refund_missing", "question"))
+    try:
+        moves.text("RETURN", "wrong_size", FACTS, inquiry=False)
+    except KeyError:
+        pass
+    else:
+        raise AssertionError("a dispute has no refund-on-return text")
+
+
+def test_refund_on_return_asks_for_the_item_and_never_says_the_money_went():
+    facts = {**FACTS, "window": " within 14 days", "refund_days": " within 5 days"}
+    for kind in ("wrong_size", "not_as_described"):
+        for f in (facts, FACTS, {}):
+            t = moves.text("RETURN", kind, f, inquiry=True)
+            assert "send it back" in t and "{" not in t, t
+            assert not re.search(r"refunded|we're refunding|we are refunding|money back", t, re.I), t
+    t = moves.text("RETURN", "wrong_size", facts, inquiry=True)
+    assert "within 14 days" in t and "we'll refund 64.00 EUR within 5 days" in t and t.endswith("Linen & Paper")
+    assert moves.label("RETURN", True, FACTS) == "Ask for it back, refund when it arrives"
+    assert moves.then("RETURN", FACTS, inquiry=True) == (
+        "Sophie gets your reply. No money moves now: the refund of 64.00 EUR is yours to send when the return "
+        "reaches you.")
+    back = moves.text("REFUND", "wrong_size", {**FACTS, "returned": True}, inquiry=True)
+    assert "it has reached us" in back and "We're refunding 64.00 EUR" in back
+    assert "reached us" not in moves.text("REFUND", "wrong_size", FACTS, inquiry=True)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,1 @@
-Marta (customer care assistant): Linen and Paper, this is Marta. How can I help?
-Sophie (customer): Hello, this is Sophie Durand. I ordered a linen tablecloth, order LP-90001, and it still hasn't arrived. The tracking says delivered, but I have nothing.
-Marta (customer care assistant): I'm sorry to hear that. Let me look into it, and I'll write to you by email today.
-Sophie (customer): Thank you. I'll send you an email too, with the order number.
-Marta (customer care assistant): Perfect. Have a good day, Sophie.
+Linen and paper, this is Marta. How can I help? Hello, this is Sophie Durand. I ordered a linen tablecloth. Order LP 90001. And it still hasn't arrived. The tracking says delivered. But I have nothing. I'm sorry to hear that. Let me look into it and I'll write to you by email today. Thank you. I'll send you an email too. With the order number. Perfect. Have a good day, Sophie.

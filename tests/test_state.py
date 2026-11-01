@@ -135,6 +135,27 @@ def test_a_dispute_on_the_case_that_was_not_loaded_is_said():
     assert s["paypal"] is True and s["then"] == "A PayPal dispute is on this case: check it in PayPal."
 
 
+def test_a_return_asked_for_waits_for_the_return_then_comes_back_to_refund():
+    # 31/10, Claudia: refund on return. The case waits for the item, not for the customer's words, and never closes
+    # itself meanwhile (cases.closes_on); back at the shop, the refund is a person's move.
+    by = date(2026, 11, 3)
+    s = state.of(case(), None, TODAY, answered_at="2026-10-20T07:00", return_asked=True, return_by=by)
+    assert (s["state"], s["whose"], s["until"]) == ("waiting_customer", "customer", by)
+    assert s["why"] == "Asked Margot to send it back. Waiting for the return."
+    assert s["then"] == "When it reaches you, it's your move: refund Margot. If it isn't back by 3 Nov, it comes back to you."
+    back = state.of(case(), None, TODAY, answered_at="2026-10-20T07:00", return_asked=True, return_back=True,
+                    holder="marta", return_by=by)
+    assert (back["state"], back["whose"], back["why"]) == ("your_move", "marta", "The return is back: refund Margot now.")
+    late = state.of(case(), None, date(2026, 11, 4), answered_at="2026-10-20T07:00", return_asked=True, return_by=by)
+    assert (late["state"], late["why"]) == ("your_move", "The return isn't back by 3 Nov: check with Margot.")
+    plain = state.of(case(), None, TODAY, answered_at="2026-10-20T07:00", return_asked=True)
+    assert plain["state"] == "waiting_customer" and plain["until"] is None and "comes back" not in plain["then"]
+    assert state.of(case("closed"), None, TODAY, answered_at="2026-10-20T07:00", return_asked=True)["state"] == "done"
+    wrote = {**case(), "timeline": [{"direction": "out", "at": "2026-10-20T07:00"}, {"direction": "in", "at": "2026-10-20T09:00"}]}
+    again = state.of(wrote, None, TODAY, answered_at="2026-10-20T07:00", return_asked=True, return_by=by)
+    assert (again["state"], again["why"]) == ("your_move", "Margot wrote again.")     # a new message is read first
+
+
 def test_every_state_has_a_label():
     assert set(state.LABEL) == set(state.STATES)
 

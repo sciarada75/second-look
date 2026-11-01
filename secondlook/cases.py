@@ -103,11 +103,12 @@ def closes_on(c: dict, days: int) -> date | None:
     that reply is the case's last word (notes are nobody's word). The last word is the last one filed, whatever its
     time: a call transcribed after the reply can carry an earlier one. None when it never closes on its own: a PayPal
     dispute (PayPal closes those), a closed case, no reply yet, the customer wrote after it, money or goods logged on
-    it, or a refund PayPal didn't confirm yet (a person closes those with what happened: refunded, replaced)."""
+    it, a refund PayPal didn't confirm yet (a person closes those with what happened: refunded, replaced), or a reply
+    that asked for the item back (refund on return: the case waits for the item, state.of)."""
     if c.get("status") != "open" or c.get("dispute_id") or c.get("money") or c.get("unconfirmed"):
         return None
     words = [x for x in c.get("timeline", []) if x.get("direction") in ("in", "out") and x.get("at")]
-    if not words or words[-1]["direction"] != "out":
+    if not words or words[-1]["direction"] != "out" or words[-1].get("action") == "ask_return":
         return None
     return date.fromisoformat(words[-1]["at"][:10]) + timedelta(days=days)
 

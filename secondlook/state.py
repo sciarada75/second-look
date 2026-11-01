@@ -40,7 +40,8 @@ def _buyer_wrote_since(dispute: dict, at: str) -> bool:
 def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str | None = None,
        money_sent: bool = False, out_of_date: bool = False, holder: str | None = None,
        handoff_from: str | None = None, closes_on: date | None = None, confirmed_at: str | None = None,
-       answered_stage: str | None = None, answered_due: str | None = None) -> dict:
+       answered_stage: str | None = None, answered_due: str | None = None, return_asked: bool = False,
+       return_back: bool = False, return_by: date | None = None) -> dict:
     """The one state of a case, first match wins: Done, Waiting for PayPal, Waiting for the customer, Your move.
     `case`: the shop's case, or None for a PayPal dispute no other channel joined; `dispute`: its PayPal dispute, if
     any. `answered_at`: when the shop's answer from Second Look went (UTC minute), None if none did; `money_sent`: that
@@ -51,6 +52,8 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
     `answered_stage` / `answered_due`: the dispute's stage and seller_response_due_date when the answer went. An answer
     counts only where it was given: a buyer escalating (no buyer message is posted) or PayPal asking the seller again
     changes one of them and brings the case back to Your move. None = not recorded, no check.
+    `return_asked`: the answer on a shop request asked for the item back (refund on return); `return_back`: it is back
+    at the shop; `return_by`: when it should be back by (the answer's day plus the shop's return window), if known.
     Returns {state, label, whose, why, until, then, paypal}: whose = a person's id (None: nobody has it yet),
     "customer", "paypal", or None once done; until = the date that matters, or None; paypal = a PayPal dispute is on it."""
     name = _first_name(case, dispute)
@@ -94,6 +97,20 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
         when = f" by {until.day} {until:%b}" if until else f" within {ledger.INQUIRY_DAYS} days"
         return out(WAITING_CUSTOMER, "customer", f"Answered. Waiting for {name}.", until,
                    f"If {name} doesn't escalate{when}, PayPal closes the dispute.")
+    words = [x for x in (case or {}).get("timeline", []) if x.get("direction") in ("in", "out")]
+    quiet = not words or words[-1]["direction"] == "out"          # the customer hasn't written since the answer
+    if case is not None and not dispute and return_asked and answered_at and not out_of_date and quiet:
+        # refund on return: the case waits for the item, then the refund is a person's move (never automatic)
+        by = f"{return_by.day} {return_by:%b}" if return_by else ""
+        if return_back:
+            return out(YOUR_MOVE, holder, f"The return is back: refund {name} now.", None,
+                       "No PayPal deadline: this came to the shop, not to PayPal.")
+        if return_by and return_by < today:
+            return out(YOUR_MOVE, holder, f"The return isn't back by {by}: check with {name}.", None,
+                       "No PayPal deadline: this came to the shop, not to PayPal.")
+        return out(WAITING_CUSTOMER, "customer", f"Asked {name} to send it back. Waiting for the return.", return_by,
+                   f"When it reaches you, it's your move: refund {name}."
+                   + (f" If it isn't back by {by}, it comes back to you." if by else ""))
     if case is not None and not dispute and closes_on and closes_on > today and not out_of_date:
         return out(WAITING_CUSTOMER, "customer", f"Answered. Waiting for {name}.", closes_on,
                    f"If {name} doesn't write, it closes itself on {closes_on.day} {closes_on:%b}.")
