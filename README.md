@@ -38,6 +38,21 @@ one person with a few disputes a month, or a small team with a few thousand orde
 Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/). Runs on the PayPal sandbox.
 **[Watch the 3-minute film](https://youtu.be/oAGkMuZzkp8)**, or [try it in two commands](#try-it), no keys needed.
 
+### PayPal and AI at a glance
+
+| | Where | What it does here |
+|---|---|---|
+| **PayPal Disputes API** | `secondlook/paypal.py` | reads each dispute and what PayPal allows now; sends the reply, the evidence, a refund or an offer. `send-message` and `provide-evidence` have run on live sandbox disputes; `accept-claim` and `make-offer` are tested against a fake PayPal |
+| **PayPal Transaction Search** | `secondlook/evidence.py` | the buyer's PayPal address, PayPal's fee on the payment, the buyer's orders and the shop's own dispute rate |
+| **PayPal Tracking API** | `secondlook/evidence.py`, `ship` | registers a shipment and reads it back as evidence |
+| **PayPal Payments API** | `secondlook/paypal.py` | refunds a PayPal-paid order on a shop request: reads the payment first, sends a stable request id (ran once on the sandbox, 26/10/2026) |
+| **Claude Opus 5.5** (Anthropic API) | `secondlook/judge.py`, `sort.py` | the ten checks, one recommendation with its reasons, the reply in the customer's language; sorting the few requests the rules can't match to an order |
+| **The guard** (code, no AI) | `secondlook/guard.py` | the shop's limits, run after the AI: they can only make an answer safer |
+| **Local whisper** | `secondlook/calls.py` | transcribes phone calls on the shop's own computer |
+| **Kokoro** (open-weight TTS) | `video/`, `demo/calls/` | the film's narration and the demo's phone call; both voices are synthetic |
+
+Everything runs on the PayPal sandbox. No sponsor tools (APIMatic, AG Grid, Render, Postman) were used.
+
 ## The seller's limits and preferences
 
 `policy.json` holds the shop's **limits**, numbers enforced by code (refund cap, confidence bar,
