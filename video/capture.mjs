@@ -45,11 +45,18 @@ const walkFiles = (p) => {
 };
 const snapshot = () => Object.fromEntries(WATCH.flatMap(walkFiles).map((f) => [f, sha1(join(ROOT, f))]));
 
+// Files under a folder, relative to it (the backup copy is outside ROOT, so walkFiles can't list it).
+const walkDir = (abs, rel = '') => readdirSync(abs).flatMap((n) =>
+  statSync(join(abs, n)).isFile() ? [join(rel, n)] : walkDir(join(abs, n), join(rel, n)));
+
 function backup() {
   rmSync(BACKUP, {recursive: true, force: true});
   mkdirSync(BACKUP, {recursive: true});
-  if (existsSync(join(ROOT, '.tmp'))) cpSync(join(ROOT, '.tmp'), join(BACKUP, 'tmp'), {recursive: true});
-  const sums = Object.fromEntries(walkFiles('.tmp').map((f) => [f, sha1(join(ROOT, f))]));
+  const copy = join(BACKUP, 'tmp');
+  if (existsSync(join(ROOT, '.tmp'))) cpSync(join(ROOT, '.tmp'), copy, {recursive: true});
+  // Checksums of the copy, not of the live files: the apps are running and may write .tmp between the copy and
+  // the hashing, and restore() must be checked against what the backup actually holds.
+  const sums = existsSync(copy) ? Object.fromEntries(walkDir(copy).map((f) => [join('.tmp', f), sha1(join(copy, f))])) : {};
   writeFileSync(join(BACKUP, 'checksums.json'), JSON.stringify(sums, null, 2));
   return sums;
 }
@@ -63,6 +70,8 @@ function restore(sums) {
 }
 
 // ---------- the walk ----------
+// The only forms the walk may submit. Pablo's case DEMO-C003 is answered on its PayPal dispute, DEMO-034 (the
+// email joined the dispute's case), so his pass and refund post to /d/DEMO-034/approve, not to /c/DEMO-C003.
 const ALLOWED_POSTS = [/^\/d\/DEMO-C001\/approve$/, /^\/c\/DEMO-C001\/close$/, /^\/d\/DEMO-031\/approve$/, /^\/d\/DEMO-034\/approve$/];
 const result = {errors: {}};
 const missing = [];

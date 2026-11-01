@@ -26,7 +26,6 @@ const FPS = 30;
 const sec = (s) => Math.round(s * FPS);
 const LEAD = sec(0.6);
 const MAX_LINE = 42;
-const MAX_CUE = 2 * MAX_LINE;
 
 // The same timing as timeline.ts.
 let at = LEAD;

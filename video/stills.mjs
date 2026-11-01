@@ -5,11 +5,12 @@ import {bundle} from '@remotion/bundler';
 import {renderStill, selectComposition} from '@remotion/renderer';
 import {join} from 'node:path';
 import {rmSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
 import {FILM_PUBLIC, makeFilmPublic} from './public-film.mjs';
 
 const [out, ...frames] = process.argv.slice(2);
 makeFilmPublic();
-const serveUrl = await bundle({entryPoint: new URL('./src/index.ts', import.meta.url).pathname, publicDir: FILM_PUBLIC});
+const serveUrl = await bundle({entryPoint: fileURLToPath(new URL('./src/index.ts', import.meta.url)), publicDir: FILM_PUBLIC});
 try {
 const composition = await selectComposition({serveUrl, id: 'Film'});
 for (const f of frames.map(Number)) {

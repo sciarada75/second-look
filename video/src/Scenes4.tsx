@@ -270,7 +270,7 @@ const Morning: React.FC = () => {
 // ---------- 6. A phone call: Sophie's case ----------
 const Call: React.FC = () => {
   const from = beat('s6a').from, to = beat('s6b').next;
-  const [a1, , a3, a4] = sentenceStarts('s6a');
+  const [a1, , , a4] = sentenceStarts('s6a');
   const email = at('s6a', 0.78);                   // "and her email joins it"
   const [, b2] = sentenceStarts('s6b');            // "Marta sends the reply and closes the case"
   const clickSend = b2 + 14, cutSent = clickSend + CUT;
@@ -295,7 +295,6 @@ const Call: React.FC = () => {
       spots: [{at: cutClosed + 2, box: box(closed, 'closed-tag')}],
       where: {text: 'Second Look › Case DEMO-C001', ...MARTA, map: [2]}, labelOut: true},
   ];
-  void a3;
   return <Scene from={from} to={to}><Shots shots={shots} /></Scene>;
 };
 
