@@ -42,7 +42,7 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/)
 
 | | Where | What it does here |
 |---|---|---|
-| **PayPal Disputes API** | `secondlook/paypal.py` | reads each dispute and what PayPal allows now; sends the reply, the evidence, a refund or an offer. `send-message`, `provide-evidence` and `accept-claim` have run on live sandbox disputes; `make-offer` is tested against a fake PayPal |
+| **PayPal Disputes API** | `secondlook/paypal.py` | reads each dispute and what PayPal allows now; sends the reply, the evidence, a refund or an offer. `send-message`, `provide-evidence`, `accept-claim` and `make-offer` have run on live sandbox disputes |
 | **PayPal Transaction Search** | `secondlook/evidence.py` | the buyer's PayPal address, PayPal's fee on the payment, the buyer's orders and the shop's own dispute rate |
 | **PayPal Tracking API** | `secondlook/evidence.py`, `ship` | registers a shipment and reads it back as evidence |
 | **PayPal Payments API** | `secondlook/paypal.py` | refunds a PayPal-paid order on a shop request: reads the payment first, sends a stable request id (ran once on the sandbox, 26/10/2026) |
