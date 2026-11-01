@@ -42,7 +42,7 @@ Built for the [PayPal AI Hackathon 2026](https://paypalaihackathon.devpost.com/)
 
 | | Where | What it does here |
 |---|---|---|
-| **PayPal Disputes API** | `secondlook/paypal.py` | reads each dispute and what PayPal allows now; sends the reply, the evidence, a refund or an offer. `send-message` and `provide-evidence` have run on live sandbox disputes; `accept-claim` and `make-offer` are tested against a fake PayPal |
+| **PayPal Disputes API** | `secondlook/paypal.py` | reads each dispute and what PayPal allows now; sends the reply, the evidence, a refund or an offer. `send-message`, `provide-evidence` and `accept-claim` have run on live sandbox disputes; `make-offer` is tested against a fake PayPal |
 | **PayPal Transaction Search** | `secondlook/evidence.py` | the buyer's PayPal address, PayPal's fee on the payment, the buyer's orders and the shop's own dispute rate |
 | **PayPal Tracking API** | `secondlook/evidence.py`, `ship` | registers a shipment and reads it back as evidence |
 | **PayPal Payments API** | `secondlook/paypal.py` | refunds a PayPal-paid order on a shop request: reads the payment first, sends a stable request id (ran once on the sandbox, 26/10/2026) |
@@ -376,11 +376,12 @@ send them, and no role can send an answer the limits held back for trust.
   for a solo seller: an answer held back only for its size gets an Approve button instead of "do it
   in PayPal".
 
-**Not built:** sign-in. You choose who you are at the top of the page; this is a prototype that
-runs on your own machine. The person picker is not authentication: anyone at the machine can pick
+**Not built:** sign-in. You choose who you are at the top of the page; this is a prototype. The person picker is not authentication: anyone at the machine can pick
 any name. Each form carries the person it was shown to, so an approval acts as the person whose
 page it was, and a form with no known person is refused. Real accounts with passwords come before
-any shared or hosted use.
+any shared use with real data. The public demo (`render.yaml`, `SECONDLOOK_HOSTED=1`) is the one exception, because it holds
+only made-up data: it has the demo shop and the practice cases, refuses to start with any key in its environment, and
+takes no new requests or rules from visitors.
 
 ## Earned autonomy: Second Look's AI on its own
 
@@ -659,6 +660,8 @@ EUR 10 of a EUR 42 dispute.
   Search, tracking), registering tracking, sending a reply and submitting evidence all work: on
   2026-10-17 a real sandbox dispute received the seller's DHL tracking as proof of fulfilment and
   moved to "waiting for the buyer".
+- `accept-claim` ran on a live sandbox dispute on 2026-11-01 (PP-R-ZOY-10193120, through Second Look's own `execute`, not
+  from a case page): PayPal resolved it, `RESOLVED_BUYER_FAVOUR`, `SELLER_ISSUED_REFUND`, 42.00 EUR back.
 - The model judge needs an Anthropic API key; without one, the rules baseline runs, labelled as
   such. The demo shop's open cases show the reviews Claude made of them, shipped in `demo/reviews/`.
 - The demo shop's orders, buyers and outcomes are made up (labelled on every page); the outcome

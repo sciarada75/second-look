@@ -1,0 +1,14 @@
+# The public demo on Render's free plan: the demo shop only, no keys (web.HOSTED). Add no payment method to the
+# Render account: without one, going over the free limits disables the service instead of billing.
+services:
+  - type: web
+    name: second-look-demo
+    runtime: python
+    plan: free
+    buildCommand: "true"
+    startCommand: python3 -m secondlook serve
+    envVars:
+      - key: SECONDLOOK_HOSTED
+        value: "1"
+      - key: PYTHON_VERSION
+        value: "3.9.6"

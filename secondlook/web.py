@@ -2182,6 +2182,27 @@ def _badge(name: str, colour: str | None) -> str:
     return f'<span class="mono" style="background:{e(colour)}" aria-hidden="true">{e(initials)}</span>'
 
 
+# The public demo (render.yaml, SECONDLOOK_HOSTED=1): the demo shop and the practice cases, on the open internet, with
+# no sign-in. So no key at all (it can't reach PayPal or bill the model), and no text one visitor can leave for the next.
+HOSTED = bool(os.environ.get("SECONDLOOK_HOSTED"))
+HOSTED_KEYS = ("PAYPAL_CLIENT_ID", "PAYPAL_SECRET", "ANTHROPIC_API_KEY")
+HOSTED_NOTE = ('<p class="demo-line">Public demo, shared with whoever else is looking: made-up data, nothing reaches '
+               'PayPal, and it starts over after 15 quiet minutes. If a case is already answered, open another. The '
+               'helpdesk, the books and the live PayPal sandbox run from '
+               '<a href="https://github.com/sciarada75/second-look#try-it">the repo</a>.</p>')
+
+
+def hosted_problem(env) -> str | None:
+    """Why this environment may not run the public demo: a key would let strangers reach PayPal or spend the model."""
+    found = [k for k in HOSTED_KEYS if env.get(k)]
+    return f"The public demo runs with no keys; remove {', '.join(found)}." if found else None
+
+
+def asked_shop(qs: dict) -> str:
+    """The shop this address asks for, "" if none. The public demo has only the demo shop."""
+    return "demo" if HOSTED else (qs.get("shop") or [""])[0]
+
+
 def shop_badge(context: str) -> str:
     """Which shop you're in, and the switch to the other one (and to the practice cases)."""
     try:
@@ -2197,7 +2218,7 @@ def shop_badge(context: str) -> str:
         _, name, _, colour, _ = next(x for x in shops if x[0] == context)
         here = f'{_badge(name, colour)}{e(name)}'
     menu = "".join(f'<a href="{url}">{_badge(name, colour)}<span>{e(name)}<small>{e(what)}</small></span></a>'
-                   for key, name, what, colour, url in shops if key != context)
+                   for key, name, what, colour, url in shops if key != context and not (HOSTED and key == "live"))
     menu += ('<a href="/?practice=1"><span class="mono" style="background:#7D858E" aria-hidden="true">PC</span>'
              '<span>Practice cases<small>test disputes with known answers</small></span></a>' if context != "practice" else "")
     return (f'<details class="shop"><summary>{here}<span class="switch">Switch</span></summary>'
@@ -2258,6 +2279,7 @@ def page(title: str, mode: str, body: str, demo: bool = False, me: str | None = 
            f'<span class="mode {context}">{e(DEMO_LABEL if demo else mode or "PayPal sandbox")}</span></nav>')
     t = team_for("DEMO-" if demo else None) if context != "practice" else team_mod.of(None)
     who = person_badge(t, me, currency=_shop_currency(t, demo)) if not t.get("solo") else ""
+    body = (HOSTED_NOTE if HOSTED else "") + body
     return PAGE.format(title=title, nav=nav, body=body, context=context, shop=shop_badge(context) + who, mark=MARK)
 
 
@@ -5054,7 +5076,7 @@ class Handler(BaseHTTPRequestHandler):
             _REQUEST.qs = qs
             # The shop you're in stays the same from page to page: the numbers of one shop next to the
             # disputes of another made no sense (Claudia, 21/10). Demo by default: it has a history.
-            asked = (qs.get("shop") or [""])[0]
+            asked = asked_shop(qs)
             if asked in ("demo", "live"):
                 self._cookie = f"sl_shop={asked}; Path=/; SameSite=Lax"
             jar = self._jar()
@@ -5062,6 +5084,8 @@ class Handler(BaseHTTPRequestHandler):
             src = "practice" if "practice" in qs else shop
             if u.path.startswith(("/d/", "/c/")):
                 src = src_of_case(u.path[3:].strip("/"), src)  # a case's people are its own shop's
+                if HOSTED and src == "live":
+                    return self._send("Not in the public demo: it has the demo shop and the practice cases only.", 404)
             me = self._who(qs, src)
             self._film = "film" in qs  # the demo film loads pages live: no fade-ins half-way through a frame
             if u.path == "/":
@@ -5164,6 +5188,8 @@ class Handler(BaseHTTPRequestHandler):
         curl) send neither, and still work. The same check as Ticketbook's own forms (helpdesk/app.py)."""
         port = self.server.server_address[1]
         here = (f"127.0.0.1:{port}", f"localhost:{port}")
+        if HOSTED:                    # behind the host's proxy: this server's address is the one the browser asked for
+            here += (self.headers.get("Host", ""),)
         for name in ("Origin", "Referer"):
             v = self.headers.get(name)
             if v and urlparse(v).netloc not in here:
@@ -5187,6 +5213,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parts = urlparse(self.path).path.strip("/").split("/")
+        if HOSTED and (parts == ["api", "requests"] or parts[0] == "rules"):
+            self.close_connection = True
+            return self._send("Not in the public demo: new requests and rules would stay for the next visitor. "
+                              "Run it from the repo to try them.", 403)
         length = self.headers.get("Content-Length", "0").strip()
         if not length.isdigit():                 # "abc", "-5", "": no way to know where the body ends
             self.close_connection = True
@@ -5316,7 +5346,13 @@ def _transcribe_in_the_background(every: float = 30.0) -> None:
 
 def serve(port: int = 8765) -> None:
     global AUTOPILOT_RUN
-    print(f"Second Look: http://127.0.0.1:{port}")
+    host = "127.0.0.1"
+    if HOSTED:
+        problem = hosted_problem(os.environ)
+        if problem:
+            raise SystemExit(problem)
+        host, port = "0.0.0.0", int(os.environ.get("PORT", port))
+    print(f"Second Look: http://{host}:{port}")
     AUTOPILOT_RUN = _in_a_thread          # Second Look's AI's looks: in the background, never inside a request
     threading.Thread(target=_transcribe_in_the_background, daemon=True).start()
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
