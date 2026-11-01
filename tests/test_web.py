@@ -1,6 +1,7 @@
 """The seller never approves an answer to a situation that no longer exists. Run: python3 tests/test_web.py"""
 import html
 import json
+import re
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -853,6 +854,17 @@ def test_a_case_s_state_speaks_to_whoever_is_looking():
         assert web.seen_by({**waiting, "whose": None}, t, "giulia")["label"] == "Your move"    # nobody has it yet
         assert web.seen_by(waiting, {"solo": True}, "marta") == waiting
         assert web.seen_by({**waiting, "state": "done", "label": "Done"}, t, "giulia")["label"] == "Done"
+
+
+def test_the_inbox_counts_only_the_cases_that_are_this_person_s_move():
+    first = next(d["dispute_id"] for d in DemoPayPal().disputes() if d["status"] == "WAITING_FOR_SELLER_RESPONSE")
+    count = lambda html: int(re.search(r"(\d+) cases? wait on you", html).group(1))     # noqa: E731
+    with demo_team({}):
+        nobody = web.inbox_page("demo", "marta")
+    with demo_team({first: {"to": "giulia"}}):
+        giulias = web.inbox_page("demo", "marta")
+    assert "Giulia&#x27;s move" in giulias and "Giulia&#x27;s move" not in nobody
+    assert count(giulias) == count(nobody) - 1
 
 
 def test_the_demo_s_paypal_confirms_a_refund_at_the_next_look_and_only_in_the_demo():

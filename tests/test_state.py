@@ -87,6 +87,25 @@ def test_a_shop_request_is_your_move_with_no_paypal_deadline_said_plainly():
     assert state.of(case(), None, TODAY, answered_at="2026-10-20T05:41")["why"] == "Margot wrote again."
 
 
+def test_a_colleague_s_move_is_said_in_their_name_never_as_you():
+    passed = state.of(case(), None, TODAY, holder="giulia", handoff_from="Marta")
+    theirs = state.as_theirs(passed, "Giulia")
+    assert (theirs["label"], theirs["why"]) == ("Giulia's move", "Passed to Giulia by Marta.")
+    assert theirs["state"] == "your_move" and theirs["whose"] == "giulia"      # the one state doesn't change
+    waiting = state.of(case(), None, TODAY, holder="marta")
+    assert state.as_theirs(waiting, "Marta")["why"] == "Waiting for Marta's answer."
+    # every reason a case can be on someone's move, said to a colleague: never "you"
+    theirs_all = [state.as_theirs(s, "Giulia")["why"] for s in (
+        passed, waiting, state.of(case(unconfirmed=[{"amount": 9}]), None, TODAY),
+        state.of(case(money=[{"kind": "refund", "amount": 64.0}]), None, TODAY, answered_at="2026-10-20T05:41"),
+        state.of(case(money=[{"kind": "refund", "amount": 64.0, "status": "paid"}]), None, TODAY, answered_at="2026-10-20T05:41"),
+        state.of(case(), None, TODAY, answered_at="2026-10-20T05:41"),
+        state.of(case(), None, TODAY, out_of_date=True),
+        state.of(case(), None, TODAY, answered_at="2026-10-20T05:41", return_asked=True, return_back=True),
+        state.of(case(), None, TODAY, answered_at="2026-10-01T05:41", return_asked=True, return_by=date(2026, 10, 15)))]
+    assert not [w for w in theirs_all if " you" in f" {w.lower()}"], theirs_all
+
+
 def test_what_keeps_a_shop_request_on_your_move_says_why():
     assert state.of(case(), None, TODAY, holder="giulia", handoff_from="Marta")["why"] == "Passed to you by Marta."
     assert "check the payment in PayPal" in state.of(case(unconfirmed=[{"amount": 9}]), None, TODAY)["why"]

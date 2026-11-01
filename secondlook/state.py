@@ -16,6 +16,21 @@ YOUR_MOVE, WAITING_CUSTOMER, WAITING_PAYPAL, DONE = "your_move", "waiting_custom
 STATES = (YOUR_MOVE, WAITING_CUSTOMER, WAITING_PAYPAL, DONE)
 LABEL = {YOUR_MOVE: "Your move", WAITING_CUSTOMER: "Waiting for the customer", WAITING_PAYPAL: "Waiting for PayPal",
          DONE: "Done"}
+# The only two "why" sentences that speak to the holder as "you"; as_theirs rewords them for a colleague. A new
+# second-person sentence belongs here too (test_state checks every your_move reason through as_theirs).
+PASSED_TO_YOU = "Passed to you by "
+WAITING_FOR_YOU = "Waiting for your answer."
+
+
+def as_theirs(st: dict, name: str) -> dict:
+    """The same state, said to a colleague: the holder's move, in the holder's name, never "you". The state, whose it
+    is and its dates don't change; only the label and the sentence do."""
+    why = st["why"]
+    if why == WAITING_FOR_YOU:
+        why = f"Waiting for {name}'s answer."
+    elif why.startswith(PASSED_TO_YOU):
+        why = f"Passed to {name} by " + why[len(PASSED_TO_YOU):]
+    return {**st, "label": f"{name}'s move", "why": why}
 
 
 def _day(iso) -> date | None:
@@ -117,7 +132,7 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
     c = case or {}
     refunds = [m for m in c.get("money", []) if m.get("kind") in ("refund", "partial_refund")]
     if handoff_from:
-        why = f"Passed to you by {handoff_from}."
+        why = f"{PASSED_TO_YOU}{handoff_from}."
     elif c.get("unconfirmed"):
         why = "PayPal didn't confirm a refund: check the payment in PayPal."
     elif out_of_date:
@@ -131,7 +146,7 @@ def of(case: dict | None, dispute: dict | None, today: date, *, answered_at: str
     elif answered_at:
         why = f"{name} wrote again."
     else:
-        why = "Waiting for your answer."
+        why = WAITING_FOR_YOU
     if dispute:
         due = _day(dispute.get("seller_response_due_date")) if status == "WAITING_FOR_SELLER_RESPONSE" else None
         return out(YOUR_MOVE, holder, why, due, ledger.if_nobody_answers(dispute, today))
