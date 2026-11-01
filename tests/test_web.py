@@ -836,6 +836,25 @@ def test_a_handoff_is_the_receiver_s_move_and_says_who_passed_it():
         assert (s["state"], s["whose"], s["why"]) == ("your_move", "giulia", "Passed to you by Marta.")
 
 
+def test_a_case_s_state_speaks_to_whoever_is_looking():
+    with approval_bench() as b:
+        web.approve("X", "REFUND", "Here is your refund", by="marta")           # 45 EUR: over Marta's 30
+        s, t = web.case_state("X"), web.team_for("X")
+        assert web.seen_by(s, t, "giulia") == s                                 # the receiver: it IS her move
+        seen = web.seen_by(s, t, "marta")
+        assert (seen["label"], seen["why"]) == ("Giulia's move", "Passed to Giulia by Marta.")
+        assert seen["state"] == "your_move" and seen["whose"] == "giulia"       # the case's one state doesn't change
+        top, box = web.side_box("X", b.case, None, "marta")
+        assert "Passed to Giulia by Marta." in top + box and "Passed to you" not in top + box
+        top, box = web.side_box("X", b.case, None, "giulia")
+        assert "Passed to you by Marta." in box
+        waiting = {"state": "your_move", "label": "Your move", "whose": "marta", "why": "Waiting for your answer."}
+        assert web.seen_by(waiting, t, "giulia")["why"] == "Waiting for Marta's answer."
+        assert web.seen_by({**waiting, "whose": None}, t, "giulia")["label"] == "Your move"    # nobody has it yet
+        assert web.seen_by(waiting, {"solo": True}, "marta") == waiting
+        assert web.seen_by({**waiting, "state": "done", "label": "Done"}, t, "giulia")["label"] == "Done"
+
+
 def test_the_demo_s_paypal_confirms_a_refund_at_the_next_look_and_only_in_the_demo():
     tmp = Path(tempfile.mkdtemp())
     kept = web.REVIEWS

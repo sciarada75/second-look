@@ -2321,7 +2321,7 @@ def inbox_page(src: str, me: str | None = None, view: str = "") -> str:
         u = st["until"]
         waiting = ((f"Reply by {u:%d %b}" + (f" ({left} days left)" if left is not None and not practice else "")
                     if u else "") if mine else st["why"])
-        pill = f'<span class="state-pill {e(st["state"])}">{e(st["label"])}</span>'
+        pill = f'<span class="state-pill {e(st["state"])}">{e(seen_by(st, t, me)["label"])}</span>'
         rows.append((not mine, left if left is not None else 99,
                      f'<li><a href="/d/{e(d["dispute_id"])}"><blockquote>{e(msg)}</blockquote>'
                      f'<span class="amt">{e(d["dispute_amount"]["value"])} {e(d["dispute_amount"]["currency_code"])}</span>'
@@ -4065,6 +4065,18 @@ def _today_link(src: str, did: str) -> str:
     return "/today?" + urlencode({**({"shop": "demo"} if src == "demo" else {}), "done": did})
 
 
+def seen_by(st: dict, t: dict, me: str | None) -> dict:
+    """The state in this person's words: the shop's move on a colleague's case is that colleague's, never "Your move".
+    The case's one state doesn't change; nobody holding it yet, or a shop of one person, reads it as it is."""
+    whose = st.get("whose")
+    if st["state"] != "your_move" or t.get("solo") or not whose or whose == me:
+        return st
+    name = (team_mod.person(t, whose) or {}).get("name") or whose
+    why = st["why"].replace("Passed to you by", f"Passed to {name} by")
+    why = f"Waiting for {name}'s answer." if why == "Waiting for your answer." else why
+    return {**st, "label": f"{name}'s move", "why": why}
+
+
 def _whose_words(st: dict, t: dict, me: str | None) -> str:
     """The crumb's middle, from this person's side: a case that is the shop's move is "Needs you" only when it is
     theirs (or the shop is one person); else whose it is, or that nobody took it. Other states: their bucket."""
@@ -4147,11 +4159,12 @@ def side_box(did: str, case: dict, c: dict | None, me: str | None, flash: str = 
     # on a phone the side column comes after the case (the message before the button): the state's one line, on top
     u = st.get("until") if st["state"] == "your_move" else None
     by = f" · answer by {u.day} {u:%b}" if u else ""
-    mini = (f'<p class="state-mini"><span class="state-pill {e(st["state"])}">{e(st["label"])}</span> '
-            f'{e(st["why"] + by)}</p>')
+    seen = seen_by(st, team_for(did), me)
+    mini = (f'<p class="state-mini"><span class="state-pill {e(st["state"])}">{e(seen["label"])}</span> '
+            f'{e(seen["why"] + by)}</p>')
     where = _whose_words(st, team_for(did), me)
     top = "" if src == "practice" else crumb(st, name, src, did, len(others), where) + mini
-    return top, flash + state_box(st, did, src, others, check_here) + col
+    return top, flash + state_box(seen, did, src, others, check_here) + col
 
 
 def case_page(dispute_id: str, flash: str = "", me: str | None = None) -> str:

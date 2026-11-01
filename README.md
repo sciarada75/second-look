@@ -127,7 +127,8 @@ package), shows the computer's clock instead.
   case page and the API (`"state"` on `/api/cases/<id>` and `/api/disputes/<id>`) all read: **Your move**
   (with PayPal's answer-by date, or "no PayPal deadline" for a request that came to the shop), **Waiting for
   the customer**, **Waiting for PayPal**, **Done**. PayPal's own status wins over Second Look's record, and an
-  answer stops counting when the customer writes again or PayPal escalates the case.
+  answer stops counting when the customer writes again or PayPal escalates the case. On a page, a colleague's
+  case reads as theirs ("Giulia's move · Passed to Giulia by Marta"), never as yours.
 - **The case page** reads top to bottom the same way for every case: where you are (Today › whose move ›
   the customer), what is tracked and verified (only facts a record holds, each with its source: PayPal,
   the courier, your orders, or "your notes" when only the seller's word holds it), then what was said,
